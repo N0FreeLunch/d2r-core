@@ -1,3 +1,4 @@
+pub mod item;
 pub mod spec;
 
 #[cfg(test)]

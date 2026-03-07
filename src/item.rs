@@ -247,6 +247,7 @@ impl Item {
             if valid {
                 let known = [
                     "hp1 ", "mp1 ", "tsc ", "isc ", "buc ", "jav ", "wwa7", "vps ", "aqv ", "key ",
+                    "tbk ", "ibk ",
                 ];
                 if known.contains(&code.as_str()) {
                     if item_starts.is_empty() || start - item_starts.last().unwrap().0 > 32 {

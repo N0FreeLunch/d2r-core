@@ -30,3 +30,7 @@ path = "src/bin/verify/d2item_inspect.rs"
 name = "d2save_inject"
 path = "src/bin/verify/d2save_inject.rs"
 
+[[bin]]
+name = "d2item_extract"
+path = "src/bin/verify/d2item_extract.rs"
+

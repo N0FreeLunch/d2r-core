@@ -42,12 +42,18 @@ fn main() {
         process::exit(1);
     });
     let output_path = &args[4];
+    let no_align = args.iter().any(|arg| arg == "--no-align" || arg == "-n");
 
     println!("=== d2save_inject ===");
     println!("  Input:  {}", input_path);
     println!("  Item:   {}", d2i_path);
     println!("  Count:  {}", count);
     println!("  Output: {}", output_path);
+    if no_align {
+        println!("  Mode:   Bit-packed (no alignment)");
+    } else {
+        println!("  Mode:   Byte-aligned (per item)");
+    }
     println!();
 
     // Load the save file
@@ -101,23 +107,33 @@ fn main() {
         .write::<16, u16>(original_count + count as u16)
         .unwrap();
 
-    // Inject N copies of the item
-    for _ in 0..count {
-        for &bit in &item_bits {
-            writer.write_bit(bit).unwrap();
-        }
-    }
-
     // Write original items as-is (bit stream)
     let mut item_reader = BitReader::endian(Cursor::new(original_item_bytes), LittleEndian);
     while let Ok(bit) = item_reader.read_bit() {
         writer.write_bit(bit).unwrap();
     }
 
-    // Byte-align before JM2
-    writer.byte_align().unwrap();
+    // Byte-align before writing new items
+    if !no_align {
+        writer.byte_align().unwrap();
+    }
 
-    // Write JM2 and remainder verbatim
+    // Inject N copies of the item
+    for _ in 0..count {
+        for &bit in &item_bits {
+            writer.write_bit(bit).unwrap();
+        }
+        if !no_align {
+            writer.byte_align().unwrap();
+        }
+    }
+
+    // Final byte-align
+    if !no_align {
+        writer.byte_align().unwrap();
+    }
+
+    // Write JM2 and remainder verbatim (Footer: Corpse, Merc, Golem, etc.)
     for &b in &bytes[jm2..] {
         writer.write::<8, u8>(b).unwrap();
     }

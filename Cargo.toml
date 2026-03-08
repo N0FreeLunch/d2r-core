@@ -34,3 +34,11 @@ path = "src/bin/verify/d2save_inject.rs"
 name = "d2item_extract"
 path = "src/bin/verify/d2item_extract.rs"
 
+[[bin]]
+name = "d2save_item_diff"
+path = "src/bin/verify/d2save_item_diff.rs"
+
+[[bin]]
+name = "d2save_hex_tail"
+path = "src/bin/verify/d2save_hex_tail.rs"
+

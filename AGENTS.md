@@ -19,5 +19,12 @@ This document outlines the operational priorities and constraints for AI agents 
 - **Working Directory**: Be mindful of the terminal context. Run core development commands within `d2r` or `d2r-core`.
 - **Symbolic Link Awareness**: `d2r-spec` is a symbolic link. Git operations on the specification itself must be performed within the context of its original repository path, as it is ignored via `.gitignore` in the root repository.
 
+## 5. Scripting & Orchestration Architecture (Strict Rule)
+- **Prohibited**: Do NOT write OS-dependent shell scripts (`.ps1`, `.sh`, `.bat`) for orchestrating tests or editing features. Avoid standalone Python or Node.js scripts for file operations.
+- **Core Engine**: `Rust` is strictly used for file I/O, pure domain logic parsing, and bit-level assertions.
+- **Orchestration & Workflow**: The orchestration of editing logic (e.g. moving items, verifying multiple files) is governed by **Elm** communicating with Rust.
+- **Protocol & Type Safety**: Always use **`elm-rs`** to automatically generate direct 1:1 Elm types from Rust structs. Do NOT use multi-step conversions like `typeshare` which require intermediate TypeScript layers.
+- **Enforcement**: Any automation or testing workflow created must adhere to this API/Protocol-driven Golden Master TDD strategy as defined in `0020` discussion document.
+
 ---
 *Note: This document is intended for AI agents to understand the operational context of this project.*

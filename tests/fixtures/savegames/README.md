@@ -44,6 +44,12 @@ The **Golden Master** for bulk injection. It contains exactly 10 Town Portal Scr
 ### `amazon_moved_*.d2s`
 Reference files where items were moved to specific coordinates (e.g., (0,0) or (9,3)) to reverse engineer the coordinate bit-mapping.
 
+### `amazon_authority_runeword.d2s`
+**Testing for D2R custom 'Authority' runeword and socketed items.**
+- Includes an empty 3-socket armor (likely Ghost Armor).
+- Includes an armor with the 'Authority' runeword (Hel + Shael + Ral) from the D2R 'Reign of the Warlock' DLC.
+- Contains Warlock-specific skills and new Stat IDs (e.g., 385), used for testing modern D2R specifications and recursive socket parsing.
+
 ---
 
 ## 🛠️ modified/ (Generated Results)

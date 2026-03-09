@@ -3,101 +3,173 @@ use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::io::Cursor;
-use std::process;
 
-fn print_item_detail(item: &Item, index: usize, bit_start: u64, bit_end: u64) {
-    let mut s = String::new();
-    for &b in &item.bits {
-        s.push(if b { '1' } else { '0' });
-    }
-
-    let mut flags = 0u32;
-    for (i, &b) in item.bits.iter().enumerate().take(32) {
-        if b {
-            flags |= 1 << i;
+fn print_bits_window(bytes: &[u8], start_bit: usize, bit_count: usize) {
+    let mut reader = BitReader::endian(Cursor::new(bytes), LittleEndian);
+    let _ = reader.skip(start_bit as u32);
+    println!("Bits from {} ({} bits):", start_bit, bit_count);
+    for i in 0..bit_count {
+        let bit = reader.read_bit().unwrap_or(false);
+        print!("{}", if bit { '1' } else { '0' });
+        if (i + 1) % 8 == 0 {
+            print!(" ");
+        }
+        if (i + 1) % 32 == 0 {
+            println!("(bit {})", start_bit + i + 1);
         }
     }
-
-    println!("--- Item {} ---", index);
-    println!("  Code:           '{}'", item.code);
-    println!("  Bit start:      {} (byte {})", bit_start, bit_start / 8);
-    println!("  Bit end:        {} (byte {})", bit_end, bit_end / 8);
-    println!("  Bit length:     {}", bit_end - bit_start);
-    println!("  Flags:          0x{:08X}", flags);
-    println!("  Is Identified:  {}", (flags & 0x0010) != 0);
-    println!("  Is Compact:     {}", (flags & 0x0020_0000) != 0);
-    println!("  Bits:           {}", s);
+    println!();
 }
 
-fn inspect_d2i(path: &str) {
-    println!("=== Inspecting .d2i: {} ===", path);
-    let bytes = match fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("  [ERROR] {}", e);
-            return;
-        }
-    };
-
-    let huffman = HuffmanTree::new();
-    let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
-    let bit_start = 0u64;
-    match Item::from_reader(&mut reader, &huffman) {
-        Ok(item) => {
-            let bit_end = reader.position_in_bits().unwrap_or(0);
-            print_item_detail(&item, 0, bit_start, bit_end);
-        }
-        Err(e) => eprintln!("  [ERROR] Failed to parse item: {}", e),
-    }
+fn read_bits(reader: &mut BitReader<Cursor<&[u8]>, LittleEndian>, count: u32) -> u32 {
+    reader.read_var(count).unwrap_or(0)
 }
 
-fn inspect_d2s(path: &str, filter_code: Option<&str>) {
-    println!("=== Inspecting .d2s: {} ===", path);
-    let bytes = match fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("  [ERROR] {}", e);
-            return;
-        }
-    };
+fn analyze_non_compact_item(bytes: &[u8], bit_start: usize, huffman: &HuffmanTree) {
+    let mut reader = BitReader::endian(Cursor::new(bytes), LittleEndian);
+    let _ = reader.skip(bit_start as u32);
+    let mut offset = bit_start;
 
-    // Find first JM
-    let jm_pos =
-        (0..bytes.len().saturating_sub(1)).find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M');
+    let flags = read_bits(&mut reader, 32);
+    println!(
+        "  flags           {:>5}-{:>5} = 0x{:08X}",
+        offset,
+        offset + 32,
+        flags
+    );
+    offset += 32;
 
-    let jm = match jm_pos {
-        Some(p) => p,
-        None => {
-            eprintln!("  [ERROR] No JM marker found");
-            return;
-        }
-    };
+    let version = read_bits(&mut reader, 3);
+    let mode = read_bits(&mut reader, 3);
+    let location = read_bits(&mut reader, 4);
+    let x = read_bits(&mut reader, 4);
+    let y = read_bits(&mut reader, 4);
+    let page = read_bits(&mut reader, 3);
+    println!(
+        "  version         {:>5}-{:>5} = {}",
+        offset,
+        offset + 3,
+        version
+    );
+    offset += 3;
+    println!(
+        "  mode            {:>5}-{:>5} = {}",
+        offset,
+        offset + 3,
+        mode
+    );
+    offset += 3;
+    println!(
+        "  location        {:>5}-{:>5} = {}",
+        offset,
+        offset + 4,
+        location
+    );
+    offset += 4;
+    println!("  x               {:>5}-{:>5} = {}", offset, offset + 4, x);
+    offset += 4;
+    println!("  y               {:>5}-{:>5} = {}", offset, offset + 4, y);
+    offset += 4;
+    println!(
+        "  page            {:>5}-{:>5} = {}",
+        offset,
+        offset + 3,
+        page
+    );
+    offset += 3;
 
-    let item_count = u16::from_le_bytes([bytes[jm + 2], bytes[jm + 3]]);
-    println!("  First JM at byte {jm}, item count: {item_count}");
+    let code_start = offset;
+    let mut code = String::new();
+    for _ in 0..4 {
+        code.push(huffman.decode(&mut reader).unwrap_or('?'));
+    }
+    let code_end = reader.position_in_bits().unwrap_or(0) as usize;
+    println!(
+        "  code            {:>5}-{:>5} = '{}'",
+        code_start, code_end, code
+    );
+    offset = code_end;
 
-    let huffman = HuffmanTree::new();
-    let mut reader = BitReader::endian(Cursor::new(&bytes[jm..]), LittleEndian);
+    let socketed_count = read_bits(&mut reader, 3);
+    println!(
+        "  post-code bits  {:>5}-{:>5} = {}",
+        offset,
+        offset + 3,
+        socketed_count
+    );
+    offset += 3;
 
-    // Skip JM + count (4 bytes = 32 bits)
-    let _: u32 = reader.read::<32, u32>().unwrap_or(0);
+    let id = read_bits(&mut reader, 32);
+    let level = read_bits(&mut reader, 7);
+    let quality = read_bits(&mut reader, 4);
+    let multi_graphics = read_bits(&mut reader, 1);
+    println!(
+        "  id              {:>5}-{:>5} = {}",
+        offset,
+        offset + 32,
+        id
+    );
+    offset += 32;
+    println!(
+        "  level           {:>5}-{:>5} = {}",
+        offset,
+        offset + 7,
+        level
+    );
+    offset += 7;
+    println!(
+        "  quality         {:>5}-{:>5} = {}",
+        offset,
+        offset + 4,
+        quality
+    );
+    offset += 4;
+    println!(
+        "  has graphics    {:>5}-{:>5} = {}",
+        offset,
+        offset + 1,
+        multi_graphics
+    );
+    offset += 1;
+    if multi_graphics != 0 {
+        let graphic_id = read_bits(&mut reader, 3);
+        println!(
+            "  graphic id      {:>5}-{:>5} = {}",
+            offset,
+            offset + 3,
+            graphic_id
+        );
+        offset += 3;
+    }
 
-    for i in 0..item_count {
-        let bit_start = (jm * 8) as u64 + reader.position_in_bits().unwrap_or(0);
-        match Item::from_reader(&mut reader, &huffman) {
-            Ok(item) => {
-                let bit_end = (jm * 8) as u64 + reader.position_in_bits().unwrap_or(0);
-                if let Some(code) = filter_code {
-                    if item.code.trim() != code.trim() {
-                        continue;
-                    }
-                }
-                print_item_detail(&item, i as usize, bit_start, bit_end);
-            }
-            Err(e) => {
-                eprintln!("  [ERROR] at item {}: {}", i, e);
-                break;
-            }
+    let class_specific = read_bits(&mut reader, 1);
+    println!(
+        "  class specific  {:>5}-{:>5} = {}",
+        offset,
+        offset + 1,
+        class_specific
+    );
+    offset += 1;
+    if class_specific != 0 {
+        let class_bits = read_bits(&mut reader, 11);
+        println!(
+            "  class data      {:>5}-{:>5} = {}",
+            offset,
+            offset + 11,
+            class_bits
+        );
+        offset += 11;
+    }
+
+    println!("  next 64 bits from {}", offset);
+    print_bits_window(bytes, offset, 64);
+
+    println!("  0x1FF candidates after {}", offset);
+    for delta in 0..48 {
+        let mut probe = BitReader::endian(Cursor::new(bytes), LittleEndian);
+        let _ = probe.skip((offset + delta) as u32);
+        if probe.read::<9, u32>().unwrap_or(0) == 0x1FF {
+            println!("    offset {} -> bit {}", delta, offset + delta);
         }
     }
 }
@@ -105,23 +177,115 @@ fn inspect_d2s(path: &str, filter_code: Option<&str>) {
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: d2item_inspect <file.d2s|file.d2i> [--code <code>]");
-        eprintln!("  --code   Filter to only show items with this code (e.g. 'tsc')");
-        process::exit(1);
+        return;
+    }
+    let bytes = fs::read(&args[1]).unwrap();
+    let huffman = HuffmanTree::new();
+
+    if let Ok(items) = Item::read_player_items(&bytes, &huffman) {
+        println!(
+            "Library parse recovered {} top-level items from player section",
+            items.len()
+        );
+        for (i, item) in items.iter().enumerate() {
+            println!(
+                "Item {:2}: '{}' mode={} loc={} socketed_children={}",
+                i,
+                item.code,
+                item.mode,
+                item.location,
+                item.socketed_items.len()
+            );
+            for (socket_index, child) in item.socketed_items.iter().enumerate() {
+                println!(
+                    "  socket {:2}: '{}' mode={} loc={}",
+                    socket_index, child.code, child.mode, child.location
+                );
+            }
+        }
+        return;
     }
 
-    let path = &args[1];
-    let filter_code = args
-        .windows(2)
-        .find(|w| w[0] == "--code")
-        .map(|w| w[1].as_str());
+    let jm_pos = (0..bytes.len() - 2)
+        .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
+        .expect("JM not found");
+    let item_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
+    let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
+        .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
+        .unwrap_or(bytes.len());
+    let section_bytes = &bytes[jm_pos + 4..next_jm];
+    let section_bits = (section_bytes.len() * 8) as u64;
 
-    if path.ends_with(".d2i") {
-        inspect_d2i(path);
-    } else if path.ends_with(".d2s") {
-        inspect_d2s(path, filter_code);
-    } else {
-        eprintln!("[ERROR] Unknown file type. Expected .d2s or .d2i");
-        process::exit(1);
+    let mut reader = BitReader::endian(Cursor::new(section_bytes), LittleEndian);
+    let mut visible_items: Vec<(usize, usize, Item)> = Vec::new();
+    let mut raw_index = 0usize;
+
+    while reader.position_in_bits().unwrap_or(section_bits) < section_bits {
+        let _ = reader.byte_align();
+        let pos = reader.position_in_bits().unwrap_or(0);
+        if pos >= section_bits {
+            break;
+        }
+        let bit_start = (jm_pos + 4) * 8 + pos as usize;
+
+        match Item::from_reader(&mut reader, &huffman) {
+            Ok(item) => {
+                let pos_end = reader.position_in_bits().unwrap_or(0);
+                let bit_end = (jm_pos + 4) * 8 + pos_end as usize;
+                if item.mode == 6 {
+                    if let Some((_, _, parent)) = visible_items.last_mut() {
+                        parent.socketed_items.push(item);
+                    } else {
+                        println!(
+                            "Error at raw item {}: socketed item without a parent",
+                            raw_index
+                        );
+                        break;
+                    }
+                } else {
+                    visible_items.push((bit_start, bit_end, item));
+                }
+            }
+            Err(e) => {
+                if visible_items.len() >= item_count as usize {
+                    println!(
+                        "Stopped after {} visible items at raw item {}: {}",
+                        visible_items.len(),
+                        raw_index,
+                        e
+                    );
+                    break;
+                }
+                println!("Error at raw item {}: {}", raw_index, e);
+                analyze_non_compact_item(&bytes, bit_start, &huffman);
+                break;
+            }
+        }
+
+        raw_index += 1;
+    }
+
+    println!(
+        "Parsed {} visible items from a section expecting {} top-level items",
+        visible_items.len(),
+        item_count
+    );
+
+    for (i, (bit_start, bit_end, item)) in visible_items.iter().enumerate() {
+        println!(
+            "Item {:2}: '{}' bits {}-{} loc={} socketed_children={}",
+            i,
+            item.code,
+            bit_start,
+            bit_end,
+            item.location,
+            item.socketed_items.len()
+        );
+        for (socket_index, child) in item.socketed_items.iter().enumerate() {
+            println!(
+                "  socket {:2}: '{}' loc={}",
+                socket_index, child.code, child.location
+            );
+        }
     }
 }

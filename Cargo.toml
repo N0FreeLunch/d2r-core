@@ -27,6 +27,10 @@ name = "d2item_inspect"
 path = "src/bin/verify/d2item_inspect.rs"
 
 [[bin]]
+name = "d2item_blob_inspect"
+path = "src/bin/verify/d2item_blob_inspect.rs"
+
+[[bin]]
 name = "d2save_inject"
 path = "src/bin/verify/d2save_inject.rs"
 
@@ -39,6 +43,21 @@ name = "d2save_item_diff"
 path = "src/bin/verify/d2save_item_diff.rs"
 
 [[bin]]
+name = "d2save_grid"
+path = "src/bin/verify/d2save_grid.rs"
+
+[[bin]]
 name = "d2save_hex_tail"
 path = "src/bin/verify/d2save_hex_tail.rs"
 
+[[bin]]
+name = "d2save_inventory_check"
+path = "src/bin/verify/d2save_inventory_check.rs"
+
+[[bin]]
+name = "d2save_bit_analyze"
+path = "src/bin/verify/d2save_bit_analyze.rs"
+
+[[bin]]
+name = "dump_flags"
+path = "src/bin/verify/dump_flags.rs"

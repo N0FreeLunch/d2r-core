@@ -2,14 +2,7 @@ use std::env;
 use std::fs;
 use std::process;
 
-fn calculate_checksum(bytes: &[u8]) -> u32 {
-    let mut checksum = 0u32;
-    for &b in bytes {
-        checksum = checksum.wrapping_shl(1) | checksum.wrapping_shr(31);
-        checksum = checksum.wrapping_add(b as u32);
-    }
-    checksum
-}
+use d2r_core::save::{class_name, find_jm_markers, recalculate_checksum, Save};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -31,16 +24,25 @@ fn main() {
             }
         };
 
-        // Check magic bytes
-        let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-        if magic != 0xAA55AA55 {
-            println!("  [WARN]  Magic: 0x{:08X} (expected 0xAA55AA55)", magic);
-        } else {
-            println!("  [OK]    Magic: 0x{:08X}", magic);
-        }
+        let save = match Save::from_bytes(&bytes) {
+            Ok(save) => save,
+            Err(err) => {
+                println!("  [FAIL]  Header parse: {}", err);
+                all_ok = false;
+                println!();
+                continue;
+            }
+        };
 
-        // Check file size in header (offset 8, 4 bytes)
-        let header_size = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]) as usize;
+        println!("  [OK]    Magic: 0x{:08X}", save.header.magic);
+        println!(
+            "  [INFO]  Character: '{}' / {} / level {}",
+            save.header.char_name,
+            class_name(save.header.char_class),
+            save.header.char_level
+        );
+
+        let header_size = save.header.file_size as usize;
         let actual_size = bytes.len();
         if header_size != actual_size {
             println!(
@@ -55,13 +57,16 @@ fn main() {
             );
         }
 
-        // Checksum (offset 12, 4 bytes)
-        let stored_checksum = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-
-        // Zero out checksum field before calculating
-        let mut calc_bytes = bytes.clone();
-        calc_bytes[12..16].copy_from_slice(&[0, 0, 0, 0]);
-        let calculated_checksum = calculate_checksum(&calc_bytes);
+        let stored_checksum = save.header.checksum;
+        let calculated_checksum = match recalculate_checksum(&bytes) {
+            Ok(checksum) => checksum,
+            Err(err) => {
+                println!("  [FAIL]  Checksum recalculation: {}", err);
+                all_ok = false;
+                println!();
+                continue;
+            }
+        };
 
         if stored_checksum != calculated_checksum {
             println!(
@@ -73,13 +78,7 @@ fn main() {
             println!("  [OK]    Checksum: 0x{:08X}", stored_checksum);
         }
 
-        // JM markers
-        let mut jm_positions: Vec<usize> = Vec::new();
-        for i in 0..bytes.len().saturating_sub(1) {
-            if bytes[i] == b'J' && bytes[i + 1] == b'M' {
-                jm_positions.push(i);
-            }
-        }
+        let jm_positions = find_jm_markers(&bytes);
         if jm_positions.is_empty() {
             println!("  [WARN]  No JM markers found");
         } else {

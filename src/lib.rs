@@ -1,6 +1,7 @@
 pub mod data;
 pub mod inventory;
 pub mod item;
+pub mod save;
 pub mod spec;
 
 #[cfg(test)]

@@ -76,4 +76,4 @@ A successful demonstration of **Inter-character Item Transfer**:
 > 2. Rename it to `TESTAMAZON.d2s`.
 > 3. Ensure no other `.d2s` files with the same internal name exist in that folder.
 >
-> The engine requires the filename to match the internal name at offset `0x14`. All our fixtures use **"TESTAMAZON"**.
+> In our D2R fixtures, the internal name starts at offset `299` (`0x12B`), not classic offset `0x14`. All our fixtures use **"TESTAMAZON"**.

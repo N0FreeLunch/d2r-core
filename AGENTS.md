@@ -46,12 +46,9 @@ Before execution, evaluate complexity. Pause and report if:
 
 ## 5. Operational Protocol
 - **Repository Structure**: Root workspace `./` (Implementation) and `./d2r-spec` (Specification, symlinked).
-- **Public/Private Split**: `d2r-core` must remain publishable as a standalone repo. If local private files such as `./d2r-spec/AGENTS.md`, `./d2r-spec/AI_WORKFLOW.md`, or `./d2r-spec/.agents/tasks/` exist, treat them as a private overlay for additional research and workflow detail, but do not make the public repo depend on private instructions to remain understandable.
+- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone and publishable. **All detailed strategic research, internal workflows, and task-specific execution plans are strictly managed within the `./d2r-spec` private overlay.** Public-facing documentation should provide high-level policy while delegating operational detail to the private overlay if present. This is a final architectural decision to maintain a clean public audit trail while preserving sensitive internal research context.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` must use its original path.
 - **Communication**: Be concise. Proactively suggest better strategies if the user's approach is inefficient.
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.
-
-## 6. Security & Environment Policy
-- **Code Portability Check**: Before any commit, meticulously check for hardcoded absolute paths or variables that depend on a specific local environment.
 - **Documentation Paths**: In `.md` files (like those in `./d2r-spec`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
 - **Source Code Variables**: For actual application code, entirely avoid hardcoding paths or sensitive environment data. Always migrate these to `.env` configuration files or appropriate configuration injection mechanisms.

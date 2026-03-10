@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 use std::process;
 
-use d2r_core::save::{class_name, find_jm_markers, recalculate_checksum, Save};
+use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 
 fn main() {
     let args: Vec<String> = env::args().collect();

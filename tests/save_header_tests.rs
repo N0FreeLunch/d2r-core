@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use d2r_core::save::{find_jm_markers, recalculate_checksum, Save, D2S_MAGIC};
+use d2r_core::save::{D2S_MAGIC, Save, find_jm_markers, recalculate_checksum};
 
 fn repo_path(relative: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)

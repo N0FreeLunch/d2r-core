@@ -34,3 +34,9 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 ## Required Final Field
 End meaningful outputs with:
 `Recommended Next Model: <model> - <short reason>`
+
+For Gemini recommendations, use only these canonical labels in that field:
+- `Gemini Flash`
+- `Gemini Pro`
+
+Do not include versioned variants such as `Gemini 2.0 Flash` or `Gemini 2.5 Pro` unless a separate non-workflow document explicitly requires exact version pinning.

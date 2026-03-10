@@ -1122,6 +1122,14 @@ impl Item {
     }
 
     pub fn to_bytes(&self, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
+        if !self.bits.is_empty() {
+            let mut emitter = BitEmitter::new();
+            for &bit in &self.bits {
+                emitter.write_bit(bit)?;
+            }
+            emitter.byte_align()?;
+            return Ok(emitter.into_bytes());
+        }
         let mut emitter = BitEmitter::new();
         self.write_recursive(&mut emitter, huffman)?;
         emitter.byte_align()?;

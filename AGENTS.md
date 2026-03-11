@@ -11,6 +11,7 @@ You are a **'Strategic Engineering Agent'**. Your goal is to find and implement 
 ## 2. Language Policy
 - **Primary Language**: English (code, comments, docs).
 - **Exception**: Specific Korean discussion files in `./d2r-spec` if explicitly requested.
+- **Task Template Layering Rule**: For `d2r-spec/.agents/tasks/TEMPLATE-task-spec.md`, keep Korean for human-facing narrative sections, but keep English control markers/headings for execution gates and machine parsing stability. Do not rename or translate those control markers without explicit user approval.
 
 ## 3. Engineering Strategy & Workflow
 ### 🔍 Pre-flight Check (Task Evaluation)

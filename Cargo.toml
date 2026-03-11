@@ -61,3 +61,7 @@ path = "src/bin/verify/d2save_bit_analyze.rs"
 [[bin]]
 name = "dump_flags"
 path = "src/bin/verify/dump_flags.rs"
+
+[[bin]]
+name = "d2save_status_diff"
+path = "src/bin/verify/d2save_status_diff.rs"

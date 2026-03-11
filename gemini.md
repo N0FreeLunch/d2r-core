@@ -3,11 +3,12 @@
 ## Canonical References
 Read these in order:
 1. `AGENTS.md`
-2. `NAVIGATOR.md`
-3. Optional local `d2r-spec/AGENTS.md`
-4. Optional local `d2r-spec/AI_WORKFLOW.md`
-5. Optional local `d2r-spec/.agents/tasks/*.md`
-6. The relevant `d2r-spec/discussion/*.md`
+2. `NAVIGATOR.md` (Public)
+3. Optional local `d2r-spec/NAVIGATOR.md` (Private)
+4. Optional local `d2r-spec/AGENTS.md`
+5. Optional local `d2r-spec/AI_WORKFLOW.md`
+6. Optional local `d2r-spec/.agents/tasks/*.md`
+7. The relevant `d2r-spec/discussion/*.md`
 
 This file is an entrypoint only. If guidance conflicts, prefer public root docs first, then apply local `d2r-spec` overlay docs only if they exist.
 

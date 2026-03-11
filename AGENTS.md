@@ -6,7 +6,7 @@ This document outlines the strategic priorities, technical constraints, and oper
 You are a **'Strategic Engineering Agent'**. Your goal is to find and implement optimal architectures with **minimal resources (tokens/time)**. Prioritize strategic thinking over rote code generation.
 
 - **Primary Role**: Research > Analysis > Documentation > Verification Support.
-- **Handoff Requirement**: Due to token limits, for any complex or high-volume implementation (3+ files or deep logic), you MUST draft a specification in `./d2r-spec/.agents/tasks/` when the private overlay is available. Only use `./.agents/tasks/` for sanitized public-safe planning artifacts, and suggest the user delegate the actual implementation to a secondary model (Gemini CLI/IDE).
+- **Handoff Requirement**: Due to token limits, for any complex or high-volume implementation (3+ files or deep logic), you MUST draft a specification in `./d2r-spec/.agents/tasks/` when the private overlay is available. Use `./.agents/tasks/` only as a sanitized public-safe fallback when the overlay is unavailable or when a public artifact is explicitly needed.
 
 ## 2. Language Policy
 - **Primary Language**: English (code, comments, docs).
@@ -20,7 +20,7 @@ Before execution, evaluate complexity. Pause and report if:
 - Reasoning confidence is below 80% for the current model.
 
 ### 📐 Specification-Driven Development (SDD)
-- **Spec First**: Always consult specifications in `./d2r-spec`. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code.
+- **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
 
 ### 🛑 Stop & Escalation (Strategic Halt)
@@ -30,12 +30,12 @@ Before execution, evaluate complexity. Pause and report if:
   2. If progress remains slow after proceeding, **ask once more** before continuing.
 - **Thresholds**: 2+ failed attempts at the same logical error or risk of context overflow.
 - **Strategic Handoff Protocol**:
-  1. For high-difficulty/token-intensive tasks, draft a detailed **Implementation Plan** in `./d2r-spec/.agents/tasks/` when available, or a sanitized public-safe equivalent otherwise.
+  1. For high-difficulty/token-intensive tasks, draft a detailed **Implementation Plan** in `./d2r-spec/.agents/tasks/` when the private overlay is available, or a sanitized public-safe equivalent in `./.agents/tasks/` otherwise.
   2. Clearly define the input, expected output, and verification steps.
-  3. Proactively suggest: "This task is best suited for a secondary model (CLI/IDE) using the provided spec in .agents/tasks/."
+  3. Proactively suggest: "This task is best suited for a secondary model (CLI/IDE) using the provided private overlay spec."
 - **Handoff Report**:
   - `[Status]`: Current progress summary.
-  - `[Target File]`: Path to the implementation plan in `./.agents/tasks/`.
+  - `[Target File]`: Preferred path in `./d2r-spec/.agents/tasks/`, or `./.agents/tasks/` only for a sanitized public-safe fallback.
   - `[Escalation Prompt]`: A ready-to-use prompt for a stronger model (Pro/o1) containing all necessary context and the specific challenge.
 
 ## 4. Architecture & Technical Constraints
@@ -46,7 +46,7 @@ Before execution, evaluate complexity. Pause and report if:
 
 ## 5. Operational Protocol
 - **Repository Structure**: Root workspace `./` (Implementation) and `./d2r-spec` (Specification, symlinked).
-- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone and publishable. **All detailed strategic research, internal workflows, and task-specific execution plans are strictly managed within the `./d2r-spec` private overlay.** Public-facing documentation should provide high-level policy while delegating operational detail to the private overlay if present. This is a final architectural decision to maintain a clean public audit trail while preserving sensitive internal research context.
+- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone, publishable, and focused on code plus publishable outcomes. **All detailed strategic research, internal reasoning, internal workflows, and task-specific execution plans are managed within the local `./d2r-spec` private overlay.** Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the overlay, but they should direct local agents to the overlay whenever it is present.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` must use its original path.
 - **Communication**: Be concise. Proactively suggest better strategies if the user's approach is inefficient.
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.

@@ -495,6 +495,11 @@ mod tests {
             properties_complete: true,
             set_list_count: 0,
             tbk_ibk_teleport: None,
+            defense: None,
+            max_durability: None,
+            current_durability: None,
+            quantity: None,
+            sockets: None,
         };
 
         // Manual field setup for testing

@@ -316,6 +316,11 @@ pub struct Item {
     pub properties_complete: bool,
     pub set_list_count: u8,
     pub tbk_ibk_teleport: Option<u8>,
+    pub defense: Option<u32>,
+    pub max_durability: Option<u32>,
+    pub current_durability: Option<u32>,
+    pub quantity: Option<u32>,
+    pub sockets: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -569,6 +574,11 @@ impl Item {
                 properties_complete: false,
                 set_list_count: 0,
                 tbk_ibk_teleport: None,
+                defense: None,
+                max_durability: None,
+                current_durability: None,
+                quantity: None,
+                sockets: None,
             });
         }
 
@@ -611,6 +621,11 @@ impl Item {
         let mut personalized_player_name: Option<String> = None;
         let mut runeword_id: Option<u16> = None;
         let mut runeword_level: Option<u8> = None;
+        let mut defense: Option<u32> = None;
+        let mut max_durability: Option<u32> = None;
+        let mut current_durability: Option<u32> = None;
+        let mut quantity: Option<u32> = None;
+        let mut sockets: Option<u8> = None;
 
         if !is_compact {
             let template = item_template(&code);
@@ -709,30 +724,31 @@ impl Item {
 
             if reads_defense {
                 let defense_bits = stat_save_bits(31).unwrap_or(11);
-                let _def = recorder.read_bits(defense_bits)?;
+                defense = Some(recorder.read_bits(defense_bits)?);
             }
             if reads_durability {
                 let max_dur_bits = stat_save_bits(73).unwrap_or(8);
                 let cur_dur_bits = stat_save_bits(72).unwrap_or(9);
-                let max_dur = recorder.read_bits(max_dur_bits)?;
-                if max_dur > 0 {
-                    let cur_dur = recorder.read_bits(cur_dur_bits)?;
-                    let dur_extra = recorder.read_bits(1)?;
+                let m_dur = recorder.read_bits(max_dur_bits)?;
+                max_durability = Some(m_dur);
+                if m_dur > 0 {
+                    current_durability = Some(recorder.read_bits(cur_dur_bits)?);
+                    let dur_extra = recorder.read_bit()?;
                     item_trace!(
-                        "  [Dur] Max: {}, Cur: {} (+{})",
-                        max_dur,
-                        cur_dur,
+                        "  [Dur] Max: {}, Cur: {} (+{:?})",
+                        m_dur,
+                        current_durability.unwrap(),
                         dur_extra
                     );
                 }
             }
             if reads_quantity {
-                let _qty = recorder.read_bits(9)?;
-                item_trace!("  [Qty] {}", _qty);
+                quantity = Some(recorder.read_bits(9)?);
+                item_trace!("  [Qty] {:?}", quantity);
             }
 
             if is_socketed {
-                let _sockets = recorder.read_bits(4)?;
+                sockets = Some(recorder.read_bits(4)? as u8);
             }
 
             if item_quality == Some(ItemQuality::Set) {
@@ -839,6 +855,11 @@ impl Item {
             properties_complete,
             set_list_count,
             tbk_ibk_teleport,
+            defense,
+            max_durability,
+            current_durability,
+            quantity,
+            sockets,
         })
     }
 

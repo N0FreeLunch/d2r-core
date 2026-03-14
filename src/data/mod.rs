@@ -2,6 +2,6 @@
 pub mod generated;
 
 pub use generated::{
-    item_codes, item_specs, localization, monsters, property_map, skills,
-    stat_costs,
+    affixes, item_codes, item_specs, localization, monsters, property_map,
+    runewords, set_items, skills, stat_costs, unique_items,
 };

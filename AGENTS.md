@@ -24,7 +24,7 @@ Before execution, evaluate complexity. Pause and report if:
 - **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
 - **Delta Planning Default**: If a parent task already exists, do not rewrite it by default. Start with a lightweight code reality check against a small set of relevant files, then make only minimal corrections to assumptions, verifier commands, or file boundaries.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
-- **Rewrite Trigger**: Full parent-task replanning is allowed only when verifier truth is broken, a key assumption conflicts with the current codebase, or the real scope has expanded materially beyond the original task.
+- **Reality-First Rewrite**: If the provided specification (Logic Blueprint/Anchors) conflicts with the actual code structure, do not force the change. Stop immediately and trigger a replanning pass. Full parent-task replanning is also required when verifier truth is broken or the real scope has expanded materially.
 - **Task File Integrity Gate**: Before executing a parent task file, verify required template markers exist (`EXECUTION TRIGGER`, `Metadata`, `Task Slices`, `Execution Rules`, `Final Response Format`). If any are missing, stop implementation and normalize the task file first.
 
 ### 🛑 Stop & Escalation (Strategic Halt)

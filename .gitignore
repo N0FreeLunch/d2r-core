@@ -26,4 +26,7 @@ d2r-data-extractor/
 # Generated Test Files
 tests/fixtures/savegames/modified/
 
+# External Data (Symbolic Link)
+d2r-data/
+
 

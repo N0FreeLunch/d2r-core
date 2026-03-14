@@ -25,6 +25,7 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 ## Operating Rules
 - Treat `d2r-spec/` and fixtures as truth for binary behavior.
 - If `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md`, or `d2r-spec/.agents/tasks/` exists locally, use them only as a private overlay and do not copy their sensitive detail into public root docs.
+- Enforce the data boundary from `AGENTS.md`/`NAVIGATOR.md`: extracted game tables/assets belong to `d2r-data/`, and `d2r-core` edits should stay at gateway/integration level (`src/data/mod.rs` boundary).
 - When creating discussion docs, label important claims as:
   - `fixture-verified`
   - `legacy-hypothesis`

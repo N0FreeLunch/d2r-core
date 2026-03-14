@@ -12,6 +12,7 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | **Status (Attrs/Skills)** | `d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
 | **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
 | **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
+| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` (private overlay, if present) | `src/data/mod.rs`, `d2r-data/` link (`../d2r-data`) | `cargo check`, `src/bin/dump_character.rs` |
 | **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
 
 ## 2. Recent Architectural Decisions (Must Know)
@@ -19,6 +20,7 @@ This is the public bootstrap index for AI agents to locate implementation files,
 - **Type Safety**: Use `elm-rs` for 1:1 type mapping. No manual JSON types.
 - **Verification-First**: Never consider a code change "done" until verified with a tool in `src/bin/verify/`.
 - **D2R/DLC Aware**: We prioritize D2R/DLC support over classic LoD logic.
+- **External Data Boundary**: Extracted tables are maintained in `d2r-data/` (root link to sibling repo). In `d2r-core`, only `src/data/mod.rs` should bridge into that data.
 
 ## 3. Git-Aware Context Recovery
 When you need to know **why** a specific byte offset or bit width was chosen:
@@ -35,7 +37,8 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 - **Agent Tasks**: `./d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` only as a sanitized public-safe fallback
 - **Fixtures**: `./tests/fixtures/savegames/` (Reference binary files)
 - **Verification Tools**: `./src/bin/verify/` (Standalone CLI tools for testing)
-- **Generated Data**: `./src/data/` (Lookups extracted from game files)
+- **Data Gateway (Core)**: `./src/data/mod.rs` (thin `#[path]` gateway into external data repo)
+- **External Game Data Repo**: `./d2r-data/` (symlink to `../d2r-data`; extracted tables stay outside `d2r-core` history)
 
 ## 5. How to Research (Agentic Loop)
 1.  **Check `NAVIGATOR.md`**: Find the logical domain and matching implementation file.
@@ -46,6 +49,7 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 6.  **Locate Patterns**: Search `src/` for similar implementation patterns.
 7.  **Verify**: Identify and run the matching `src/bin/verify/` tool.
 8.  **Escalate Correctly**: If the task is `3+ files` or deep logic, refresh the task spec and route to a stronger model.
+9.  **Check Data Boundary**: If requested changes involve extracted game tables/assets, route that scope to `d2r-data` planning and keep `d2r-core` edits limited to gateway/integration behavior.
 
 ## 6. Verification Tool Catalog
 

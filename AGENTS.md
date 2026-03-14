@@ -48,10 +48,21 @@ Before execution, evaluate complexity. Pause and report if:
 - **Type Safety**: Use **`elm-rs`** for 1:1 Rust-to-Elm type mapping. No intermediate TS layers.
 - **No Scripts**: Prohibited use of OS-dependent scripts (`.ps1`, `.sh`, `.bat`) or standalone Python/Node for orchestration.
 - **Quality**: Prioritize scalability and readability. AI-written code must be treated as potential debt—ensure high architectural alignment.
+- **Data Boundary (Copyright-Safe by Design)**:
+  - `d2r-core` contains parser/engine logic, integration points, and public-safe verification only.
+  - Extracted game data tables and extraction tooling belong to `./d2r-data/` (root symlink to sibling `../d2r-data`) and are treated as an external data repository.
+  - In `d2r-core`, external data access must stay behind `src/data/mod.rs` (`#[path = "../../d2r-data/mod.rs"]`) as a thin gateway.
+  - Do not copy extracted tables, raw assets, or private extraction notes into `d2r-core` source/tests/docs/task artifacts.
 
 ## 5. Operational Protocol
 - **Repository Structure**: Root workspace `./` (Implementation) and `./d2r-spec` (Specification, symlinked).
 - **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone, publishable, and focused on code plus publishable outcomes. **All detailed strategic research, internal reasoning, internal workflows, and task-specific execution plans are managed within the local `./d2r-spec` private overlay.** Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the overlay, but they should direct local agents to the overlay whenever it is present.
+- **Data Task Routing Gate**:
+  1. Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`.
+  2. `Core-only`: edit `d2r-core` implementation and verifiers only.
+  3. `Data-only`: route extraction/table changes to `d2r-data` planning/execution; keep `d2r-core` unchanged unless a gateway signature update is required.
+  4. `Cross-boundary`: split into clearly separated scopes (data repo vs core repo) and document the boundary in the task spec before implementation.
+- **Copyright Boundary Truth Source**: Treat `./d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` must use its original path.
 - **Communication**: Be concise. Proactively suggest better strategies if the user's approach is inefficient.
 - **Planner Budget**: When refining an existing task, prefer inspecting only the smallest relevant file set first and push fine-grained execution details into the mini spec instead of expanding the parent task.

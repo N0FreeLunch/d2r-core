@@ -1,6 +1,22 @@
-# D2R-Core Project Navigator
+This is the public bootstrap index for AI agents to locate implementation files, verification tools, and the private overlay entrypoints. **Read this first if you are lost.**
 
-This is the public bootstrap index for AI agents to locate implementation files, verification tools, and the private overlay entrypoints. **Read this first if you are lost.** `d2r-core` must remain understandable without the private overlay, but local agents should continue into `d2r-spec/` when it exists.
+## 🌐 Tripartite Navigation Map
+
+| Repository | Role | Navigator |
+| :--- | :--- | :--- |
+| **`d2r-core`** | **Implementation** (Public Logic) | [NAVIGATOR.md](./NAVIGATOR.md) |
+| **`d2r-data`** | **Game Data** (Extracted Tables) | [NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
+| **`d2r-spec`** | **Specification** (Private Overlay) | [NAVIGATOR.md](./d2r-spec/NAVIGATOR.md) |
+
+## ⚡ Quick Access: Active Components
+
+| Component | Implementation | Specification / Context | Verification |
+| :--- | :--- | :--- | :--- |
+| **Parsing Engine** | `src/item.rs`, `src/save.rs` | `discussion/0016`, `0023` | `d2item_inspect` |
+| **Validation Engine** | `src/engine/validation.rs` | `discussion/0034` | `item_validation_test` |
+| **Interpretation** | `src/engine/formatter.rs` | `discussion/0033`, `0034` | `option_rendering_test` |
+| **Inventory Grid** | `src/inventory.rs` | `discussion/0021` | `d2save_inventory_check`|
+| **Game Data Gateway**| `src/data/mod.rs` | `discussion/0035` | `cargo check` |
 
 ## 1. Core Domains & File Map
 
@@ -12,8 +28,9 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | **Status (Attrs/Skills)** | `d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
 | **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
 | **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
-| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` (private overlay, if present) | `src/data/mod.rs`, `d2r-data/` link (`../d2r-data`) | `cargo check`, `src/bin/dump_character.rs` |
+| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` (private overlay, if present) | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
 | **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
+| **Environment / Paths** | `d2r-spec/discussion/0036-environment-path-normalization.md` | `.env` | `tests/common.rs` |
 | **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
 
 ## 2. Recent Architectural Decisions (Must Know)
@@ -22,6 +39,7 @@ This is the public bootstrap index for AI agents to locate implementation files,
 - **Verification-First**: Never consider a code change "done" until verified with a tool in `src/bin/verify/`.
 - **D2R/DLC Aware**: We prioritize D2R/DLC support over classic LoD logic.
 - **External Data Boundary**: Extracted tables are maintained in `d2r-data/` (root link to sibling repo). In `d2r-core`, only `src/data/mod.rs` should bridge into that data.
+- **Environment First**: All paths MUST be retrieved via `tests/common.rs` or environment variables (Source of Truth: `.env`). Do not hardcode relative paths like `../../d2r-data`.
 
 ## 3. Git-Aware Context Recovery
 When you need to know **why** a specific byte offset or bit width was chosen:

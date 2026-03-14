@@ -45,6 +45,12 @@ Before execution, evaluate complexity. Pause and report if:
 
 ## 4. Architecture & Technical Constraints
 - **Stack**: **Rust** (Core logic/Bit parsing) + **Elm** (Orchestration).
+- **Environment & Path Normalization**:
+  - Entire project MUST use environment variables for path referencing (Normalization).
+  - Use `.env` file as the central source of truth for repository and data paths.
+  - Standard variables: `D2R_CORE_PATH`, `D2R_SPEC_PATH`, `D2R_DATA_PATH`, `D2DATA_JSON_DIR`, `D2R_SAVE_DIR`.
+  - Avoid hardcoding relative paths (e.g., `../../d2r-data`) in source code or extractors.
+  - For tests, provide a fallback to `CARGO_MANIFEST_DIR` but prioritize `.env` if present.
 - **Type Safety**: Use **`elm-rs`** for 1:1 Rust-to-Elm type mapping. No intermediate TS layers.
 - **No Scripts**: Prohibited use of OS-dependent scripts (`.ps1`, `.sh`, `.bat`) or standalone Python/Node for orchestration.
 - **Quality**: Prioritize scalability and readability. AI-written code must be treated as potential debt—ensure high architectural alignment.

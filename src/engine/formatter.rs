@@ -454,7 +454,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn repo_path(relative: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
+        let _ = dotenvy::dotenv();
+        let base = std::env::var("D2R_CORE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        base.join(relative)
     }
 
     fn make_prop(stat_id: u32, param: u32, value: i32) -> ItemProperty {

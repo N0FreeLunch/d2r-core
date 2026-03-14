@@ -14,7 +14,11 @@ mod tests {
     use std::path::PathBuf;
 
     fn repo_path(relative: &str) -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
+        let _ = dotenvy::dotenv();
+        let base = std::env::var("D2R_CORE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        base.join(relative)
     }
 
     fn load_player_items(relative: &str) -> Vec<Item> {
@@ -25,8 +29,13 @@ mod tests {
 
     #[test]
     fn test_load_dlc_spec() {
-        let yaml_str = fs::read_to_string(repo_path("../d2r-spec/specification/v2_dlc_spec.yaml"))
-            .expect("Should have been able to read the file");
+        let _ = dotenvy::dotenv();
+        let spec_path = std::env::var("D2R_SPEC_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| repo_path("../d2r-spec"));
+        
+        let yaml_path = spec_path.join("specification/v2_dlc_spec.yaml");
+        let yaml_str = fs::read_to_string(yaml_path).expect("Should have been able to read the file");
         let spec: spec::DlcSpec = serde_yaml::from_str(&yaml_str).expect("Failed to parse YAML");
 
         assert_eq!(spec.name, "Reign of the Demonologist");

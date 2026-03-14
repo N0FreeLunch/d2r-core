@@ -9,6 +9,7 @@ byteorder = { version = "1.5", default-features = false }
 hex = { version = "0.4", default-features = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
+dotenvy = "0.15"
 
 [[bin]]
 name = "d2save_verify"

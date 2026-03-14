@@ -1,3 +1,4 @@
+#[path = "../../d2r-data/mod.rs"]
 pub mod generated;
 
 pub use generated::{

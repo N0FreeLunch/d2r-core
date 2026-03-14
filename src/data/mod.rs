@@ -1,2 +1,5 @@
-pub mod item_codes;
-pub mod stat_costs;
+pub mod generated;
+
+pub use generated::{
+    item_codes, localization, monsters, property_map, skills, stat_costs,
+};

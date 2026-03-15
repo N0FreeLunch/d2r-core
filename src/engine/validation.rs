@@ -1,5 +1,5 @@
-use crate::data::item_specs::{ItemStatRange, Runeword, SetItem, UniqueItem};
-use crate::data::{runewords, set_items, unique_items};
+use crate::data::item_specs::{Affix, ItemStatRange, Runeword, SetItem, UniqueItem};
+use crate::data::{affixes, runewords, set_items, unique_items};
 use crate::item::{Item, ItemProperty, ItemQuality};
 
 #[derive(Debug, Clone)]
@@ -35,6 +35,7 @@ pub enum ItemSpec {
     Unique(&'static UniqueItem),
     Set(&'static SetItem),
     Runeword(&'static Runeword),
+    Affix(&'static Affix),
 }
 
 impl ItemSpec {
@@ -43,8 +44,17 @@ impl ItemSpec {
             ItemSpec::Unique(ui) => ui.index,
             ItemSpec::Set(si) => si.index,
             ItemSpec::Runeword(rw) => rw.name,
+            ItemSpec::Affix(a) => a.name,
         }
     }
+}
+
+pub fn lookup_prefix(id: u16) -> Option<&'static Affix> {
+    affixes::PREFIXES.iter().find(|a| a.id == id as u32)
+}
+
+pub fn lookup_suffix(id: u16) -> Option<&'static Affix> {
+    affixes::SUFFIXES.iter().find(|a| a.id == id as u32)
 }
 
 pub fn lookup_spec(item: &Item) -> Option<ItemSpec> {
@@ -77,25 +87,78 @@ pub fn lookup_spec(item: &Item) -> Option<ItemSpec> {
 }
 
 pub fn validate_item(item: &Item) -> Option<ValidationResult> {
-    let spec = lookup_spec(item)?;
-
-    match spec {
-        ItemSpec::Unique(unique_spec) => Some(validate_item_properties(
-            unique_spec.index,
-            unique_spec.stats,
-            &item.properties,
-        )),
-        ItemSpec::Set(set_spec) => Some(validate_item_properties(
-            set_spec.index,
-            set_spec.stats,
-            &item.properties,
-        )),
-        ItemSpec::Runeword(rw_spec) => Some(validate_item_properties(
-            rw_spec.name,
-            rw_spec.stats,
-            &item.runeword_attributes,
-        )),
+    if let Some(spec) = lookup_spec(item) {
+        return match spec {
+            ItemSpec::Unique(unique_spec) => Some(validate_item_properties(
+                unique_spec.index,
+                unique_spec.stats,
+                &item.properties,
+            )),
+            ItemSpec::Set(set_spec) => Some(validate_item_properties(
+                set_spec.index,
+                set_spec.stats,
+                &item.properties,
+            )),
+            ItemSpec::Runeword(rw_spec) => Some(validate_item_properties(
+                rw_spec.name,
+                rw_spec.stats,
+                &item.runeword_attributes,
+            )),
+            ItemSpec::Affix(_) => None,
+        };
     }
+
+    match item.quality {
+        Some(ItemQuality::Magic) | Some(ItemQuality::Rare) | Some(ItemQuality::Crafted) => {
+            let prefixes = item.prefixes();
+            let suffixes = item.suffixes();
+
+            if prefixes.is_empty() && suffixes.is_empty() {
+                return None;
+            }
+
+            let consolidated_stats = consolidate_affix_stats(&prefixes, &suffixes);
+            let names: Vec<&str> = prefixes
+                .iter()
+                .chain(suffixes.iter())
+                .map(|a| a.name)
+                .collect();
+            let spec_name = if names.is_empty() {
+                "Unknown Affix Item".to_string()
+            } else {
+                names.join(" ")
+            };
+
+            Some(validate_item_properties(
+                &spec_name,
+                &consolidated_stats,
+                &item.properties,
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn consolidate_affix_stats(prefixes: &[&Affix], suffixes: &[&Affix]) -> Vec<ItemStatRange> {
+    let mut merged: std::collections::HashMap<(u32, u32), ItemStatRange> =
+        std::collections::HashMap::new();
+
+    let all_affixes = prefixes.iter().chain(suffixes.iter());
+    for affix in all_affixes {
+        for spec_stat in affix.stats {
+            let key = (spec_stat.stat_id, spec_stat.param);
+            let entry = merged.entry(key).or_insert(ItemStatRange {
+                stat_id: spec_stat.stat_id,
+                param: spec_stat.param,
+                min: 0,
+                max: 0,
+            });
+            entry.min += spec_stat.min;
+            entry.max += spec_stat.max;
+        }
+    }
+
+    merged.into_values().collect()
 }
 
 fn validate_item_properties(

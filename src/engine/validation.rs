@@ -1,6 +1,9 @@
 use crate::data::item_specs::{Affix, ItemStatRange, Runeword, SetItem, UniqueItem};
 use crate::data::{affixes, runewords, set_items, unique_items};
+use crate::data::item_codes::ITEM_TEMPLATES;
+use crate::data::item_types::ITEM_TYPES;
 use crate::item::{Item, ItemProperty, ItemQuality};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct ValidationResult {
@@ -8,6 +11,7 @@ pub struct ValidationResult {
     pub is_perfect: bool,
     pub score: f32, // Overall perfection score
     pub stats: Vec<StatValidation>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +121,18 @@ pub fn validate_item(item: &Item) -> Option<ValidationResult> {
                 return None;
             }
 
+            let item_types = get_all_item_types(&item.code);
+            let mut warnings = Vec::new();
+
+            for affix in prefixes.iter().chain(suffixes.iter()) {
+                if !is_affix_eligible_for(affix, &item_types) {
+                    warnings.push(format!(
+                        "Affix '{}' (id:{}) is not eligible for this item type",
+                        affix.name, affix.id
+                    ));
+                }
+            }
+
             let consolidated_stats = consolidate_affix_stats(&prefixes, &suffixes);
             let names: Vec<&str> = prefixes
                 .iter()
@@ -129,11 +145,13 @@ pub fn validate_item(item: &Item) -> Option<ValidationResult> {
                 names.join(" ")
             };
 
-            Some(validate_item_properties(
+            let mut result = validate_item_properties(
                 &spec_name,
                 &consolidated_stats,
                 &item.properties,
-            ))
+            );
+            result.warnings.extend(warnings);
+            Some(result)
         }
         _ => None,
     }
@@ -159,6 +177,24 @@ fn consolidate_affix_stats(prefixes: &[&Affix], suffixes: &[&Affix]) -> Vec<Item
     }
 
     merged.into_values().collect()
+}
+
+pub fn is_affix_eligible_for(affix: &Affix, item_types: &[&str]) -> bool {
+    // If include_types is empty, it's generally allowed on all types unless excluded
+    if !affix.include_types.is_empty() {
+        let has_included = affix.include_types.iter().any(|&inc| item_types.contains(&inc));
+        if !has_included {
+            return false;
+        }
+    }
+
+    // If any excluded type is in item_types, it's not eligible
+    let has_excluded = affix.exclude_types.iter().any(|&exc| item_types.contains(&exc));
+    if has_excluded {
+        return false;
+    }
+
+    true
 }
 
 fn validate_item_properties(
@@ -265,6 +301,7 @@ fn validate_item_properties(
         is_perfect,
         score,
         stats,
+        warnings: Vec::new(),
     }
 }
 
@@ -313,4 +350,62 @@ fn calculate_score(current: i32, min: i32, max: i32) -> (f32, bool, bool) {
     let range = (min - max) as f32;
     let ratio = ((min - current) as f32 / range).clamp(0.0, 1.0);
     (ratio, true, current == max)
+}
+
+pub fn get_all_item_types(item_code: &str) -> Vec<&'static str> {
+    let trimmed = item_code.trim();
+    let template = match ITEM_TEMPLATES.iter().find(|t| t.code == trimmed) {
+        Some(t) => t,
+        None => return Vec::new(),
+    };
+
+    let mut seeds = Vec::new();
+    if let Some(t1) = template.item_type {
+        seeds.push(t1);
+    }
+    if let Some(t2) = template.item_type2 {
+        seeds.push(t2);
+    }
+
+    let mut visited = HashSet::new();
+    let mut current_level = seeds;
+    let mut depth = 0;
+
+    while !current_level.is_empty() && depth < 10 {
+        let mut next_level = Vec::new();
+        for code in current_level {
+            if visited.insert(code) {
+                if let Some(it) = ITEM_TYPES.iter().find(|it| it.code == code) {
+                    if let Some(e1) = it.equiv1 {
+                        next_level.push(e1);
+                    }
+                    if let Some(e2) = it.equiv2 {
+                        next_level.push(e2);
+                    }
+                }
+            }
+        }
+        current_level = next_level;
+        depth += 1;
+    }
+
+    visited.into_iter().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_all_item_types() {
+        let axe_types = get_all_item_types("hax "); // Hand Axe
+        assert!(axe_types.contains(&"axe"));
+        assert!(axe_types.contains(&"mele"));
+        assert!(axe_types.contains(&"weap"));
+
+        let shld_types = get_all_item_types("buc "); // Buckler
+        assert!(shld_types.contains(&"shld"));
+        assert!(shld_types.contains(&"armo"));
+        assert!(shld_types.contains(&"seco"));
+    }
 }

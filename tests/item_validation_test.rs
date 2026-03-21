@@ -146,3 +146,19 @@ fn validate_rare_item_merged_stats() {
     assert_eq!(result.stats[0].min, 51);
     assert_eq!(result.stats[0].max, 70);
 }
+
+#[test]
+fn validate_magic_item_with_type_violation() {
+    let mut item = base_item();
+    item.code = "buc ".to_string(); // Buckler (Shield)
+    item.quality = Some(ItemQuality::Magic);
+    item.magic_prefix = Some(12); // Jagged (Weapon-only)
+    item.magic_suffix = None;
+    item.properties = vec![
+        prop(111, 0, 15), // In range for Jagged (10-20)
+    ];
+
+    let result = validate_item(&item).expect("should validate");
+    assert!(!result.warnings.is_empty(), "Should warn about type violation");
+    assert!(result.warnings[0].contains("not eligible"));
+}

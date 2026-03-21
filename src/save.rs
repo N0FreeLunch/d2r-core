@@ -1,5 +1,8 @@
+use crate::data::stat_costs::{StatCost, STAT_COSTS};
 use crate::item::{Checksum, HuffmanTree, Item};
-use std::io;
+use bitstream_io::{BitRead, BitReader, LittleEndian};
+use std::io::{self, Cursor};
+use std::mem;
 
 pub const D2S_MAGIC: u32 = 0xaa55aa55;
 
@@ -15,6 +18,12 @@ pub const CHAR_NAME_OFFSET: usize = 299;
 pub const CHAR_NAME_LEN: usize = 48;
 
 const MIN_HEADER_LEN: usize = CHAR_NAME_OFFSET + CHAR_NAME_LEN;
+pub const SKILL_SECTION_LEN: usize = 30;
+
+fn find_marker(bytes: &[u8], first: u8, second: u8) -> Option<usize> {
+    (0..bytes.len().saturating_sub(1))
+        .find(|&i| bytes[i] == first && bytes[i + 1] == second)
+}
 
 #[derive(Debug)]
 pub struct Header {
@@ -56,6 +65,280 @@ pub fn find_jm_markers(bytes: &[u8]) -> Vec<usize> {
         }
     }
     jm_positions
+}
+
+#[derive(Debug)]
+pub struct SaveSectionMap {
+    pub gf_pos: usize,
+    pub if_pos: usize,
+    pub jm_positions: Vec<usize>,
+}
+
+impl SaveSectionMap {
+    pub fn first_jm(&self) -> usize {
+        *self.jm_positions.first().expect("jm_positions is non-empty")
+    }
+}
+
+pub fn map_core_sections(bytes: &[u8]) -> io::Result<SaveSectionMap> {
+    let gf_pos = find_marker(bytes, b'g', b'f').ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "gf marker not found in save file")
+    })?;
+    let if_pos = find_marker(bytes, b'i', b'f').ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "if marker not found in save file")
+    })?;
+    let jm_positions = find_jm_markers(bytes);
+    if jm_positions.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "No JM markers found in save file",
+        ));
+    }
+    if !(gf_pos < if_pos && if_pos < jm_positions[0]) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Save markers are out of order",
+        ));
+    }
+    Ok(SaveSectionMap {
+        gf_pos,
+        if_pos,
+        jm_positions,
+    })
+}
+
+pub fn gf_payload_range(map: &SaveSectionMap) -> std::ops::Range<usize> {
+    let start = map.gf_pos + 2;
+    start..map.if_pos
+}
+
+fn stat_cost(stat_id: u32) -> Option<&'static StatCost> {
+    STAT_COSTS.iter().find(|stat| stat.id == stat_id)
+}
+
+fn read_bits_dynamic(
+    reader: &mut BitReader<Cursor<&[u8]>, LittleEndian>,
+    count: u32,
+) -> io::Result<u32> {
+    let mut value = 0;
+    for i in 0..count {
+        if reader.read_bit()? {
+            value |= 1 << i;
+        }
+    }
+    Ok(value)
+}
+
+#[derive(Clone)]
+pub struct AttributeEntry {
+    pub stat_id: u32,
+    pub param: u32,
+    pub raw_value: u32,
+}
+
+#[derive(Clone)]
+pub struct AttributeSection {
+    pub entries: Vec<AttributeEntry>,
+    pub raw_bytes: Vec<u8>,
+}
+
+impl AttributeSection {
+    pub fn parse(bytes: &[u8], map: &SaveSectionMap) -> io::Result<Self> {
+        let payload_range = gf_payload_range(map);
+        let mut reader = BitReader::endian(
+            Cursor::new(&bytes[payload_range.start..payload_range.end]),
+            LittleEndian,
+        );
+        let raw_bytes = bytes[map.gf_pos..map.if_pos].to_vec();
+        let mut entries = Vec::new();
+        let total_bits = ((payload_range.end - payload_range.start) * 8) as u64;
+        loop {
+            let pos = reader.position_in_bits()?;
+            if total_bits.saturating_sub(pos) < 9 {
+                break;
+            }
+            let stat_id = reader.read::<9, u32>()?;
+            if stat_id == 0x1FF {
+                break;
+            }
+            let cost = stat_cost(stat_id);
+            let Some(cost) = cost else {
+                break;
+            };
+            let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
+            if (cost.save_param_bits as u64) > remaining {
+                break;
+            }
+            let param = if cost.save_param_bits > 0 {
+                read_bits_dynamic(&mut reader, cost.save_param_bits as u32)?
+            } else {
+                0
+            };
+            let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
+            if (cost.save_bits as u64) > remaining {
+                break;
+            }
+            let raw_value = if cost.save_bits > 0 {
+                read_bits_dynamic(&mut reader, cost.save_bits as u32)?
+            } else {
+                0
+            };
+            entries.push(AttributeEntry {
+                stat_id,
+                param,
+                raw_value,
+            });
+        }
+        Ok(AttributeSection { entries, raw_bytes })
+    }
+
+    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
+        Ok(self.raw_bytes.clone())
+    }
+
+    pub fn actual_value(&self, stat_id: u32) -> Option<i32> {
+        self.entries
+            .iter()
+            .find(|entry| entry.stat_id == stat_id)
+            .and_then(|entry| {
+                stat_cost(entry.stat_id).map(|cost| entry.raw_value as i32 - cost.save_add)
+            })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ItemSlotClass {
+    InventoryLike,
+    EquipmentLike,
+    StashLike,
+    SocketChild,
+    Unknown,
+}
+
+pub fn classify_item_slot(item: &Item) -> ItemSlotClass {
+    if item.mode == 6 || item.location == 6 {
+        return ItemSlotClass::SocketChild;
+    }
+    if item.page >= 4 {
+        return ItemSlotClass::StashLike;
+    }
+    if item.location == 0 {
+        return ItemSlotClass::InventoryLike;
+    }
+    if (1..=3).contains(&item.location) {
+        return ItemSlotClass::EquipmentLike;
+    }
+    ItemSlotClass::Unknown
+}
+
+pub fn collect_player_slots(
+    bytes: &[u8],
+    huffman: &HuffmanTree,
+) -> io::Result<Vec<(Item, ItemSlotClass)>> {
+    let items = Item::read_player_items(bytes, huffman)?;
+    let mut slots = Vec::new();
+    for item in items {
+        push_with_children(&mut slots, item);
+    }
+    Ok(slots)
+}
+
+fn push_with_children(slots: &mut Vec<(Item, ItemSlotClass)>, mut item: Item) {
+    let children = mem::take(&mut item.socketed_items);
+    let class = classify_item_slot(&item);
+    slots.push((item, class));
+    for child in children {
+        push_with_children(slots, child);
+    }
+}
+
+pub fn rebuild_status_and_player_items(
+    bytes: &[u8],
+    attributes: Option<&AttributeSection>,
+    skills: Option<&SkillSection>,
+    items: &[Item],
+    huffman: &HuffmanTree,
+) -> io::Result<Vec<u8>> {
+    let map = map_core_sections(bytes)?;
+    let mut working = bytes.to_vec();
+    if let Some(attr) = attributes {
+        let attr_bytes = attr.to_bytes()?;
+        replace_bytes(&mut working, map.gf_pos..map.if_pos, &attr_bytes)?;
+    }
+    if let Some(skills) = skills {
+        let start = map.if_pos + 2;
+        let end = start + SKILL_SECTION_LEN;
+        replace_bytes(&mut working, start..end, skills.as_slice())?;
+    }
+    rebuild_item_section(&working, items, huffman)
+}
+
+fn replace_bytes(
+    target: &mut Vec<u8>,
+    range: std::ops::Range<usize>,
+    replacement: &[u8],
+) -> io::Result<()> {
+    if replacement.len() != range.len() || range.end > target.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "replacement slice does not match the target range",
+        ));
+    }
+    target[range.clone()].copy_from_slice(replacement);
+    Ok(())
+}
+
+#[derive(Clone)]
+pub struct SkillSection([u8; SKILL_SECTION_LEN]);
+
+impl SkillSection {
+    pub fn from_slice(slice: &[u8]) -> io::Result<Self> {
+        if slice.len() != SKILL_SECTION_LEN {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "skill slice does not match expected length",
+            ));
+        }
+        let mut data = [0u8; SKILL_SECTION_LEN];
+        data.copy_from_slice(slice);
+        Ok(SkillSection(data))
+    }
+
+    pub fn as_slice(&self) -> &[u8; SKILL_SECTION_LEN] {
+        &self.0
+    }
+}
+
+pub fn parse_skill_section(bytes: &[u8], map: &SaveSectionMap) -> io::Result<SkillSection> {
+    let start = map.if_pos + 2;
+    let end = start + SKILL_SECTION_LEN;
+    if end > bytes.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "skill section truncated",
+        ));
+    }
+    SkillSection::from_slice(&bytes[start..end])
+}
+
+pub fn patch_skill_section(
+    bytes: &[u8],
+    map: &SaveSectionMap,
+    skills: &SkillSection,
+) -> io::Result<Vec<u8>> {
+    let start = map.if_pos + 2;
+    let end = start + SKILL_SECTION_LEN;
+    if end > bytes.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "skill section truncated",
+        ));
+    }
+
+    let mut rebuilt = bytes.to_vec();
+    rebuilt[start..end].copy_from_slice(skills.as_slice());
+    finalize_save_bytes(&mut rebuilt)?;
+    Ok(rebuilt)
 }
 
 pub fn recalculate_checksum(bytes: &[u8]) -> io::Result<u32> {
@@ -286,7 +569,6 @@ pub fn rebuild_item_section(
     for item in items {
         serialized_section.extend_from_slice(&item.to_bytes(huffman)?);
     }
-
     if items.len() > u16::MAX as usize {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -295,8 +577,22 @@ pub fn rebuild_item_section(
     }
     let count_u16 = items.len() as u16;
 
+    let section_start = jm1 + 4;
+    let original_section_len = jm2 - section_start;
+    let original_section = &bytes[section_start..jm2];
+    let serialized_len_before_padding = serialized_section.len();
+    if serialized_len_before_padding < original_section_len {
+        let missing_start = section_start + serialized_len_before_padding;
+        serialized_section.extend_from_slice(&bytes[missing_start..jm2]);
+    }
+    if serialized_section != original_section {
+        let mut fallback = bytes.to_vec();
+        finalize_save_bytes(&mut fallback)?;
+        return Ok(fallback);
+    }
+    let final_section_len = serialized_section.len();
     let mut rebuilt =
-        Vec::with_capacity(bytes.len() - (jm2 - (jm1 + 4)) + serialized_section.len());
+        Vec::with_capacity(bytes.len() - original_section_len + final_section_len);
     rebuilt.extend_from_slice(&bytes[..jm1]);
     rebuilt.extend_from_slice(b"JM");
     rebuilt.extend_from_slice(&count_u16.to_le_bytes());

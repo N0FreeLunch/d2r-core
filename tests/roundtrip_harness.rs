@@ -60,26 +60,45 @@ mod roundtrip_tests {
     fn test_mutation_and_roundtrip() {
         let path = repo_path("tests/fixtures/savegames/original/amazon_authority_runeword.d2s");
         let bytes = fs::read(path).expect("fixture should be readable");
+        println!("Save Signature: 0x{:08X}", u32::from_le_bytes(bytes[0..4].try_into().unwrap()));
+        println!("Save Version: 0x{:08X}", u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
         let huffman = HuffmanTree::new();
         
+        // Use Trace to see what's happening
+        unsafe { std::env::set_var("D2R_ITEM_TRACE", "1"); }
+
         let mut items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
-        let authority = items.iter_mut().find(|item| item.code.trim() == "w ha").unwrap();
         
-        // Let's modify 'Enhanced Defense' (stat_id 31)
-        // Check current value first
-        assert!(authority.properties.iter().any(|p| p.stat_id == 31));
+        // The Authority item was previously misidentified as "w ha", but it's "xrs " (Cuirass)
+        let authority = items.iter_mut().find(|item| item.code.trim() == "xrs").expect("Authority item (xrs) not found");
         
+        println!("Authority Item: Code={}, Version={}, Flags=0x{:08X}", authority.code, authority.version, authority.flags);
+        
+        // Check current properties
+        println!("Item properties: {:?}", authority.properties.iter().map(|p| (p.stat_id, &p.name)).collect::<Vec<_>>());
+        println!("Set attributes: {:?}", authority.set_attributes.iter().map(|list| list.iter().map(|p| p.stat_id).collect::<Vec<_>>()).collect::<Vec<_>>());
+        println!("Runeword attributes: {:?}", authority.runeword_attributes.iter().map(|p| p.stat_id).collect::<Vec<_>>());
+        println!("--------------------------------------------------");
+
+        let target_stat_id = 16; // Force Enhanced Defense for test
         use d2r_core::domain::vo::ItemStatValue;
-        let new_val = ItemStatValue::new(300).unwrap(); // Set to 300% ED
-        
-        assert!(authority.set_property_value(31, new_val));
+        let new_val = ItemStatValue::new(300).unwrap();
+
+        assert!(authority.set_property_value(target_stat_id, new_val), "Failed to set property {}", target_stat_id);
         
         // Re-serialize and verify
         let reserialized = authority.to_bytes(&huffman).expect("should re-serialize modified item");
         
         // Parse back and verify new value
         let modified_item = Item::from_bytes(&reserialized, &huffman).expect("should parse back modified bits");
-        let new_ed_stat = modified_item.properties.iter().find(|p| p.stat_id == 31).unwrap();
-        assert_eq!(new_ed_stat.value, 300);
+        
+        let mut all_stats = modified_item.properties.clone();
+        for list in &modified_item.set_attributes {
+            all_stats.extend(list.clone());
+        }
+        all_stats.extend(modified_item.runeword_attributes.clone());
+
+        let new_stat = all_stats.iter().find(|p| p.stat_id == target_stat_id).expect("Mutated stat not found");
+        assert_eq!(new_stat.value, 300);
     }
 }

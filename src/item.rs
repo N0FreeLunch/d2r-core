@@ -442,14 +442,22 @@ impl Item {
     /// Returns true if the property was found and updated.
     pub fn set_property_value(&mut self, stat_id: u32, value: crate::domain::vo::ItemStatValue) -> bool {
         let mut found = false;
-        for prop in &mut self.properties {
-            if prop.stat_id == stat_id {
-                let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
-                if let Some(c) = cost {
-                    prop.value = value.value();
-                    // raw_value = value + save_add
-                    prop.raw_value = value.value().wrapping_add(c.save_add);
-                    found = true;
+        let mut lists = Vec::new();
+        lists.push(&mut self.properties);
+        for list in &mut self.set_attributes {
+            lists.push(list);
+        }
+        lists.push(&mut self.runeword_attributes);
+
+        for list in lists {
+            for prop in list {
+                if prop.stat_id == stat_id {
+                    let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
+                    if let Some(c) = cost {
+                        prop.value = value.value();
+                        prop.raw_value = value.value().wrapping_add(c.save_add);
+                        found = true;
+                    }
                 }
             }
         }
@@ -567,12 +575,12 @@ enum PropertyParseResult {
 fn parse_single_property<R: BitRead>(
     recorder: &mut BitRecorder<R>,
     code: &str,
-    version: u8,
+    _version: u8,
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
 ) -> io::Result<PropertyParseResult> {
     let bit_pos = recorder.recorded_bits.len();
-    let id_bits = if version >= 5 { 11 } else { 9 };
+    let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     let stat_id = match recorder.read_bits(id_bits) {
@@ -649,7 +657,10 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty]) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], _version: u8) -> io::Result<()> {
+    let id_bits = 9;
+    let terminator = (1 << id_bits) - 1;
+
     for prop in props {
         let stat = crate::data::stat_costs::STAT_COSTS
             .iter()
@@ -660,7 +671,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty]) -> io::
                     format!("Missing stat_cost entry for stat_id {}", prop.stat_id),
                 )
             })?;
-        emitter.write_bits(prop.stat_id, 9)?;
+        emitter.write_bits(prop.stat_id, id_bits)?;
         if stat.save_param_bits > 0 {
             emitter.write_bits(prop.param, stat.save_param_bits as u32)?;
         }
@@ -668,7 +679,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty]) -> io::
             emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
         }
     }
-    emitter.write_bits(0x1FF, 9)?;
+    emitter.write_bits(terminator, id_bits)?;
     Ok(())
 }
 
@@ -952,8 +963,10 @@ impl Item {
         }
 
         if parse_property_lists && is_runeword {
+            let _presence = recorder.read_bit()?;
             let (rw_props, complete) =
                 read_property_list(recorder, trimmed_code, version, section_recovery, huffman)?;
+            item_trace!("    [RunewordStats] Properties: {:?}", rw_props.iter().map(|p| p.stat_id).collect::<Vec<_>>());
             if complete {
                 runeword_attributes = rw_props;
             }
@@ -1044,6 +1057,7 @@ impl Item {
 
         let header_socket_hint = recorder.read_bits(3)? as u8;
         let num_socketed_items = header_socket_hint;
+        item_trace!("  [Header] Socket Hint: {}, Bit Offset: {}", header_socket_hint, recorder.recorded_bits.len());
 
         let stats = if !is_compact {
             Self::read_extended_stats(&mut recorder, &code, is_socketed, is_runeword, is_personalized)?
@@ -1468,18 +1482,18 @@ impl Item {
             return Ok(());
         }
 
-        write_property_list(emitter, &self.properties)?;
+        write_property_list(emitter, &self.properties, self.version)?;
 
         if self.properties_complete {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
-                    write_property_list(emitter, set_props)?;
+                    write_property_list(emitter, set_props, self.version)?;
                 } else {
                     break;
                 }
             }
             if self.is_runeword && !self.runeword_attributes.is_empty() {
-                write_property_list(emitter, &self.runeword_attributes)?;
+                write_property_list(emitter, &self.runeword_attributes, self.version)?;
             }
         } else {
             item_trace!(

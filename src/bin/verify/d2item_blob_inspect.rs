@@ -316,7 +316,13 @@ fn main() -> io::Result<()> {
             let _ = read_field(&mut reader, &mut fields, "socket_count", 4)?;
         }
 
-        read_property_list(&mut reader, &mut fields)?;
+        println!("--- Property Lists ---");
+        while reader.position_in_bits()? < (bytes.len() * 8) as u64 {
+            let _ = read_property_list(&mut reader, &mut fields);
+            if reader.position_in_bits()? % 8 == 0 && reader.position_in_bits()? == (bytes.len() * 8) as u64 {
+                break;
+            }
+        }
     }
 
     let consumed_bits = reader.position_in_bits()? as usize;

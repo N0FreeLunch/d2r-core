@@ -1,0 +1,17 @@
+d2r-core (Diablo II: Resurrected Save Engine)
+Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
+
+This product includes software developed by N0FreeLunch and its contributors.
+
+TRADEMARK AND COPYRIGHT DISCLAIMER:
+Diablo, Diablo II, and Diablo II: Resurrected are trademarks or registered trademarks 
+of Blizzard Entertainment, Inc. This project is a third-party tool and is neither 
+affiliated with, authorized by, nor endorsed by Blizzard Entertainment.
+
+The d2r-core engine is a standalone library for parsing save files and does not 
+include any proprietary game assets, licensed data tables, or copyrighted binaries 
+belonging to Blizzard Entertainment. 
+
+All original game data used for testing or visual verification must be provided 
+by the user through their own legitimate copy of the game, as outlined in the 
+repository's data separation strategy.

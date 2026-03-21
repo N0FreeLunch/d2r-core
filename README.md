@@ -2,6 +2,13 @@
 
 A library for reading and writing Diablo II: Resurrected save files.
 
+## License
+
+This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) and [NOTICE](NOTICE) files for details.
+
+### Disclaimer
+This project is not affiliated with, authorized by, or endorsed by Blizzard Entertainment. Diablo II: Resurrected is a trademark of Blizzard Entertainment. This repository contains only original engine logic and does not distribute any copyrighted game assets.
+
 ## Verification Tools
 
 You can use the following tools to verify and inspect save files.

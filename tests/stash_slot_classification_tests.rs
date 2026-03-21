@@ -4,9 +4,8 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-fn repo_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
-}
+mod common;
+use common::repo_path;
 
 fn load_fixture(path: &str) -> io::Result<Vec<u8>> {
     fs::read(repo_path(path))

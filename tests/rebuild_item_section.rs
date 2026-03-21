@@ -4,9 +4,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-fn repo_path(relative: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
-}
+mod common;
+use common::repo_path;
 
 fn write_rebuilt(path: &Path, bytes: &[u8]) -> io::Result<()> {
     if let Some(parent) = path.parent() {

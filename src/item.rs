@@ -863,6 +863,10 @@ impl Item {
         })
     }
 
+    pub fn spec_lookup(&self) -> Option<crate::engine::validation::ItemSpec> {
+        crate::engine::validation::lookup_spec(self)
+    }
+
     pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
         Self::from_reader_with_context(reader, huffman, None)
     }

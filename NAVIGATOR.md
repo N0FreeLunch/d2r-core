@@ -13,6 +13,7 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
 | **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
 | **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` (private overlay, if present) | `src/data/mod.rs`, `d2r-data/` link (`../d2r-data`) | `cargo check`, `src/bin/dump_character.rs` |
+| **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
 | **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
 
 ## 2. Recent Architectural Decisions (Must Know)

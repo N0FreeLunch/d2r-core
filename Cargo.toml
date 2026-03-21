@@ -72,10 +72,27 @@ path = "src/bin/verify/d2save_status_diff.rs"
 [[bin]]
 name = "d2item_chunk_verify"
 path = "src/bin/verify/d2item_chunk_verify.rs"
+
 [[bin]]
 name = "d2item_bit_width_probe"
 path = "src/bin/verify/d2item_bit_width_probe.rs"
 
 [[bin]]
-name = "d2item_alpha_v105_inspect"
-path = "src/bin/verify/d2item_alpha_v105_inspect.rs"
+name = "d2item_bit_scan"
+path = "src/bin/verify/bit_scan.rs"
+
+[[bin]]
+name = "d2item_bit_peek"
+path = "src/bin/verify/bit_peek.rs"
+
+[[bin]]
+name = "d2item_brute_len"
+path = "src/bin/verify/brute_len.rs"
+
+[[bin]]
+name = "d2item_bit_search"
+path = "src/bin/verify/scan_terminator.rs"
+
+[[bin]]
+name = "d2item_bit_dump"
+path = "src/bin/verify/peek_jav.rs"

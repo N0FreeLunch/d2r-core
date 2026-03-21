@@ -1062,11 +1062,11 @@ impl Item {
         Ok((properties, set_attributes, runeword_attributes, properties_complete))
     }
 
-    fn from_reader_with_context<R: BitRead>(
+    pub fn from_reader_with_context<R: BitRead>(
         reader: &mut R,
         huffman: &HuffmanTree,
-        section_recovery: Option<(&[u8], u64)>,
-    ) -> io::Result<Self> {
+        ctx: Option<(&[u8], u64)>,
+    ) -> io::Result<Item> {
         let mut recorder = BitRecorder::new(reader);
 
         let (flags, version, mode, loc, x, y, page, header_socket_hint) = Self::read_item_header(&mut recorder)?;

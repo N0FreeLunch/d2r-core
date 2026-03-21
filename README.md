@@ -60,3 +60,15 @@ The following CLI tools are provided for inspecting and verifying save data. Lab
 - `d2save_status_inspect`: Inspects character status (Level, Attributes, Skills). **(Core/Data Mixed)**
 - `d2save_status_diff`: Diffs character status between two saves. **(Core/Data Mixed)**
 
+### Surgical & Archaeological Tools (Bit-Level)
+
+The following tools are designed for deep bitstream analysis and "archaeological" reconstruction of unknown or corrupted item data. **(Core)**
+
+- **`d2item_bit_scan`**: Scans the bitstream for valid item codes using a sliding window.
+- **`d2item_bit_width_probe`**: Probes the optimal bit-width (9, 10, or 11) for property IDs.
+- **`d2item_bit_peek`**: Peeks at the item header and raw bits at a specific offset.
+- **`d2item_bit_dump`**: Dumps bit-level data in a visual matrix (9/10/11 bit rows).
+- **`d2item_bit_search`**: Searches for specific bit patterns/values in the bitstream.
+- **`d2item_brute_len`**: Identifies property list boundaries by scanning for terminators.
+- **`d2item_chunk_verify`**: Aggressively verifies item chunk integrity and roundtrip safety.
+

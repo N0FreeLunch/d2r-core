@@ -2,9 +2,11 @@
 //! This module defines opaque types that encapsulate core domain invariants.
 //! These types will later be shared with Elm via `elm-rs`.
 
+use serde::{Serialize, Deserialize};
+
 /// Opaque wrapper for Item Stat Values.
 /// Protects against invalid stat boundaries and mutations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemStatValue(i32);
 
 impl ItemStatValue {
@@ -32,7 +34,7 @@ impl TryFrom<i32> for ItemStatValue {
 
 /// Opaque wrapper for Inventory Coordinates.
 /// Ensures valid grid placement bounds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryCoordinate {
     x: u8,
     y: u8,
@@ -66,7 +68,7 @@ impl TryFrom<(u8, u8)> for InventoryCoordinate {
 }
 
 /// Opaque wrapper for Item Size (Width x Height).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ItemSize {
     width: u8,
     height: u8,
@@ -93,7 +95,7 @@ impl ItemSize {
 
 /// Represents a validated placement of an item in the inventory.
 /// Guarantees that the item fits within the 10x10 grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InventoryPlacement {
     coordinate: InventoryCoordinate,
     size: ItemSize,

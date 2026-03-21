@@ -507,7 +507,7 @@ fn read_property_list<R: BitRead>(
     let mut props = Vec::new();
 
     loop {
-        let bit_pos = recorder.recorded_bits.len();
+        let _bit_pos = recorder.recorded_bits.len();
         match parse_single_property(recorder, code, section_recovery, huffman)? {
             PropertyParseResult::Property(prop) => props.push(prop),
             PropertyParseResult::Terminator => return Ok((props, true)),
@@ -1116,6 +1116,11 @@ impl Item {
 
     pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
         Self::from_reader_with_context(reader, huffman, None)
+    }
+
+    pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree) -> io::Result<Self> {
+        let mut reader = IoBitReader::endian(io::Cursor::new(bytes), LittleEndian);
+        Self::from_reader(&mut reader, huffman)
     }
 
     pub fn read_section(

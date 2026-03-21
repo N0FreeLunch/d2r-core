@@ -87,6 +87,22 @@ fn main() {
             let item_count = u16::from_le_bytes([bytes[count_offset + 2], bytes[count_offset + 3]]);
             println!("  [OK]    JM markers at bytes: {:?}", jm_positions);
             println!("  [OK]    Player item count: {}", item_count);
+
+            let huffman = d2r_core::item::HuffmanTree::new();
+            let scanned = d2r_core::item::Item::scan_items(&bytes, &huffman);
+            println!(
+                "  [INFO]  Scanned {} items via pattern match:",
+                scanned.len()
+            );
+            for (bit_pos, code) in scanned.iter().take(20) {
+                println!(
+                    "    - Bit {:>5}: code '{}' (byte {}, bit offset {})",
+                    bit_pos,
+                    code,
+                    bit_pos / 8,
+                    bit_pos % 8
+                );
+            }
         }
 
         println!();

@@ -22,7 +22,9 @@ Before execution, evaluate complexity. Pause and report if:
 
 ### 📐 Specification-Driven Development (SDD)
 - **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
+- **Delta Planning Default**: If a parent task already exists, do not rewrite it by default. Start with a lightweight code reality check against a small set of relevant files, then make only minimal corrections to assumptions, verifier commands, or file boundaries.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
+- **Rewrite Trigger**: Full parent-task replanning is allowed only when verifier truth is broken, a key assumption conflicts with the current codebase, or the real scope has expanded materially beyond the original task.
 - **Task File Integrity Gate**: Before executing a parent task file, verify required template markers exist (`EXECUTION TRIGGER`, `Metadata`, `Task Slices`, `Execution Rules`, `Final Response Format`). If any are missing, stop implementation and normalize the task file first.
 
 ### 🛑 Stop & Escalation (Strategic Halt)
@@ -52,6 +54,7 @@ Before execution, evaluate complexity. Pause and report if:
 - **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone, publishable, and focused on code plus publishable outcomes. **All detailed strategic research, internal reasoning, internal workflows, and task-specific execution plans are managed within the local `./d2r-spec` private overlay.** Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the overlay, but they should direct local agents to the overlay whenever it is present.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` must use its original path.
 - **Communication**: Be concise. Proactively suggest better strategies if the user's approach is inefficient.
+- **Planner Budget**: When refining an existing task, prefer inspecting only the smallest relevant file set first and push fine-grained execution details into the mini spec instead of expanding the parent task.
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.
 - **Documentation Paths**: In `.md` files (like those in `./d2r-spec`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
 - **Source Code Variables**: For actual application code, entirely avoid hardcoding paths or sensitive environment data. Always migrate these to `.env` configuration files or appropriate configuration injection mechanisms.

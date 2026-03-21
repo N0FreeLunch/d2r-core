@@ -17,8 +17,8 @@ fn test_render_buckler_from_fixture() {
     let buckler = &items[15];
     assert_eq!(buckler.code.trim(), "buc");
 
-    let formatted_en = format_item(buckler, "en");
-    let formatted_ko = format_item(buckler, "ko");
+    let formatted_en = format_item(buckler, "en", 0, 99);
+    let formatted_ko = format_item(buckler, "ko", 0, 99);
 
     // Base attributes check
     assert!(formatted_en.base_attributes.iter().any(|s| s.contains("Defense")));
@@ -38,7 +38,7 @@ fn test_render_authority_properties() {
     let authority = items.last().expect("should have authority");
     assert_eq!(authority.code.trim(), "w ha");
 
-    let formatted_en = format_item(authority, "en");
+    let formatted_en = format_item(authority, "en", 0, 99);
     
     // Check one of the complex properties (descfunc 15 likely)
     // Authority should have "+%d%% Chance to cast level %d %s on attack"

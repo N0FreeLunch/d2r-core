@@ -22,9 +22,11 @@ Before execution, evaluate complexity. Pause and report if:
 ### 📐 Specification-Driven Development (SDD)
 - **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
+- **Task File Integrity Gate**: Before executing a parent task file, verify required template markers exist (`EXECUTION TRIGGER`, `Metadata`, `Task Slices`, `Execution Rules`, `Final Response Format`). If any are missing, stop implementation and normalize the task file first.
 
 ### 🛑 Stop & Escalation (Strategic Halt)
 - **Conservation**: If stuck in a loop or analysis is consuming excessive resources, **stop immediately**.
+- **Model Boundary Hard Stop**: If the next required phase is explicitly assigned to a different model class, stop at that boundary and report handoff-ready status instead of continuing.
 - **User Confirmation Protocol**:
   1. If a task is resource-intensive, **pause and ask** the user whether to proceed or hand off.
   2. If progress remains slow after proceeding, **ask once more** before continuing.

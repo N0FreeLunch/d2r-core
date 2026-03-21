@@ -20,10 +20,9 @@ fn status_attributes_progression_values_roundtrip() -> io::Result<()> {
     assert_eq!(section.actual_value(0), Some(-12));
     assert_eq!(section.actual_value(4), Some(0));
 
-    let range = gf_payload_range(&map);
+    let range = map.gf_pos..map.if_pos;
     let serialized = section.to_bytes()?;
-    let range_clone = range.clone();
-    let slice = &bytes[range_clone];
+    let slice = &bytes[range];
     assert_eq!(serialized.len(), slice.len());
     assert_eq!(&serialized[..], slice);
     Ok(())

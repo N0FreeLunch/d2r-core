@@ -19,6 +19,7 @@ Do not invent architecture or reverse-engineering rules when a task spec is miss
 - Use `d2r-spec/.agents/tasks/*.md` as the execution source of truth when the private overlay is available.
 - Otherwise, only use a sanitized public-safe task note if one exists.
 - Keep changes within the planned file scope.
+- Enforce the data boundary from `AGENTS.md`/`NAVIGATOR.md`: extracted game tables belong to `d2r-data/`, while `d2r-core` should only use `src/data/mod.rs` as the gateway.
 - If `d2r-spec/AGENTS.md` or `d2r-spec/AI_WORKFLOW.md` exists locally, treat them as a stronger private overlay for research/publication-boundary handling, not as a reason to expose private detail in public docs.
 - If the parent task spans `3+ files` or involves deep logic, do not execute the full task; only implement explicitly bounded executor-safe slices and otherwise recommend delegation to a stronger secondary model.
 - If the task expands beyond `1 feature + 1 verification + 1-2 files`, stop and request a smaller slice.

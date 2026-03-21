@@ -100,4 +100,14 @@ mod tests {
                 .all(|item| !matches!(item.code.trim(), "r15" | "r13" | "r08"))
         );
     }
+    #[test]
+    fn test_calc_alvl() {
+        use crate::data::legitimacy::calc_alvl;
+        // ilvl=50, qlvl=30, magic_lvl=0 -> temp=50, 50 < 99-30/2=84, alvl=50-15=35
+        assert_eq!(calc_alvl(50, 30, 0), 35);
+        // High level case: ilvl=99, qlvl=30, magic_lvl=0 -> temp=99, 99 >= 84, alvl=2*99-99=99
+        assert_eq!(calc_alvl(99, 30, 0), 99);
+        // Magic level case: ilvl=50, qlvl=30, magic_lvl=10 -> temp=50, alvl=50+10=60
+        assert_eq!(calc_alvl(50, 30, 10), 60);
+    }
 }

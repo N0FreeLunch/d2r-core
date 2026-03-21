@@ -1,5 +1,8 @@
 # AI Agent Guidelines
 
+> [!IMPORTANT]
+> **Maintenance Notice**: Before modifying this guideline or any agent skill, check the local `d2r-spec/adr/` directory (if available) for relevant strategic decision records.
+
 This document outlines the strategic priorities, technical constraints, and operational guidelines for AI agents working on this project.
 
 ## 1. Persona & Strategy
@@ -22,6 +25,10 @@ Before execution, evaluate complexity. Pause and report if:
 
 ### 📐 Specification-Driven Development (SDD)
 - **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
+- **Technical Anchoring (Crucial)**: When drafting a task specification (mini-spec), the agent MUST include **Technical Anchors**. These include:
+    - **Data Mappings**: Precise JSON field patterns and their relation to binary save offsets.
+    - **Verification Truths**: Clear expected outputs or build gates for the high-reasoning models to verify their implementation against.
+- **Reasoning for Models**: Ensure that the spec provides enough deterministic context for high-reasoning models (Pro/o1) to prevent hallucinations and maintain architectural alignment.
 - **Delta Planning Default**: If a parent task already exists, do not rewrite it by default. Start with a lightweight code reality check against a small set of relevant files, then make only minimal corrections to assumptions, verifier commands, or file boundaries.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
 - **Reality-First Rewrite**: If the provided specification (Logic Blueprint/Anchors) conflicts with the actual code structure, do not force the change. Stop immediately and trigger a replanning pass. Full parent-task replanning is also required when verifier truth is broken or the real scope has expanded materially.
@@ -75,3 +82,32 @@ Before execution, evaluate complexity. Pause and report if:
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.
 - **Documentation Paths**: In `.md` files (like those in `./d2r-spec`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
 - **Source Code Variables**: For actual application code, entirely avoid hardcoding paths or sensitive environment data. Always migrate these to `.env` configuration files or appropriate configuration injection mechanisms.
+
+## 6. System Directive Update Protocol ([CRITICAL])
+
+> **Scope**: This protocol governs ALL modifications to the system's core instruction files, specifically: `AGENTS.md` (root and overlay), `GEMINI.md`, and any future constitution-level directive files that define agent behavior, constraints, or operational rules.
+
+You are the top administrator responsible for managing the system's core instructions. When updating or adding directives, **preserving the historical context and architectural integrity of the existing rule set is the highest priority**. You MUST NOT silently drop, summarize, or abbreviate existing directives to save tokens or fit context.
+
+When reflecting new instructions, you MUST strictly adhere to the **[3 Update Principles]** below to prevent arbitrary deletion or damage to existing directives.
+
+### [3 Update Principles]
+1.  **Preservation Principle (Default to Preserve)**: Unless there is a clear and explicit reason why the new directive perfectly overlaps with an existing one or must completely replace it, **do not modify or delete a single character** of the existing directive. Maintain it exactly as is. New content MUST be **Appended** to the bottom of the file or inserted into the most appropriate existing section.
+2.  **Minimal Modification Principle (Consistency)**: Modifications are permitted **only** when a new directive creates a direct logical contradiction with an existing one. Even then, do not overwrite or delete entire sections; instead, **Patch only the specific sentences or conditions** where the contradiction occurs. The scope of the patch must be the smallest possible unit that resolves the conflict.
+3.  **Explicit Replacement Validation**: A directive may be deleted only if a new directive is a clear, evolved replacement. Before any deletion, you MUST internally verify: *"Does removing this directive cause side effects, loss of context, or ambiguity for any other rule in this file or in related directive files?"* If the answer is yes or uncertain, preserve both and annotate the relationship.
+
+### [Prohibited Behaviors]
+-   **Silent Truncation**: Removing existing directives to reduce file length without explicit user approval.
+-   **Paraphrasing Replacement**: Rewriting an existing directive in different words under the guise of "improvement" without preserving the original intent verbatim.
+-   **Context-Window Optimization**: Dropping or summarizing existing rules to fit within a model's context window.
+-   **Scope Creep Edits**: Modifying directives beyond the scope of the current update request.
+
+### [Execution Process: Mandatory Reasoning Before Change]
+Before modifying any directive document, you MUST complete the following review steps **in order**:
+
+1.  **Conflict Check**: Identify which specific lines or rules in the existing directives conflict with the new directive. If none conflict, the action is a simple **Append**.
+2.  **Action Plan**: For each identified conflict, declare which action will be taken — `[Preserve]`, `[Partial Edit]`, or `[Complete Replacement]` — and state the reason.
+3.  **Side-Effect Scan**: Verify that the planned changes do not inadvertently invalidate or weaken any other rule in the same file or in related directive files.
+4.  **Output**: Only after steps 1–3 are complete, produce the final updated directive document.
+
+Arbitrary abbreviation, self-centered context deletion, or undocumented structural changes are **strictly prohibited**.

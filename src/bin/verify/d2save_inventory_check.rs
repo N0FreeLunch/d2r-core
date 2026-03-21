@@ -67,7 +67,7 @@ fn main() {
     }
     println!();
 
-    let errors = InventoryGrid::validate_logical_integrity(&items);
+    let errors = InventoryGrid::validate_logical_integrity(&items, 10, 4);
 
     if errors.is_empty() {
         println!("\x1b[32m[OK] No inventory collisions or out-of-bounds detected.\x1b[0m");

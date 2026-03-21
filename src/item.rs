@@ -34,9 +34,16 @@ impl HuffmanNode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RecordedBit {
+    pub bit: bool,
+    pub offset: u64,
+}
+
 pub struct BitRecorder<'a, R: BitRead> {
     pub reader: &'a mut R,
-    pub recorded_bits: Vec<bool>,
+    pub recorded_bits: Vec<RecordedBit>,
+    pub total_read: u64,
 }
 
 impl<'a, R: BitRead> BitRecorder<'a, R> {
@@ -44,23 +51,26 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
         BitRecorder {
             reader,
             recorded_bits: Vec::new(),
+            total_read: 0,
         }
     }
 
     pub fn read_bit(&mut self) -> io::Result<bool> {
         let bit = self.reader.read_bit()?;
-        self.recorded_bits.push(bit);
+        let offset = self.total_read;
+        self.recorded_bits.push(RecordedBit { bit, offset });
+        self.total_read += 1;
         Ok(bit)
     }
 
-    pub fn read_bits(&mut self, count: u32) -> io::Result<u32> {
-        let mut val = 0;
-        for i in 0..count {
+    pub fn read_bits(&mut self, n: u32) -> io::Result<u32> {
+        let mut value = 0u32;
+        for i in 0..n {
             if self.read_bit()? {
-                val |= 1 << i;
+                value |= 1 << i;
             }
         }
-        Ok(val)
+        Ok(value)
     }
 }
 
@@ -335,7 +345,7 @@ pub enum ItemModule {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
-    pub bits: Vec<bool>,
+    pub bits: Vec<RecordedBit>,
     pub code: String,
     pub flags: u32,
     pub version: u8,
@@ -532,6 +542,7 @@ fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<Str
 fn read_property_list<R: BitRead>(
     recorder: &mut BitRecorder<R>,
     code: &str,
+    version: u8,
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
 ) -> io::Result<(Vec<ItemProperty>, bool)> {
@@ -539,7 +550,7 @@ fn read_property_list<R: BitRead>(
 
     loop {
         let _bit_pos = recorder.recorded_bits.len();
-        match parse_single_property(recorder, code, section_recovery, huffman)? {
+        match parse_single_property(recorder, code, version, section_recovery, huffman)? {
             PropertyParseResult::Property(prop) => props.push(prop),
             PropertyParseResult::Terminator => return Ok((props, true)),
             PropertyParseResult::Recovered => return Ok((props, false)),
@@ -556,11 +567,15 @@ enum PropertyParseResult {
 fn parse_single_property<R: BitRead>(
     recorder: &mut BitRecorder<R>,
     code: &str,
+    version: u8,
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
 ) -> io::Result<PropertyParseResult> {
     let bit_pos = recorder.recorded_bits.len();
-    let stat_id = match recorder.read_bits(9) {
+    let id_bits = if version >= 5 { 11 } else { 9 };
+    let terminator = (1 << id_bits) - 1;
+
+    let stat_id = match recorder.read_bits(id_bits) {
         Ok(stat_id) => stat_id,
         Err(err) => {
             if let Some((section_bytes, item_start_bit)) = section_recovery {
@@ -572,7 +587,7 @@ fn parse_single_property<R: BitRead>(
         }
     };
 
-    if stat_id == 0x1FF {
+    if stat_id == terminator {
         return Ok(PropertyParseResult::Terminator);
     }
 
@@ -608,6 +623,7 @@ fn parse_single_property<R: BitRead>(
     };
 
     let value = calculate_stat_value(raw_value, cost.save_add);
+    item_trace!("    [Prop] ID {}: {} = {} (param: {})", stat_id, cost.name, value, param);
 
     Ok(PropertyParseResult::Property(ItemProperty {
         stat_id,
@@ -814,6 +830,7 @@ impl Item {
         );
 
         let (reads_defense, reads_durability, reads_quantity) = if let Some(template) = template {
+            item_trace!("  [Stats] Template identified: is_armor={}, has_durability={}, is_stackable={}", template.is_armor, template.has_durability, template.is_stackable);
             (
                 template.is_armor,
                 template.has_durability,
@@ -821,6 +838,7 @@ impl Item {
             )
         } else {
             let armor_like_unknown = has_class_specific_data || trimmed_code.contains(' ');
+            item_trace!("  [Stats] No template found, using heuristics: armor_like_unknown={}", armor_like_unknown);
             (armor_like_unknown, armor_like_unknown, false)
         };
 
@@ -828,6 +846,7 @@ impl Item {
         if reads_defense {
             let defense_bits = stat_save_bits(31).unwrap_or(11);
             defense = Some(recorder.read_bits(defense_bits)?);
+            item_trace!("  [Stats] Defense: {:?}", defense);
         }
 
         let mut max_durability = None;
@@ -837,9 +856,13 @@ impl Item {
             let cur_dur_bits = stat_save_bits(72).unwrap_or(9);
             let m_dur = recorder.read_bits(max_dur_bits)?;
             max_durability = Some(m_dur);
+            item_trace!("  [Stats] Max Durability Bits: {}, Value: {}", max_dur_bits, m_dur);
             if m_dur > 0 {
-                current_durability = Some(recorder.read_bits(cur_dur_bits)?);
-                let _dur_extra = recorder.read_bit()?;
+                let current = recorder.read_bits(cur_dur_bits)?;
+                current_durability = Some(current);
+                item_trace!("  [Stats] Current Durability Bits: {}, Value: {}", cur_dur_bits, current);
+                let dur_extra = recorder.read_bit()?;
+                item_trace!("  [Stats] Durability Extra Bit: {}", dur_extra);
             }
         }
 
@@ -850,7 +873,9 @@ impl Item {
 
         let mut sockets = None;
         if is_socketed {
-            sockets = Some(recorder.read_bits(4)? as u8);
+            let count = recorder.read_bits(4)? as u8;
+            sockets = Some(count);
+            item_trace!("  [Stats] Sockets Count Bits: 4, Value: {}", count);
         }
 
         let mut set_list_count = 0;
@@ -899,6 +924,7 @@ impl Item {
     fn read_item_stats<R: BitRead>(
         recorder: &mut BitRecorder<R>,
         code: &str,
+        version: u8,
         quality: Option<ItemQuality>,
         set_list_count: u8,
         is_runeword: bool,
@@ -907,7 +933,7 @@ impl Item {
     ) -> io::Result<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
         let trimmed_code = code.trim();
         let (properties, properties_complete) =
-            read_property_list(recorder, trimmed_code, section_recovery, huffman)?;
+            read_property_list(recorder, trimmed_code, version, section_recovery, huffman)?;
 
         let mut set_attributes = Vec::new();
         let mut runeword_attributes = Vec::new();
@@ -916,7 +942,7 @@ impl Item {
         if parse_property_lists && quality == Some(ItemQuality::Set) && set_list_count > 0 {
             for _ in 0..set_list_count {
                 let (set_props, complete) =
-                    read_property_list(recorder, trimmed_code, section_recovery, huffman)?;
+                    read_property_list(recorder, trimmed_code, version, section_recovery, huffman)?;
                 set_attributes.push(set_props);
                 if !complete {
                     parse_property_lists = false;
@@ -927,7 +953,7 @@ impl Item {
 
         if parse_property_lists && is_runeword {
             let (rw_props, complete) =
-                read_property_list(recorder, trimmed_code, section_recovery, huffman)?;
+                read_property_list(recorder, trimmed_code, version, section_recovery, huffman)?;
             if complete {
                 runeword_attributes = rw_props;
             }
@@ -958,7 +984,7 @@ impl Item {
 
         if is_ear {
             return Ok(Item {
-                bits: recorder.recorded_bits,
+                bits: recorder.recorded_bits.clone(),
                 code,
                 flags,
                 version,
@@ -1068,6 +1094,7 @@ impl Item {
             Self::read_item_stats(
                 &mut recorder,
                 &code,
+                version,
                 item_quality,
                 set_list_count,
                 is_runeword,
@@ -1164,26 +1191,18 @@ impl Item {
         let mut bit_pos = 0u64;
 
         while bit_pos < section_bits {
-            let aligned = align_to_byte(bit_pos);
-            if bit_pos != aligned {
-                item_trace!(
-                    "  [Section] Aligning item cursor from {} to {}",
-                    bit_pos,
-                    aligned
-                );
-            }
-            bit_pos = aligned;
-
-            let start = bit_pos;
-            if start >= section_bits {
+            let mut start = bit_pos;
+            if let Some(next_start) = find_next_item_match(section_bytes, start, huffman) {
+                if next_start != start {
+                    item_trace!("  [Section] Found next item at bit {} (skipped {} bits).", next_start, next_start - start);
+                }
+                start = next_start;
+            } else {
                 break;
             }
 
-            let (item, consumed_bits) = match parse_item_at(section_bytes, start, huffman) {
-                Ok(item) => item,
-                Err(_err) if items.len() >= top_level_count as usize => break,
-                Err(err) => return Err(err),
-            };
+            let (item, consumed_bits) = parse_item_at(section_bytes, start, huffman)?;
+            bit_pos = align_to_byte(start + consumed_bits);
 
             let end = start + consumed_bits;
             if end <= start {
@@ -1489,8 +1508,8 @@ impl Item {
         // However, Mutation clears the bits cache, so this will only trigger if unmodified.
         if !self.bits.is_empty() {
             let mut emitter = BitEmitter::new();
-            for &bit in &self.bits {
-                emitter.write_bit(bit)?;
+            for &rb in &self.bits {
+                emitter.write_bit(rb.bit)?;
             }
             emitter.byte_align()?;
             return Ok(emitter.into_bytes());
@@ -1555,6 +1574,7 @@ fn parse_item_at(
     let item =
         Item::from_reader_with_context(&mut reader, huffman, Some((section_bytes, start_bit)))?;
     let consumed_bits = reader.position_in_bits()?;
+    item_trace!("  [ParseAt] Parsed item '{}' at bit {}. Consumed {} bits.", item.code, start_bit, consumed_bits);
     Ok((item, consumed_bits))
 }
 
@@ -1570,18 +1590,23 @@ fn socket_rescue_limit(parent: &Item) -> usize {
     }
 }
 
-fn is_plausible_item_header(mode: u8, location: u8, code: &str) -> bool {
+fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32) -> bool {
     if mode > 6 || location > 15 {
         return false;
     }
-
-    if item_template(code).is_some() {
-        return code != "    " && code.trim().chars().count() > 0;
+    
+    // Flags validation: bits 27-31 are unused in D2.
+    if (flags & 0xF8000000) != 0 {
+        return false;
     }
 
     let trimmed_code = code.trim();
     if trimmed_code.is_empty() {
         return false;
+    }
+
+    if item_template(code).is_some() {
+        return code != "    " && code.trim().chars().count() > 0;
     }
 
     let is_rune = trimmed_code.len() == 3
@@ -1593,11 +1618,16 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str) -> bool {
     is_rune || is_jewel || is_gem_like
 }
 
-fn is_plausible_socket_child_header(mode: u8, location: u8, code: &str) -> bool {
+fn is_plausible_socket_child_header(mode: u8, location: u8, code: &str, flags: u32) -> bool {
     let Some(template) = item_template(code) else {
         return false;
     };
     if !(mode == 6 || location == 6) {
+        return false;
+    }
+    
+    // Flags validation: bits 27-31 are unused in D2.
+    if (flags & 0xF8000000) != 0 {
         return false;
     }
     let code = code.trim();
@@ -1627,11 +1657,13 @@ fn scan_socket_children(
         return None;
     }
 
+    item_trace!("  [Sockets] Reading {} children at bit {}", max_children, start_bit);
     let mut children = Vec::new();
     let mut search_start = start_bit;
     let mut final_end = start_bit;
 
     while children.len() < max_children {
+        item_trace!("  [Sockets] Searching for child {} at bit {}", children.len(), search_start);
         let Some((child, child_end)) = find_next_socket_child(section_bytes, search_start, huffman)
         else {
             break;
@@ -1658,12 +1690,12 @@ fn find_next_socket_child(
     let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
 
     while probe < max_probe {
-        let Some((mode, location, code)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, code, flags)) = peek_item_header_at(section_bytes, probe, huffman)
         else {
             probe += 8;
             continue;
         };
-        if !is_plausible_socket_child_header(mode, location, &code) {
+        if !is_plausible_socket_child_header(mode, location, &code, flags) {
             probe += 8;
             continue;
         }
@@ -1673,7 +1705,7 @@ fn find_next_socket_child(
             continue;
         };
 
-        if is_plausible_socket_child_header(full_item.mode, full_item.location, &full_item.code) {
+        if is_plausible_socket_child_header(full_item.mode, full_item.location, &full_item.code, full_item.flags) {
             return Some((full_item, probe + consumed_bits));
         }
 
@@ -1687,7 +1719,7 @@ fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
-) -> Option<(u8, u8, String)> {
+) -> Option<(u8, u8, String, u32)> {
     if start_bit % 8 != 0 {
         return None;
     }
@@ -1695,7 +1727,7 @@ fn peek_item_header_at(
     let start_byte = (start_bit / 8) as usize;
     let mut reader = IoBitReader::endian(Cursor::new(&section_bytes[start_byte..]), LittleEndian);
     let mut recorder = BitRecorder::new(&mut reader);
-    let _flags = recorder.read_bits(32).ok()?;
+    let flags = recorder.read_bits(32).ok()?;
     let _version = recorder.read_bits(3).ok()?;
     let mode = recorder.read_bits(3).ok()? as u8;
     let location = recorder.read_bits(4).ok()? as u8;
@@ -1708,7 +1740,26 @@ fn peek_item_header_at(
         code.push(huffman.decode_recorded(&mut recorder).ok()?);
     }
 
-    Some((mode, location, code))
+    Some((mode, location, code, flags))
+}
+
+fn find_next_item_match(
+    section_bytes: &[u8],
+    start_bit: u64,
+    huffman: &HuffmanTree,
+) -> Option<u64> {
+    let mut probe = align_to_byte(start_bit);
+    let section_bits = (section_bytes.len() * 8) as u64;
+
+    while probe < section_bits {
+        if let Some((mode, location, code, flags)) = peek_item_header_at(section_bytes, probe, huffman) {
+            if is_plausible_item_header(mode, location, &code, flags) {
+                return Some(probe);
+            }
+        }
+        probe += 8;
+    }
+    None
 }
 
 fn recover_property_reader<R: BitRead>(
@@ -1723,13 +1774,13 @@ fn recover_property_reader<R: BitRead>(
 
     let mut probe = crate::domain::vo::align_to_byte(section_pos);
     while probe < section_bits {
-        let Some((mode, location, probe_code)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, probe_code, probe_flags)) = peek_item_header_at(section_bytes, probe, huffman)
         else {
             probe += 8;
             continue;
         };
 
-        if is_plausible_item_header(mode, location, &probe_code) {
+        if is_plausible_item_header(mode, location, &probe_code, probe_flags) {
             let skip = if probe > section_pos { probe - section_pos } else { 0 };
             
             item_trace!(
@@ -1755,5 +1806,7 @@ fn parse_base_header<R: BitRead>(
     let id = recorder.read_bits(32)?;
     let level = recorder.read_bits(7)? as u8;
     let q_val = recorder.read_bits(4)? as u8;
-    Ok((id, level, map_item_quality(q_val)))
+    let quality = map_item_quality(q_val);
+    item_trace!("  [BaseHeader] ID: 0x{:08X}, Lvl: {}, QualValue: {}, Quality: {:?}", id, level, q_val, quality);
+    Ok((id, level, quality))
 }

@@ -46,4 +46,51 @@ mod kani_tests {
         // wrapping_sub is defined for all i32 combinations.
         let _ = d2r_core::item::calculate_stat_value(raw, save_add);
     }
+
+    #[kani::proof]
+    fn proof_item_size_validity() {
+        let w: u8 = kani::any();
+        let h: u8 = kani::any();
+        let result = ItemSize::new(w, h);
+        if w > 0 && w <= ItemSize::MAX_DIM && h > 0 && h <= ItemSize::MAX_DIM {
+            assert!(result.is_ok());
+        } else {
+            assert!(result.is_err());
+        }
+    }
+
+    #[kani::proof]
+    fn proof_inventory_placement_grid_safety() {
+        let x: u8 = kani::any();
+        let y: u8 = kani::any();
+        let w: u8 = kani::any();
+        let h: u8 = kani::any();
+
+        let coord = InventoryCoordinate::new(x, y);
+        let size = ItemSize::new(w, h);
+
+        if coord.is_ok() && size.is_ok() {
+            let placement = InventoryPlacement::new(coord.unwrap(), size.unwrap());
+            if placement.is_ok() {
+                let p = placement.unwrap();
+                // Mathematical proof that the item fits in the 10x10 grid
+                assert!(p.coordinate().x() + p.size().width() <= InventoryCoordinate::MAX_X);
+                assert!(p.coordinate().y() + p.size().height() <= InventoryCoordinate::MAX_Y);
+            }
+        }
+    }
+
+    #[kani::proof]
+    fn proof_align_to_byte_correctness() {
+        let pos: u64 = kani::any();
+        // Skip extreme boundary to avoid overflow in (pos + 7) during proof
+        // though u64 is huge enough for normal bit positions.
+        kani::assume(pos < u64::MAX - 8); 
+
+        let aligned = d2r_core::domain::vo::align_to_byte(pos);
+        
+        assert!(aligned % 8 == 0);
+        assert!(aligned >= pos);
+        assert!(aligned < pos + 8);
+    }
 }

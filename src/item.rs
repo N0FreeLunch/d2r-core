@@ -1680,7 +1680,7 @@ fn recover_property_reader<R: BitRead>(
     let section_bits = (section_bytes.len() * 8) as u64;
     let section_pos = item_start_bit + recorder.recorded_bits.len() as u64;
 
-    let mut probe = align_to_byte(section_pos);
+    let mut probe = crate::domain::vo::align_to_byte(section_pos);
     while probe < section_bits {
         let Some((mode, location, probe_code)) = peek_item_header_at(section_bytes, probe, huffman)
         else {
@@ -1689,31 +1689,23 @@ fn recover_property_reader<R: BitRead>(
         };
 
         if is_plausible_item_header(mode, location, &probe_code) {
-            if probe > section_pos {
-                let skip = probe - section_pos;
-                for _ in 0..skip {
-                    recorder.read_bit()?;
-                }
-            }
+            let skip = if probe > section_pos { probe - section_pos } else { 0 };
+            
             item_trace!(
-                "    [DEBUG] Recovered property parse for '{}': next plausible item header '{}' at bit {} (mode={}, location={})",
+                "    [RECOVERY] Synchronizing bitstream for '{}'. Found possible item '{}' at offset {}. Skipping {} bits.",
                 code,
                 probe_code,
                 probe,
-                mode,
-                location
+                skip
             );
+
+            for _ in 0..skip {
+                recorder.read_bit()?;
+            }
             return Ok(true);
         }
-
         probe += 8;
     }
-
-    item_trace!(
-        "    [DEBUG] Property parse recovery failed for '{}': no plausible header from bit {}",
-        code,
-        section_pos
-    );
     Ok(false)
 }
 fn parse_base_header<R: BitRead>(

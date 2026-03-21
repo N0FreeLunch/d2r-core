@@ -58,3 +58,15 @@ impl InventoryGrid {
         None
     }
 }
+
+pub fn get_item_size(code: &str) -> (u8, u8) {
+    match code.trim() {
+        "tsc" | "isc" | "hp1" | "hp2" | "hp3" | "hp4" | "hp5" | "mp1" | "mp2" | "mp3" | "mp4"
+        | "mp5" | "vps" | "yps" | "wms" | "rvs" | "rvl" => (1, 1),
+        "tbk" | "ibk" => (1, 2), // Tome of Town Portal / Identify: 1 wide, 2 tall
+        "buc" => (2, 2),
+        "jav" => (1, 3),
+        "wwa7" => (1, 3), // Amazon war bow variant (1 wide, 3 tall)
+        _ => (1, 1),
+    }
+}

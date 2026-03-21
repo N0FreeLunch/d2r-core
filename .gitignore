@@ -19,3 +19,10 @@ Thumbs.db
 
 # Specification Link
 d2r-spec/
+
+# Temporary Data Extraction Tools
+d2r-data-extractor/
+
+# Generated Test Files
+tests/fixtures/savegames/modified/
+

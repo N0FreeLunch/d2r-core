@@ -114,6 +114,15 @@ Before modifying any directive document, you MUST complete the following review 
 
 Arbitrary abbreviation, self-centered context deletion, or undocumented structural changes are **strictly prohibited**.
 
+
+## 7. Harness Engineering Principles ([CRITICAL])
+
+To ensure safe orchestration and minimize token-wasting loops, all agents MUST adhere to the following harness constraints when interacting with complex logic or external data:
+
+1. **Efficiency over Token (Tool-driven Iteration)**: Prohibit manual, repetitive agent actions for testing. Complex mutations and fuzzing must be executed via automated tools (e.g., Proptest, Fuzzer) outside the agent's direct execution context. Agents should only analyze the summarized results (minimal failing cases) to conserve tokens and improve decision-making.
+2. **Error Feedback Utilization (AI-Friendly Diagnostics)**: Prioritize the use of AI-friendly, structured error diagnostics. When debugging, rely on actionable hints and structured details (e.g., offsets, expected vs. actual) rather than raw string outputs.
+3. **Golden Master Priority (Living Specification)**: Treat actual game-generated save files (Golden Master) as the ultimate verifier truth. Passing verification against real fixture data is the mandatory, absolute condition for completing logic implementations.
+
 ## 8. Anti-Loop & Ambiguity Resolution Protocol
 - **Action Triggers over Monologues**: If you find yourself repeatedly outputting plans, intentions to use tools, or simulating future reasoning without actually executing a tool call (e.g., stuck in a generation loop), **STOP generating text**. You must either execute the specific tool immediately or directly ask the user for clarification.
 - **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"

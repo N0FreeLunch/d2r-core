@@ -28,6 +28,5 @@ tests/fixtures/savegames/modified/
 
 # External Data (Symbolic Link)
 d2r-data/
-src/data/generated
 
 

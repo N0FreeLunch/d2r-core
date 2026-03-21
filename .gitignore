@@ -16,3 +16,6 @@ Thumbs.db
 
 # Temporary files
 *.txt
+
+# Specification Link
+d2r-spec/

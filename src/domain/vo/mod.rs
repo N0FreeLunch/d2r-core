@@ -8,9 +8,11 @@
 pub struct ItemStatValue(i32);
 
 impl ItemStatValue {
+    pub const MIN_SAFE: i32 = -100_000;
+    pub const MAX_SAFE: i32 = 100_000;
+
     pub fn new(val: i32) -> Result<Self, &'static str> {
-        // Example invariant check placeholder
-        if val < -100_000 || val > 100_000 {
+        if val < Self::MIN_SAFE || val > Self::MAX_SAFE {
             return Err("Item stat value out of safe boundaries");
         }
         Ok(Self(val))
@@ -18,6 +20,13 @@ impl ItemStatValue {
 
     pub fn value(&self) -> i32 {
         self.0
+    }
+}
+
+impl TryFrom<i32> for ItemStatValue {
+    type Error = &'static str;
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        Self::new(value)
     }
 }
 
@@ -30,9 +39,11 @@ pub struct InventoryCoordinate {
 }
 
 impl InventoryCoordinate {
+    pub const MAX_X: u8 = 10;
+    pub const MAX_Y: u8 = 10;
+
     pub fn new(x: u8, y: u8) -> Result<Self, &'static str> {
-        // Example grid boundaries for typical Diablo 2 inventory
-        if x > 10 || y > 10 {
+        if x > Self::MAX_X || y > Self::MAX_Y {
             return Err("Inventory coordinates out of bounds");
         }
         Ok(Self { x, y })
@@ -46,3 +57,11 @@ impl InventoryCoordinate {
         self.y
     }
 }
+
+impl TryFrom<(u8, u8)> for InventoryCoordinate {
+    type Error = &'static str;
+    fn try_from(value: (u8, u8)) -> Result<Self, Self::Error> {
+        Self::new(value.0, value.1)
+    }
+}
+

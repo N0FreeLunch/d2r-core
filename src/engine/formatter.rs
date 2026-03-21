@@ -206,20 +206,8 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
         5 => f(format!("{} {}%", loc_str, display_value)),
         6 => f(format!("{}% {}", signed_value, loc_str)),
         7 => f(format!("{}% {}", display_value, loc_str)),
-        11 => {
-            if loc_str.contains('%') {
-                format_template(loc_str, &[display_value.to_string()])
-            } else {
-                format!("{} {}", display_value, loc_str)
-            }
-        }
-        12 => {
-            if loc_str.contains('%') {
-                format_template(loc_str, &[display_value.to_string()])
-            } else {
-                format!("{} {}", loc_str, signed_value)
-            }
-        }
+        11 => f(format!("{} {}", display_value, loc_str)),
+        12 => f(format!("{} {}", loc_str, signed_value)),
         13 => {
             let class_id = prop.param as usize;
             if class_id == 0 && !loc_str.starts_with("ItemModifier") {
@@ -284,22 +272,17 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
                 format!("Level {} {} Aura When Equipped", display_value, skill)
             }
         }
-        17 => {
-            if language == "ko" {
-                format!("{} {} (시간 경과에 따라 증가)", display_value, loc_str)
+        17 | 18 => {
+            let label = if descfunc == 17 { loc_str } else { &format!("{}%", display_value) };
+            let suffix = get_loc("itemstats-increasesovertime", language);
+            if descfunc == 17 {
+                format!("{} {} ({})", display_value, label, suffix)
             } else {
-                format!("{} {} (Increases over time)", display_value, loc_str)
+                format!("{} {} ({})", label, loc_str, suffix)
             }
         }
-        18 => {
-            if language == "ko" {
-                format!("{}% {} (시간 경과에 따라 증가)", display_value, loc_str)
-            } else {
-                format!("{}% {} (Increases over time)", display_value, loc_str)
-            }
-        }
-        20 => format!("-{}% {}", display_value.abs(), loc_str),
-        21 => format!("-{} {}", display_value.abs(), loc_str),
+        20 => f(format!("-{}% {}", display_value.abs(), loc_str)),
+        21 => f(format!("-{} {}", display_value.abs(), loc_str)),
         22 => {
             let monster = monster_type_name(prop.param, language);
             let base = if loc_str.contains('%') {

@@ -72,3 +72,6 @@ path = "src/bin/verify/d2save_status_diff.rs"
 [[bin]]
 name = "d2item_chunk_verify"
 path = "src/bin/verify/d2item_chunk_verify.rs"
+[[bin]]
+name = "d2item_bit_width_probe"
+path = "src/bin/verify/d2item_bit_width_probe.rs"

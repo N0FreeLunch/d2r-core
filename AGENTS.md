@@ -112,3 +112,8 @@ Before modifying any directive document, you MUST complete the following review 
 4.  **Output**: Only after steps 1–3 are complete, produce the final updated directive document.
 
 Arbitrary abbreviation, self-centered context deletion, or undocumented structural changes are **strictly prohibited**.
+
+## 7. Anti-Loop & Ambiguity Resolution Protocol
+- **Action Triggers over Monologues**: If you find yourself repeatedly outputting plans, intentions to use tools, or simulating future reasoning without actually executing a tool call (e.g., stuck in a generation loop), **STOP generating text**. You must either execute the specific tool immediately or directly ask the user for clarification.
+- **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"
+- **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."

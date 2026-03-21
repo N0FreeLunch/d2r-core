@@ -3,8 +3,8 @@ use std::fs;
 use std::process;
 
 use d2r_core::save::{
-    class_name, find_jm_markers, Save, ACTIVE_WEAPON_OFFSET, CHAR_CLASS_OFFSET, CHAR_LEVEL_OFFSET,
-    CHAR_NAME_OFFSET, LAST_PLAYED_OFFSET,
+    ACTIVE_WEAPON_OFFSET, CHAR_CLASS_OFFSET, CHAR_LEVEL_OFFSET, CHAR_NAME_OFFSET,
+    LAST_PLAYED_OFFSET, Save, class_name, find_jm_markers,
 };
 
 fn main() {
@@ -37,8 +37,14 @@ fn main() {
     println!("[HEADER]");
     println!("  Offset  0 | Magic:         0x{:08X}", save.header.magic);
     println!("  Offset  4 | Version:       {}", save.header.version);
-    println!("  Offset  8 | File Size:     {} bytes", save.header.file_size);
-    println!("  Offset 12 | Checksum:      0x{:08X}", save.header.checksum);
+    println!(
+        "  Offset  8 | File Size:     {} bytes",
+        save.header.file_size
+    );
+    println!(
+        "  Offset 12 | Checksum:      0x{:08X}",
+        save.header.checksum
+    );
     println!(
         "  Offset {ACTIVE_WEAPON_OFFSET:<2} | Active Weapon: {}",
         save.header.active_weapon

@@ -45,3 +45,32 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 6.  **Locate Patterns**: Search `src/` for similar implementation patterns.
 7.  **Verify**: Identify and run the matching `src/bin/verify/` tool.
 8.  **Escalate Correctly**: If the task is `3+ files` or deep logic, refresh the task spec and route full implementation to a stronger secondary model.
+
+## 6. Verification Tool Catalog
+
+| Tool Name | Scope | Description & Primary Usage |
+| :--- | :--- | :--- |
+| `d2save_verify` | Save | Validates checksum, file size, and basic JM marker structure. |
+| `d2save_map` | Save | Dumps the memory map of a `.d2s` file (JM offsets, item counts). |
+| `d2save_diff` | Save | Byte-level diff between two saves (header vs item section). |
+| `d2save_item_diff`| Save | **Crucial**: Compares only the item bitstream, masking header noise. |
+| `d2item_inspect` | Item | Decomposes a `.d2i` or `.d2s` item into its bit-fields and props. |
+| `d2item_extract` | Item | Extracts a raw item bit-payload from a save into a `.d2i` file. |
+| `d2save_inject` | Item | Injects a raw `.d2i` item into a specific save file. |
+| `d2save_inventory_check`| Logic | Verifies inventory grid integrity (no overlaps, valid coordinates). |
+
+### 🚀 Common Verification Commands
+
+```powershell
+# 1. Verify save checksum/magic (after saving a file)
+cargo run --bin d2save_verify -- tests/fixtures/savegames/modified/generated.d2s
+
+# 2. Compare item data only (ignoring login metadata/timestamp changes)
+cargo run --bin d2save_item_diff -- actual.d2s expected.d2s
+
+# 3. Inspect a specific item's bit-fields
+cargo run --bin d2item_inspect -- tests/fixtures/savegames/original/tsc_real.d2i
+
+# 4. Check for inventory grid collisions
+cargo run --bin d2save_inventory_check -- path/to/save.d2s
+```

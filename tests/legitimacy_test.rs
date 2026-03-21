@@ -188,9 +188,9 @@ fn test_ethereal_defense_violation() {
     
     item.defense = Some(1000); // Way too low for ethereal + 100% ED
     
-    let warnings = d2r_core::engine::validation::check_ethereal_legitimacy(&item);
+    let warnings = d2r_core::engine::validation::check_base_stat_legitimacy(&item);
     assert!(!warnings.is_empty(), "Should warn about defense mismatch on ethereal armor");
-    assert!(warnings[0].contains("does not match calculated value 1574"), "Warning mismatch: {}", warnings[0]);
+    assert!(warnings[0].contains("does not match expected 1574"), "Warning mismatch: {}", warnings[0]);
 }
 
 #[test]

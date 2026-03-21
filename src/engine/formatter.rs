@@ -73,11 +73,19 @@ pub fn format_item(item: &Item, language: &str, active_set_count: usize, char_le
         }
     }
 
-    let properties = item
+    let mut properties: Vec<String> = item
         .properties
         .iter()
         .map(|p| format_property(p, char_level, language))
         .collect();
+
+    if item.is_runeword {
+        properties.extend(
+            item.runeword_attributes
+                .iter()
+                .map(|p| format_property(p, char_level, language))
+        );
+    }
 
     let mut set_bonuses = Vec::new();
     if item.quality == Some(ItemQuality::Set) && item.is_identified {

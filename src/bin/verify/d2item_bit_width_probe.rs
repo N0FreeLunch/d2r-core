@@ -93,10 +93,7 @@ fn explore_path(
             } else {
                 0
             };
-
-            if is_value_suspicious(id, val) {
-                path.score -= 80;
-            }
+            // println!("Probe DEBUG: ID {} Name {} Val {} Bits {}", id, cost.name, val, cost.save_bits);
 
             path.stats.push(StatRead {
                 id,
@@ -154,9 +151,7 @@ fn main() -> io::Result<()> {
             let id = read_bits(&mut reader, id_bits)?;
             if id == search_id {
                 let path = explore_path(&bytes, bit, id_bits, 10)?;
-                if path.score > 150 {
-                    println!("Potential match at bit {}: Score {}, Stats {:?}", bit, path.score, path.stats.iter().map(|s| &s.name).collect::<Vec<_>>());
-                }
+                println!("Match at bit {}: Score {}, Stats {:?}", bit, path.score, path.stats.iter().map(|s| &s.name).collect::<Vec<_>>());
             }
         }
     } else {
@@ -191,7 +186,7 @@ fn main() -> io::Result<()> {
         println!("{:-<5}-|-{:-<7}-|-{:-<7}-|-{:-<7}-|-{:-<10}-|-------", "", "", "", "", "");
 
         for (i, path) in paths.iter().take(20).enumerate() {
-            let stat_ids: Vec<String> = path.stats.iter().map(|s| format!("{} ({})", s.id, s.name)).collect();
+            let stat_ids: Vec<String> = path.stats.iter().map(|s| format!("{} ({})={}", s.id, s.name, s.value)).collect();
             println!(
                 "{:<5} | {:<7} | {:<7} | {:<7} | {:<10} | [{}]",
                 i + 1,

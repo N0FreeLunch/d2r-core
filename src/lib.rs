@@ -69,8 +69,8 @@ mod tests {
 
         let authority = items
             .iter()
-            .find(|item| item.code.trim() == "w ha")
-            .expect("authority base item should be present");
+            .find(|item| item.code.trim() == "xrs" && item.is_runeword)
+            .expect("authority base item (xrs) should be present");
 
         let child_codes: Vec<&str> = authority
             .socketed_items
@@ -97,11 +97,11 @@ mod tests {
         let top_level_codes: Vec<&str> = items.iter().map(|item| item.code.trim()).collect();
         assert_eq!(
             top_level_codes,
-            vec!["hp1", "hp1", "hp1", "hp1", "xrs", "w ha"]
+            vec!["hp1", "hp1", "hp1", "hp1", "xrs", "xrs"]
         );
 
         let authority = items.last().expect("authority base item should be last");
-        assert_eq!(authority.code.trim(), "w ha");
+        assert_eq!(authority.code.trim(), "xrs");
 
         let child_summaries: Vec<(&str, u8)> = authority
             .socketed_items

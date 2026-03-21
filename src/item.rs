@@ -316,7 +316,7 @@ pub struct ItemStats {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemModule {
     MagicAffixes { prefix: Option<u16>, suffix: Option<u16> },
-    RareAffixes { names: [Option<u8>; 2], affixes: Vec<u16> },
+    RareAffixes { names: [Option<u8>; 2], affixes: [Option<u16>; 6] },
     UniqueAffix { unique_id: Option<u16> },
     Sockets { count: u8, items: Vec<Item> },
     Personalization(Option<String>),
@@ -362,7 +362,7 @@ pub struct Item {
     pub magic_suffix: Option<u16>,
     pub rare_name_1: Option<u8>,
     pub rare_name_2: Option<u8>,
-    pub rare_affixes: Vec<u16>,
+    pub rare_affixes: [Option<u16>; 6],
     pub unique_id: Option<u16>,
     pub runeword_id: Option<u16>,
     pub runeword_level: Option<u8>,
@@ -419,6 +419,42 @@ impl Item {
             set_attributes: self.set_attributes.clone(),
             runeword_attributes: self.runeword_attributes.clone(),
         }
+    }
+
+    pub fn prefixes(&self) -> Vec<&'static crate::data::item_specs::Affix> {
+        let mut result = Vec::new();
+        if let Some(id) = self.magic_prefix {
+            if let Some(affix) = crate::data::affixes::PREFIXES.iter().find(|a| a.id == id as u32) {
+                result.push(affix);
+            }
+        }
+        // Rare prefixes are in slots 0, 2, 4
+        for i in [0, 2, 4] {
+            if let Some(id) = self.rare_affixes[i] {
+                if let Some(affix) = crate::data::affixes::PREFIXES.iter().find(|a| a.id == id as u32) {
+                    result.push(affix);
+                }
+            }
+        }
+        result
+    }
+
+    pub fn suffixes(&self) -> Vec<&'static crate::data::item_specs::Affix> {
+        let mut result = Vec::new();
+        if let Some(id) = self.magic_suffix {
+            if let Some(affix) = crate::data::affixes::SUFFIXES.iter().find(|a| a.id == id as u32) {
+                result.push(affix);
+            }
+        }
+        // Rare suffixes are in slots 1, 3, 5
+        for i in [1, 3, 5] {
+            if let Some(id) = self.rare_affixes[i] {
+                if let Some(affix) = crate::data::affixes::SUFFIXES.iter().find(|a| a.id == id as u32) {
+                    result.push(affix);
+                }
+            }
+        }
+        result
     }
 }
 
@@ -643,7 +679,7 @@ impl Item {
         Option<u16>,
         Option<u8>,
         Option<u8>,
-        Vec<u16>,
+        [Option<u16>; 6],
         Option<u16>,
         Option<u16>,
         Option<u8>,
@@ -689,7 +725,7 @@ impl Item {
         let mut magic_suffix = None;
         let mut rare_name_1 = None;
         let mut rare_name_2 = None;
-        let mut rare_affixes = Vec::new();
+        let mut rare_affixes = [None; 6];
         let mut unique_id = None;
 
         match quality {
@@ -703,12 +739,9 @@ impl Item {
             ItemQuality::Rare | ItemQuality::Crafted => {
                 rare_name_1 = Some(recorder.read_bits(8)? as u8);
                 rare_name_2 = Some(recorder.read_bits(8)? as u8);
-                for _ in 0..3 {
-                    if recorder.read_bits(1)? != 0 {
-                        rare_affixes.push(recorder.read_bits(11)? as u16);
-                    }
-                    if recorder.read_bits(1)? != 0 {
-                        rare_affixes.push(recorder.read_bits(11)? as u16);
+                for i in 0..6 {
+                    if recorder.read_bit()? {
+                        rare_affixes[i] = Some(recorder.read_bits(11)? as u16);
                     }
                 }
             }
@@ -921,7 +954,7 @@ impl Item {
                 magic_suffix: None,
                 rare_name_1: None,
                 rare_name_2: None,
-                rare_affixes: Vec::new(),
+                rare_affixes: [None; 6],
                 unique_id: None,
                 runeword_id: None,
                 runeword_level: None,
@@ -949,40 +982,40 @@ impl Item {
         let header_socket_hint = recorder.read_bits(3)? as u8;
         let num_socketed_items = header_socket_hint;
 
-        let (
-            item_id,
-            item_level,
-            item_quality,
-            has_multiple_graphics,
-            multi_graphics_bits,
-            has_class_specific_data,
-            class_specific_bits,
-            low_high_graphic_bits,
-            magic_prefix,
-            magic_suffix,
-            rare_name_1,
-            rare_name_2,
-            rare_affixes,
-            unique_id,
-            runeword_id,
-            runeword_level,
-            personalized_player_name,
-            tbk_ibk_teleport,
-            timestamp_flag,
-            defense,
-            max_durability,
-            current_durability,
-            quantity,
-            sockets,
-            set_list_count,
-        ) = if !is_compact {
+        let stats = if !is_compact {
             Self::read_extended_stats(&mut recorder, &code, is_socketed, is_runeword, is_personalized)?
         } else {
             (
                 None, None, None, false, None, false, None, None, None, None, None, None,
-                Vec::new(), None, None, None, None, None, false, None, None, None, None, None, 0,
+                [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0,
             )
         };
+
+        let item_id = stats.0;
+        let item_level = stats.1;
+        let item_quality = stats.2;
+        let has_multiple_graphics = stats.3;
+        let multi_graphics_bits = stats.4;
+        let has_class_specific_data = stats.5;
+        let class_specific_bits = stats.6;
+        let low_high_graphic_bits = stats.7;
+        let magic_prefix = stats.8;
+        let magic_suffix = stats.9;
+        let rare_name_1 = stats.10;
+        let rare_name_2 = stats.11;
+        let rare_affixes = stats.12;
+        let unique_id = stats.13;
+        let runeword_id = stats.14;
+        let runeword_level = stats.15;
+        let personalized_player_name = stats.16;
+        let tbk_ibk_teleport = stats.17;
+        let timestamp_flag = stats.18;
+        let defense = stats.19;
+        let max_durability = stats.20;
+        let current_durability = stats.21;
+        let quantity = stats.22;
+        let sockets = stats.23;
+        let set_list_count = stats.24;
 
         let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact {
             Self::read_item_stats(
@@ -1189,7 +1222,7 @@ impl Item {
             magic_suffix: None,
             rare_name_1: None,
             rare_name_2: None,
-            rare_affixes: Vec::new(),
+            rare_affixes: [None; 6],
             unique_id: None,
             runeword_id: None,
             runeword_level: None,
@@ -1321,15 +1354,12 @@ impl Item {
             ItemQuality::Rare | ItemQuality::Crafted => {
                 emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
                 emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
-                let mut affix_iter = self.rare_affixes.iter();
-                for _ in 0..3 {
-                    for _ in 0..2 {
-                        if let Some(&value) = affix_iter.next() {
-                            emitter.write_bit(true)?;
-                            emitter.write_bits(value as u32, 11)?;
-                        } else {
-                            emitter.write_bit(false)?;
-                        }
+                for i in 0..6 {
+                    if let Some(value) = self.rare_affixes[i] {
+                        emitter.write_bit(true)?;
+                        emitter.write_bits(value as u32, 11)?;
+                    } else {
+                        emitter.write_bit(false)?;
                     }
                 }
             }

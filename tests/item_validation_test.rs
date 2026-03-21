@@ -108,3 +108,41 @@ fn validate_param_mismatch_creates_missing_and_unexpected() {
         .iter()
         .any(|s| s.status == StatValidationStatus::MissingOnItem));
 }
+
+#[test]
+fn validate_magic_item_with_affixes() {
+    let mut item = base_item();
+    item.quality = Some(ItemQuality::Magic);
+    item.magic_prefix = Some(1); // Sturdy (+20..30 Def)
+    item.magic_suffix = Some(0); // of Health (1 DR)
+    item.properties = vec![
+        prop(16, 0, 25), // In range (Score 0.5)
+        prop(36, 0, 1),  // In range (Score 1.0)
+    ];
+
+    let result = validate_item(&item).expect("magic item should validate");
+    assert_eq!(result.spec_name, "Sturdy of Health");
+    assert!(!result.is_perfect);
+    // Score is 0.5 because only the variable stat (16: 20-30) is counted in variable_scores
+    assert!((result.score - 0.5).abs() < 0.001); 
+}
+
+#[test]
+fn validate_rare_item_merged_stats() {
+    let mut item = base_item();
+    item.quality = Some(ItemQuality::Rare);
+    // Let's use two affixes that both give Defense if possible, or just two different ones.
+    // Prefix 1: Sturdy (20..30 Def)
+    // Prefix 2: Strong (31..40 Def)
+    item.rare_affixes[0] = Some(1); 
+    item.rare_affixes[2] = Some(2); 
+    item.properties = vec![
+        prop(16, 0, 60), // Merged range: (20+31)..(30+40) = 51..70. 60 is in range.
+    ];
+
+    let result = validate_item(&item).expect("rare item should validate");
+    assert!(!result.is_perfect);
+    assert!(result.stats.iter().all(|s| s.status == StatValidationStatus::InRange));
+    assert_eq!(result.stats[0].min, 51);
+    assert_eq!(result.stats[0].max, 70);
+}

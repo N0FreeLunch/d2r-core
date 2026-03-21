@@ -80,8 +80,10 @@ mod roundtrip_tests {
         println!("Runeword attributes: {:?}", authority.runeword_attributes.iter().map(|p| p.stat_id).collect::<Vec<_>>());
         println!("--------------------------------------------------");
 
-        let target_stat_id = 16; // Force Enhanced Defense for test
-        use d2r_core::domain::vo::ItemStatValue;
+        // Mutate internal properties:
+        // In Alpha v105 Authority, ID 19 (tohit/Enhanced Damage) exists.
+        let target_stat_id = 19; 
+       use d2r_core::domain::vo::ItemStatValue;
         let new_val = ItemStatValue::new(300).unwrap();
 
         assert!(authority.set_property_value(target_stat_id, new_val), "Failed to set property {}", target_stat_id);

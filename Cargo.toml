@@ -75,3 +75,7 @@ path = "src/bin/verify/d2item_chunk_verify.rs"
 [[bin]]
 name = "d2item_bit_width_probe"
 path = "src/bin/verify/d2item_bit_width_probe.rs"
+
+[[bin]]
+name = "d2item_alpha_v105_inspect"
+path = "src/bin/verify/d2item_alpha_v105_inspect.rs"

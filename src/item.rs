@@ -453,7 +453,6 @@ impl Item {
     pub fn set_property_value(&mut self, stat_id: u32, value: crate::domain::vo::ItemStatValue) -> bool {
         println!("DEBUG: set_property_value(id={}, val={}), self.version={}, self.is_runeword={}", stat_id, value.value(), self.version, self.is_runeword);
         let mut found = false;
-        let mut target_list_idx = 0; // 0 = properties, 1+ = sets, last = runeword
         
         {
             let mut lists = Vec::new();
@@ -463,7 +462,7 @@ impl Item {
             }
             lists.push(&mut self.runeword_attributes);
 
-            for (i, list) in lists.into_iter().enumerate() {
+            for list in lists.into_iter() {
                 for prop in list {
                     if prop.stat_id == stat_id {
                         let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
@@ -471,31 +470,12 @@ impl Item {
                             prop.value = value.value();
                             prop.raw_value = value.value().wrapping_add(c.save_add);
                             found = true;
-                            target_list_idx = i;
                         }
                     }
                 }
             }
         }
         
-        // Strategy: If not found, and it's a version 5 runeword, adding ID 16 is common for testing.
-        // But for reliability of the harness, we should perhaps support adding properties.
-        if !found && stat_id == 16 && self.is_runeword && self.version == 5 {
-            let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
-            if let Some(c) = cost {
-                let new_prop = ItemProperty {
-                    stat_id,
-                    name: "Enhanced Defense".to_string(),
-                    param: 0,
-                    raw_value: value.value().wrapping_add(c.save_add),
-                    value: value.value(),
-                };
-                // For Authority v105, List 1 (self.properties) is usually empty. Let's add it there.
-                self.properties.push(new_prop);
-                found = true;
-            }
-        }
-
         if found {
             self.bits.clear();
         }
@@ -636,35 +616,38 @@ fn parse_single_property<R: BitRead>(
         return Ok(PropertyParseResult::Terminator);
     }
 
-    let cost = match crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id) {
-        Some(c) => c,
+    let cost_opt = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
+    let (name, save_add, unknown) = match cost_opt {
+        Some(c) => (c.name.to_string(), c.save_add, false),
         None => {
-            let err = crate::error::DiagnosticError::new(
-                bit_pos,
-                "Expected valid stat ID from STAT_COSTS",
-                stat_id.to_string(),
-                format!("Stat ID {} is not defined in game data for item '{}'.", stat_id, code)
-            );
-            item_trace!("    [ERROR] Found unknown stat ID: {}", err);
-            if let Some((section_bytes, item_start_bit)) = section_recovery {
-                if recover_property_reader(recorder, code, section_bytes, item_start_bit, huffman)? {
-                    return Ok(PropertyParseResult::Recovered);
+            if version == 5 {
+                (format!("unknown_stat_{}", stat_id), 0i32, true)
+            } else {
+                let err = crate::error::DiagnosticError::new(
+                    bit_pos,
+                    "Expected valid stat ID from STAT_COSTS",
+                    stat_id.to_string(),
+                    format!("Stat ID {} is not defined in game data for item '{}'.", stat_id, code)
+                );
+                item_trace!("    [ERROR] Found unknown stat ID: {}", err);
+                if let Some((section_bytes, item_start_bit)) = section_recovery {
+                    if recover_property_reader(recorder, code, section_bytes, item_start_bit, huffman)? {
+                        return Ok(PropertyParseResult::Recovered);
+                    }
                 }
+                return Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string()));
             }
-            return Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string()));
         }
     };
 
-    let (param_bits, save_bits, save_add) = if version == 5 {
-        if alpha_runeword {
-            (0u16, 7u16, cost.save_add) // Alpha v105 List 2: fixed 7 bits
-        } else {
-            (0u16, 10u16, cost.save_add) // Alpha v105 List 1: fixed 10 bits
-        }
+    let (param_bits, save_bits, final_save_add) = if version == 5 {
+        let val_bits = if alpha_runeword { 12 } else { 10 };
+        (0u16, val_bits, save_add) // Alpha v105: List 1 (10) vs List 2 (12)
     } else if alpha_runeword && (stat_id == 193 || stat_id == 198 || stat_id == 199 || stat_id == 201) {
-        (0u16, 7u16, 0i32)
+       (0u16, 7u16, 0i32)
     } else {
-        (cost.save_param_bits as u16, cost.save_bits as u16, cost.save_add)
+        let c = cost_opt.unwrap(); // Safe because it's not version 5 and we didn't return error
+        (c.save_param_bits as u16, c.save_bits as u16, c.save_add)
     };
 
     let param = if param_bits > 0 {
@@ -679,12 +662,12 @@ fn parse_single_property<R: BitRead>(
         0
     };
 
-    let value = calculate_stat_value(raw_value, save_add);
-    item_trace!("    [Prop] ID {}: {} = {} (param: {})", stat_id, cost.name, value, param);
+    let value = calculate_stat_value(raw_value, final_save_add);
+    item_trace!("    [Prop] ID {}: {} = {} (param: {})", stat_id, name, value, param);
 
     Ok(PropertyParseResult::Property(ItemProperty {
         stat_id,
-        name: cost.name.to_string(),
+        name,
         param,
         raw_value,
         value,
@@ -706,26 +689,33 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], _version: u8) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
-        let stat = crate::data::stat_costs::STAT_COSTS
-            .iter()
-            .find(|s| s.id == prop.stat_id)
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Missing stat_cost entry for stat_id {}", prop.stat_id),
-                )
-            })?;
-        emitter.write_bits(prop.stat_id, id_bits)?;
-        if stat.save_param_bits > 0 {
-            emitter.write_bits(prop.param, stat.save_param_bits as u32)?;
-        }
-        if stat.save_bits > 0 {
-            emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
+        if version == 5 {
+            // Alpha v105 (v5): Fixed-width binary stats.
+            let val_bits = if alpha_runeword { 12 } else { 10 };
+            emitter.write_bits(prop.stat_id, 9)?;
+            emitter.write_bits(prop.raw_value as u32, val_bits)?;
+        } else {
+           let stat = crate::data::stat_costs::STAT_COSTS
+                .iter()
+                .find(|s| s.id == prop.stat_id)
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("Missing stat_cost entry for stat_id {}", prop.stat_id),
+                    )
+                })?;
+            emitter.write_bits(prop.stat_id, id_bits)?;
+            if stat.save_param_bits > 0 {
+                emitter.write_bits(prop.param, stat.save_param_bits as u32)?;
+            }
+            if stat.save_bits > 0 {
+                emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
+            }
         }
     }
     emitter.write_bits(terminator, id_bits)?;
@@ -812,6 +802,31 @@ impl Item {
     )> {
         let trimmed_code = code.trim();
         let template = item_template(code);
+        if version == 5 {
+            let (_id, item_level, quality) = parse_base_header(recorder, version)?;
+            let mut magic_prefix = None;
+            let mut magic_suffix = None;
+            if quality == ItemQuality::Magic {
+                magic_prefix = Some(recorder.read_bits(7)? as u16);
+                magic_suffix = Some(recorder.read_bits(7)? as u16);
+            }
+            let has_multiple_graphics = recorder.read_bit()?;
+            let has_class_specific_data = recorder.read_bit()?;
+            let timestamp_flag = recorder.read_bit()?;
+            
+            // Return early for Alpha v105 (v5)
+            return Ok((
+                None, Some(item_level), Some(quality), 
+                has_multiple_graphics, None, // multi_graphics_bits
+                has_class_specific_data, None, // class_specific_bits
+                None, magic_prefix, magic_suffix,
+                None, None, [None; 6], // rare names/affixes
+                None, None, None, // unique/runeword ids
+                None, None, // personalization/teleport
+                timestamp_flag, None, None, None, None, None, 0
+            ));
+        }
+
         let (item_id, item_level, quality) = parse_base_header(recorder, version)?;
         let item_id = Some(item_id);
         let item_level = Some(item_level);
@@ -849,8 +864,13 @@ impl Item {
                 low_high_graphic_bits = Some(recorder.read_bits(3)? as u8);
             }
             ItemQuality::Magic => {
-                magic_prefix = Some(recorder.read_bits(11)? as u16);
-                magic_suffix = Some(recorder.read_bits(11)? as u16);
+                if version == 5 {
+                    magic_prefix = Some(recorder.read_bits(7)? as u16);
+                    magic_suffix = Some(recorder.read_bits(7)? as u16);
+                } else {
+                    magic_prefix = Some(recorder.read_bits(11)? as u16);
+                    magic_suffix = Some(recorder.read_bits(11)? as u16);
+                }
             }
             ItemQuality::Rare | ItemQuality::Crafted => {
                 rare_name_1 = Some(recorder.read_bits(8)? as u8);
@@ -904,6 +924,21 @@ impl Item {
             item_trace!("  [Stats] No template found, using heuristics: armor_like_unknown={}", armor_like_unknown);
             (armor_like_unknown, armor_like_unknown, false)
         };
+
+        if version == 5 {
+            // In Alpha v105 v5, Stats like Defense/Durability are skipped in the header block.
+            // They are part of the property lists.
+            return Ok((
+                item_id, item_level, item_quality, 
+                has_multiple_graphics, multi_graphics_bits,
+                has_class_specific_data, class_specific_bits,
+                low_high_graphic_bits, magic_prefix, magic_suffix,
+                rare_name_1, rare_name_2, rare_affixes,
+                unique_id, runeword_id, runeword_level,
+                personalized_player_name, tbk_ibk_teleport,
+                timestamp_flag, None, None, None, None, None, 0
+            ));
+        }
 
         let mut defense = None;
         if reads_defense {
@@ -1015,16 +1050,10 @@ impl Item {
         }
 
         if parse_property_lists && is_runeword && version == 5 {
-            // Alpha v105: 51-bit spacer exists between List 1 (base stats) and List 2 (runeword procs).
-            // Distance from Terminator 1 START to List 2 START = 51 bits.
-            // read_property_list already consumed the 9-bit Terminator 1 (511).
-            // Therefore, we skip the remaining 42 bits (42 = 51 - 9).
-            let _spacer = recorder.read_bits_u64(42)?;
-            item_trace!("    [RunewordStats] Alpha v105 spacer (42 bits left) = 0x{:08X}", _spacer);
-            
+            // Alpha v105: No spacer between List 1 and List 2.
             let (rw_props, complete) =
                 read_property_list(recorder, trimmed_code, version, section_recovery, huffman, true)?;
-            item_trace!("    [RunewordStats] Properties: {:?}", rw_props.iter().map(|p| p.stat_id).collect::<Vec<_>>());
+           item_trace!("    [RunewordStats] Properties: {:?}", rw_props.iter().map(|p| p.stat_id).collect::<Vec<_>>());
             if complete {
                 runeword_attributes = rw_props;
             }
@@ -1468,6 +1497,10 @@ impl Item {
         emitter.write_bits(self.y as u32, 4)?;
         emitter.write_bits(self.page as u32, 3)?;
 
+        if self.version == 5 {
+            emitter.write_bits(self.header_socket_hint as u32, 3)?;
+        }
+
         if self.is_ear {
             emitter.write_bits(self.ear_class.unwrap_or(0) as u32, 3)?;
             emitter.write_bits(self.ear_level.unwrap_or(0) as u32, 7)?;
@@ -1479,12 +1512,18 @@ impl Item {
             return Ok(());
         }
 
-        let encoded_code = huffman.encode(&self.code)?;
-        emitter.extend_bits(encoded_code)?;
-        emitter.write_bits(self.header_socket_hint as u32, 3)?;
+        let skip_code = self.version == 5 && self.is_runeword;
+        if !skip_code {
+            let encoded_code = huffman.encode(&self.code)?;
+            emitter.extend_bits(encoded_code)?;
+        }
 
-        if self.is_compact {
-            return Ok(());
+        if self.version != 5 {
+            emitter.write_bits(self.header_socket_hint as u32, 3)?;
+        }
+
+        if self.version == 5 {
+             return Ok(());
         }
 
         emitter.write_bit(self.has_multiple_graphics)?;
@@ -1504,40 +1543,62 @@ impl Item {
             return Ok(());
         }
 
-        emitter.write_bits(self.id.unwrap_or(0), 32)?;
-        emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
-        let quality = self.quality.unwrap_or(ItemQuality::Normal);
-        emitter.write_bits(quality as u32, 4)?;
+        if self.version == 5 {
+            // Alpha v105 (v5): 16-bit base header
+            emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
+            let quality = self.quality.unwrap_or(ItemQuality::Normal);
+            emitter.write_bits(quality as u32, 4)?;
+            emitter.write_bits(0x01, 5)?; 
 
-        match quality {
-            ItemQuality::Low | ItemQuality::High => {
-                emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
+            if quality == ItemQuality::Magic {
+                // Alpha v105: Magic affixes appear to be 7 bits each (matches 89-bit property start)
+                emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 7)?;
+                emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 7)?;
             }
-            ItemQuality::Magic => {
-                emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
-                emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
-            }
-            ItemQuality::Rare | ItemQuality::Crafted => {
-                emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
-                emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
-                for i in 0..6 {
-                    if let Some(value) = self.rare_affixes[i] {
-                        emitter.write_bit(true)?;
-                        emitter.write_bits(value as u32, 11)?;
-                    } else {
-                        emitter.write_bit(false)?;
+
+            emitter.write_bit(self.has_multiple_graphics)?; 
+            emitter.write_bit(self.has_class_specific_data)?;
+            emitter.write_bit(self.timestamp_flag)?;
+            
+            // In Alpha v105 v5, Defense/Durability/Sockets are NOT in header,
+            // they are stored as properties. Property List 1 starts at bit 89.
+            return Ok(());
+        } else {
+            emitter.write_bits(self.id.unwrap_or(0), 32)?;
+            emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
+            let quality = self.quality.unwrap_or(ItemQuality::Normal);
+            emitter.write_bits(quality as u32, 4)?;
+
+            match quality {
+                ItemQuality::Low | ItemQuality::High => {
+                    emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
+                }
+                ItemQuality::Magic => {
+                    emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
+                    emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
+                }
+                ItemQuality::Rare | ItemQuality::Crafted => {
+                    emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
+                    emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
+                    for i in 0..6 {
+                        if let Some(value) = self.rare_affixes[i] {
+                            emitter.write_bit(true)?;
+                            emitter.write_bits(value as u32, 11)?;
+                        } else {
+                            emitter.write_bit(false)?;
+                        }
                     }
                 }
+                ItemQuality::Set | ItemQuality::Unique => {
+                    emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
+                }
+                _ => {}
             }
-            ItemQuality::Set | ItemQuality::Unique => {
-                emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
-            }
-            _ => {}
-        }
 
-        if self.is_runeword {
-            emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
-            emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
+            if self.is_runeword {
+                emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
+                emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
+            }
         }
 
         if self.is_personalized {
@@ -1551,6 +1612,41 @@ impl Item {
         }
 
         emitter.write_bit(self.timestamp_flag)?;
+
+        // Restore missing stats writing
+        let template = item_template(&self.code);
+        let (reads_defense, reads_durability, reads_quantity) = if let Some(template) = template {
+            (template.is_armor, template.has_durability, template.is_stackable)
+        } else {
+            (self.has_class_specific_data || trimmed_code.contains(' '), 
+             self.has_class_specific_data || trimmed_code.contains(' '), 
+             false)
+        };
+
+        if reads_defense {
+            let defense_bits = stat_save_bits(31).unwrap_or(11);
+            emitter.write_bits(self.defense.unwrap_or(0), defense_bits)?;
+        }
+
+        if reads_durability {
+            let max_dur_bits = stat_save_bits(73).unwrap_or(8);
+            let cur_dur_bits = stat_save_bits(72).unwrap_or(9);
+            let m_dur = self.max_durability.unwrap_or(0);
+            emitter.write_bits(m_dur, max_dur_bits)?;
+            if m_dur > 0 {
+                emitter.write_bits(self.current_durability.unwrap_or(0), cur_dur_bits)?;
+                emitter.write_bit(false)?; // durability extra bit
+            }
+        }
+
+        if reads_quantity {
+            emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
+        }
+
+        if self.is_socketed {
+            emitter.write_bits(self.sockets.unwrap_or(0) as u32, 4)?;
+        }
+
         Ok(())
     }
 
@@ -1563,20 +1659,26 @@ impl Item {
             return Ok(());
         }
 
-        write_property_list(emitter, &self.properties, self.version)?;
+        write_property_list(emitter, &self.properties, self.version, false)?;
 
         if self.properties_complete {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
-                    write_property_list(emitter, set_props, self.version)?;
+                    write_property_list(emitter, set_props, self.version, false)?;
                 } else {
                     break;
                 }
             }
-            if self.is_runeword && !self.runeword_attributes.is_empty() {
-                write_property_list(emitter, &self.runeword_attributes, self.version)?;
+            if self.is_runeword {
+                if self.version == 5 {
+                    // Alpha v105: No spacer.
+                    write_property_list(emitter, &self.runeword_attributes, self.version, true)?;
+                } else if !self.runeword_attributes.is_empty() {
+                   write_property_list(emitter, &self.runeword_attributes, self.version, false)?;
+                }
             }
-        } else {
+        }
+ else {
             item_trace!(
                 "  [Warn] Skipping dependent property lists for '{}' (incomplete)",
                 self.code.trim()

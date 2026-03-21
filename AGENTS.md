@@ -83,6 +83,7 @@ Before execution, evaluate complexity. Pause and report if:
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.
 - **Documentation Paths**: In `.md` files (like those in `./d2r-spec`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
 - **Source Code Variables**: For actual application code, entirely avoid hardcoding paths or sensitive environment data. Always migrate these to `.env` configuration files or appropriate configuration injection mechanisms.
+- **Temporary Tools & Sanitation**: When creating scripts or temporary tools (e.g., for debugging, data verification, or manual extraction tasks), you MUST store them in the **`./tmp/`** directory. This directory is excluded from Git (except for `.gitkeep`). You MUST clear all contents (excluding `.gitkeep`) from this folder before finishing your task to maintain repository hygiene.
 
 ## 6. System Directive Update Protocol ([CRITICAL])
 

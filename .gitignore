@@ -16,6 +16,8 @@ Thumbs.db
 
 # Temporary files
 *.txt
+tmp/
+!tmp/.gitkeep
 
 # Specification Link
 d2r-spec/

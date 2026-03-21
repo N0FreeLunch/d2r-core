@@ -1,7 +1,8 @@
-use crate::data::item_specs::{Affix, ItemStatRange, Runeword, SetItem, UniqueItem};
+use crate::data::item_specs::{Affix, ItemStatRange, Runeword, SetItem, UniqueItem, BASE_ITEM_SPECS};
 use crate::data::{affixes, runewords, set_items, unique_items};
 use crate::data::item_codes::ITEM_TEMPLATES;
 use crate::data::item_types::ITEM_TYPES;
+use crate::data::legitimacy::{SOCKET_RULES, calc_alvl, STAFFMOD_ENTRIES};
 use crate::item::{Item, ItemProperty, ItemQuality};
 use std::collections::HashSet;
 
@@ -90,9 +91,10 @@ pub fn lookup_spec(item: &Item) -> Option<ItemSpec> {
     None
 }
 
+
 pub fn validate_item(item: &Item) -> Option<ValidationResult> {
-    if let Some(spec) = lookup_spec(item) {
-        return match spec {
+    let mut result = if let Some(spec) = lookup_spec(item) {
+        match spec {
             ItemSpec::Unique(unique_spec) => Some(validate_item_properties(
                 unique_spec.index,
                 unique_spec.stats,
@@ -109,52 +111,368 @@ pub fn validate_item(item: &Item) -> Option<ValidationResult> {
                 &item.runeword_attributes,
             )),
             ItemSpec::Affix(_) => None,
-        };
+        }
+    } else {
+        match item.quality {
+            Some(ItemQuality::Magic) | Some(ItemQuality::Rare) | Some(ItemQuality::Crafted) => {
+                let prefixes = item.prefixes();
+                let suffixes = item.suffixes();
+
+                if prefixes.is_empty() && suffixes.is_empty() {
+                    return None;
+                }
+
+                let item_types = get_all_item_types(&item.code);
+                let mut warnings = Vec::new();
+
+                for affix in prefixes.iter().chain(suffixes.iter()) {
+                    if !is_affix_eligible_for(affix, &item_types) {
+                        warnings.push(format!(
+                            "Affix '{}' (id:{}) is not eligible for this item type",
+                            affix.name, affix.id
+                        ));
+                    }
+                }
+
+                let consolidated_stats = consolidate_affix_stats(&prefixes, &suffixes);
+                let names: Vec<&str> = prefixes
+                    .iter()
+                    .chain(suffixes.iter())
+                    .map(|a| a.name)
+                    .collect();
+                let spec_name = if names.is_empty() {
+                    "Unknown Affix Item".to_string()
+                } else {
+                    names.join(" ")
+                };
+
+                let mut res = validate_item_properties(
+                    &spec_name,
+                    &consolidated_stats,
+                    &item.properties,
+                );
+                res.warnings.extend(warnings);
+                Some(res)
+            }
+            _ => Some(ValidationResult {
+                spec_name: format!("{:?}", item.quality.unwrap_or(ItemQuality::Normal)),
+                is_perfect: true,
+                score: 1.0,
+                stats: Vec::new(),
+                warnings: Vec::new(),
+            }),
+        }
+    };
+
+    if let Some(ref mut res) = result {
+        res.warnings.extend(check_socket_legitimacy(item));
+        res.warnings.extend(check_alvl_legitimacy(item));
+        res.warnings.extend(check_staffmod_legitimacy(item));
+        res.warnings.extend(check_affix_group_legitimacy(item));
+        res.warnings.extend(check_runeword_legitimacy(item));
+        res.warnings.extend(check_base_stat_legitimacy(item));
+    }
+    result
+}
+
+pub fn check_staffmod_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let ilvl = match item.level {
+        Some(lvl) => lvl,
+        None => return warnings,
+    };
+
+    let item_types = get_all_item_types(&item.code);
+
+    for prop in &item.properties {
+        let mut possible_entries = Vec::new();
+
+        for type_code in &item_types {
+            for entry in STAFFMOD_ENTRIES {
+                if entry.itype == *type_code {
+                    for s in entry.stats {
+                        if s.stat_id == prop.stat_id && s.param == prop.param {
+                            possible_entries.push(entry);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut violations = Vec::new();
+        for entry in possible_entries {
+            // Check if THIS specific entry matches our property value
+            for s in entry.stats {
+                if s.stat_id == prop.stat_id && s.param == prop.param {
+                    if prop.value >= s.min as i32 && prop.value <= s.max as i32 {
+                        // This property matches this specific tier!
+                        if ilvl < entry.level {
+                            violations.push(entry.level);
+                        }
+                    }
+                }
+            }
+        }
+
+        if !violations.is_empty() {
+            // Pick the highest level required among satisfied tiers 
+            // (normally only one, but theoretically could match overlapping ranges)
+            let req_lvl = violations.into_iter().max().unwrap();
+            let stat_name = crate::data::stat_costs::STAT_COSTS.iter()
+                .find(|s| s.id == prop.stat_id)
+                .map(|s| s.name)
+                .unwrap_or("unknown");
+
+            warnings.push(format!(
+                "Property '{}' value {} requires ilvl {}, but item is ilvl {}",
+                stat_name, prop.value, req_lvl, ilvl
+            ));
+        }
     }
 
-    match item.quality {
-        Some(ItemQuality::Magic) | Some(ItemQuality::Rare) | Some(ItemQuality::Crafted) => {
-            let prefixes = item.prefixes();
-            let suffixes = item.suffixes();
+    warnings
+}
 
-            if prefixes.is_empty() && suffixes.is_empty() {
-                return None;
+pub fn check_socket_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let ilvl = match item.level {
+        Some(lvl) => lvl,
+        None => return warnings,
+    };
+
+    let types = get_all_item_types(&item.code);
+    let mut max_sockets = None;
+
+    for type_code in types {
+        if let Some(rule) = SOCKET_RULES.iter().find(|r| r.item_type == type_code) {
+            let max = if ilvl >= 41 {
+                rule.max_sock_high
+            } else if ilvl >= 26 {
+                rule.max_sock_mid
+            } else {
+                rule.max_sock_low
+            };
+            max_sockets = Some(max);
+            break;
+        }
+    }
+
+    if let Some(max) = max_sockets {
+        if let Some(actual) = item.sockets {
+            if actual > max {
+                warnings.push(format!("Socket count {} exceeds max {} for ilvl {}", actual, max, ilvl));
             }
+        }
+    }
 
-            let item_types = get_all_item_types(&item.code);
-            let mut warnings = Vec::new();
+    warnings
+}
 
-            for affix in prefixes.iter().chain(suffixes.iter()) {
-                if !is_affix_eligible_for(affix, &item_types) {
+pub fn check_alvl_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    let quality = match item.quality {
+        Some(q) => q,
+        None => return warnings,
+    };
+
+    if !matches!(quality, ItemQuality::Magic | ItemQuality::Rare | ItemQuality::Crafted) {
+        return warnings;
+    }
+
+    let ilvl = match item.level {
+        Some(lvl) => lvl,
+        None => return warnings,
+    };
+
+    // Lookup qlvl
+    let trimmed = item.code.trim();
+    let qlvl = match BASE_ITEM_SPECS.iter().find(|s| s.code == trimmed) {
+        Some(spec) => spec.qlvl as u8,
+        None => 0,
+    };
+
+    // Lookup magic_lvl from item types
+    let types = get_all_item_types(&item.code);
+    let mut magic_lvl = 0;
+    for type_code in types {
+        if let Some(it) = ITEM_TYPES.iter().find(|it| it.code == type_code) {
+            if it.magic_lvl > magic_lvl {
+                magic_lvl = it.magic_lvl;
+            }
+        }
+    }
+
+    let alvl = calc_alvl(ilvl, qlvl, magic_lvl);
+
+    for affix in item.prefixes().iter().chain(item.suffixes().iter()) {
+        if affix.level > alvl as u32 {
+            warnings.push(format!(
+                "Affix '{}' (level {}) exceeds item aLvl {}",
+                affix.name, affix.level, alvl
+            ));
+        }
+    }
+
+    warnings
+}
+
+pub fn check_affix_group_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let mut groups = std::collections::HashSet::new();
+    
+    let prefixes = item.prefixes();
+    let suffixes = item.suffixes();
+
+    for affix in prefixes.iter().chain(suffixes.iter()) {
+        if affix.group > 0 && !groups.insert(affix.group) {
+            warnings.push(format!("Duplicate affix group found: {} (Affix: {})", affix.group, affix.name));
+        }
+    }
+    
+    warnings
+}
+
+pub fn check_ethereal_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !item.is_ethereal {
+        return warnings;
+    }
+
+    let trimmed = item.code.trim();
+    let spec = if let Some(s) = BASE_ITEM_SPECS.iter().find(|s| s.code == trimmed) {
+        s
+    } else {
+        return warnings;
+    };
+
+    // 1. Illegal Ethereal State Check
+    let item_types = get_all_item_types(&item.code);
+    if item_types.contains(&"bow") || item_types.contains(&"xbow") {
+        warnings.push("Bows and crossbows cannot be ethereal".to_string());
+    }
+
+    // 2. Durability Verification
+    if spec.durability > 0 {
+        let eth_base_durability = (spec.durability as u32 / 2) + 1;
+        let mut edur_percent = 0;
+        for prop in &item.properties {
+            if prop.stat_id == 75 {
+                edur_percent += prop.value;
+            }
+        }
+        let expected_max_dur = (eth_base_durability * (100 + edur_percent as u32)) / 100;
+        if let Some(max_dur) = item.max_durability {
+            if max_dur > 0 {
+                if (max_dur as u32) < expected_max_dur {
                     warnings.push(format!(
-                        "Affix '{}' (id:{}) is not eligible for this item type",
-                        affix.name, affix.id
+                        "Ethereal item has lower than expected durability: {} (expected ~{})",
+                        max_dur, expected_max_dur
+                    ));
+                } else if (max_dur as u32) > expected_max_dur + 1 {
+                    warnings.push(format!(
+                        "Ethereal item has higher than expected durability: {} (expected ~{})",
+                        max_dur, expected_max_dur
                     ));
                 }
             }
-
-            let consolidated_stats = consolidate_affix_stats(&prefixes, &suffixes);
-            let names: Vec<&str> = prefixes
-                .iter()
-                .chain(suffixes.iter())
-                .map(|a| a.name)
-                .collect();
-            let spec_name = if names.is_empty() {
-                "Unknown Affix Item".to_string()
-            } else {
-                names.join(" ")
-            };
-
-            let mut result = validate_item_properties(
-                &spec_name,
-                &consolidated_stats,
-                &item.properties,
-            );
-            result.warnings.extend(warnings);
-            Some(result)
         }
-        _ => None,
     }
+    warnings
+}
+
+pub fn check_base_stat_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let trimmed = item.code.trim();
+    let spec = if let Some(s) = BASE_ITEM_SPECS.iter().find(|s| s.code == trimmed) {
+        s
+    } else {
+        return warnings;
+    };
+
+    // Defense Verification
+    if let Some(actual_def) = item.defense {
+        let mut ed_percent = 0;
+        let mut flat_def = 0;
+        for prop in &item.properties {
+            if prop.stat_id == 16 { ed_percent += prop.value; }
+            else if prop.stat_id == 31 { flat_def += prop.value; }
+        }
+
+        let is_max_ac_plus_one = ed_percent > 0 || item.is_runeword || matches!(item.quality, Some(ItemQuality::Unique) | Some(ItemQuality::Set));
+        
+        let eth_mul = if item.is_ethereal { 1.5 } else { 1.0 };
+
+        if is_max_ac_plus_one {
+            let base_ac = spec.max_ac as f32 + 1.0;
+            let expected = ((base_ac * eth_mul).floor() * (100.0 + ed_percent as f32) / 100.0).floor() as u32 + flat_def as u32;
+            if actual_def != expected && (actual_def as i32 - expected as i32).abs() > 1 {
+                warnings.push(format!("Defense {} does not match expected {} (Superior/Unique Rule)", actual_def, expected));
+            }
+        } else {
+            let min_expected = ((spec.min_ac as f32 * eth_mul).floor() + flat_def as f32).floor() as u32;
+            let max_expected = ((spec.max_ac as f32 * eth_mul).floor() + flat_def as f32).floor() as u32;
+            if actual_def < min_expected || actual_def > max_expected {
+                warnings.push(format!("Defense {} out of range {}-{}", actual_def, min_expected, max_expected));
+            }
+        }
+    }
+    
+    warnings
+}
+pub fn check_runeword_legitimacy(item: &Item) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    if !item.is_runeword {
+        return warnings;
+    }
+
+    let rw = match lookup_spec(item) {
+        Some(ItemSpec::Runeword(rw)) => rw,
+        _ => return warnings,
+    };
+
+    // 1. Type Eligibility
+    let item_types = get_all_item_types(&item.code);
+    let is_eligible = rw.item_types.iter().any(|&t| item_types.contains(&t));
+    if !is_eligible {
+        warnings.push(format!(
+            "Runeword '{}' is not eligible for item type '{}'",
+            rw.name,
+            item.code.trim()
+        ));
+    }
+
+    // 2. Socket Count
+    if let Some(sockets) = item.sockets {
+        if sockets as usize != rw.runes.len() {
+            warnings.push(format!(
+                "Runeword '{}' requires {} sockets, but item has {}",
+                rw.name,
+                rw.runes.len(),
+                sockets
+            ));
+        }
+    }
+
+    // 3. Rune Sequence
+    if item.socketed_items.len() == rw.runes.len() {
+        for (i, socketed) in item.socketed_items.iter().enumerate() {
+            if socketed.code.trim() != rw.runes[i] {
+                warnings.push(format!("Runeword '{}' has incorrect rune sequence", rw.name));
+                break;
+            }
+        }
+    } else if !item.socketed_items.is_empty() {
+        warnings.push(format!(
+            "Runeword '{}' has incorrect number of socketed items",
+            rw.name
+        ));
+    }
+
+    warnings
 }
 
 fn consolidate_affix_stats(prefixes: &[&Affix], suffixes: &[&Affix]) -> Vec<ItemStatRange> {
@@ -368,6 +686,7 @@ pub fn get_all_item_types(item_code: &str) -> Vec<&'static str> {
     }
 
     let mut visited = HashSet::new();
+    let mut result = Vec::new();
     let mut current_level = seeds;
     let mut depth = 0;
 
@@ -375,6 +694,7 @@ pub fn get_all_item_types(item_code: &str) -> Vec<&'static str> {
         let mut next_level = Vec::new();
         for code in current_level {
             if visited.insert(code) {
+                result.push(code);
                 if let Some(it) = ITEM_TYPES.iter().find(|it| it.code == code) {
                     if let Some(e1) = it.equiv1 {
                         next_level.push(e1);
@@ -389,7 +709,7 @@ pub fn get_all_item_types(item_code: &str) -> Vec<&'static str> {
         depth += 1;
     }
 
-    visited.into_iter().collect()
+    result
 }
 
 #[cfg(test)]
@@ -407,5 +727,54 @@ mod tests {
         assert!(shld_types.contains(&"shld"));
         assert!(shld_types.contains(&"armo"));
         assert!(shld_types.contains(&"seco"));
+    }
+
+    #[test]
+    fn test_runeword_sequence_violation() {
+        let mut item = Item::empty_for_tests();
+        item.is_runeword = true;
+        item.runeword_id = Some(32); // Enigma (Jah Ith Ber = r31 r06 r30)
+        item.code = "uap ".to_string(); // Archon Plate
+        item.sockets = Some(3);
+        
+        let mut r31 = Item::empty_for_tests(); r31.code = "r31 ".to_string();
+        let mut r30 = Item::empty_for_tests(); r30.code = "r30 ".to_string();
+        let mut r06 = Item::empty_for_tests(); r06.code = "r06 ".to_string();
+        
+        item.socketed_items = vec![r31, r30, r06];
+        
+        let warnings = check_runeword_legitimacy(&item);
+        assert!(warnings.iter().any(|w| w.contains("incorrect rune sequence")));
+    }
+
+    #[test]
+    fn test_superior_ethereal_defense_validation() {
+        let mut item = Item::empty_for_tests();
+        item.code = "utp ".to_string(); // Archon Plate
+        item.is_ethereal = true;
+        item.quality = Some(crate::item::ItemQuality::High);
+        
+        // 15% Enhanced Defense
+        item.properties.push(crate::item::ItemProperty {
+            stat_id: 16,
+            name: "item_armor_percent".to_string(),
+            value: 15,
+            param: 0,
+            raw_value: 0, // dummy
+        });
+        
+        // Expected: floor((524+1) * 1.5) * 1.15 = floor(787.5) * 1.15 = 787 * 1.15 = 905.05 -> 905?
+        // Actually: floor(floor(525 * 1.5) * 1.15) = floor(787 * 1.15) = floor(905.05) = 905.
+        // Wait, my check_base_stat_legitimacy uses floats.
+        // Let's set it to 905.
+        item.defense = Some(905);
+        
+        let warnings = check_base_stat_legitimacy(&item);
+        assert!(warnings.is_empty(), "Expected no warnings for 905 defense, got: {:?}", warnings);
+        
+        // Violation case: 900 defense
+        item.defense = Some(900);
+        let warnings = check_base_stat_legitimacy(&item);
+        assert!(warnings.iter().any(|w| w.contains("Defense 900 does not match expected 905")));
     }
 }

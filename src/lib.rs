@@ -13,7 +13,9 @@
 // limitations under the License.
 
 pub mod data;
+pub mod domain;
 pub mod engine;
+pub mod error;
 pub mod inventory;
 pub mod item;
 pub mod save;

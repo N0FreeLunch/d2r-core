@@ -119,3 +119,10 @@ Arbitrary abbreviation, self-centered context deletion, or undocumented structur
 - **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"
 - **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."
 - **PowerShell Harness**: For any PowerShell logic involving pipes, loops, or complex escaping, do NOT use one-liners in `run_command`. Instead, follow the `powershell-harness` skill: write the script to `tmp/`, verify, and execute via `powershell -File`.
+
+## 8. Tactical Wisdom & Operational Tips
+Adhere to these practical tips based on real-world operational experiences to prevent repetitive failures:
+
+1. **Selective Match Failure**: If `replace_file_content` fails more than twice for short targets, there might be invisible characters or encoding issues. Immediately switch to `Get-Content -Raw` (PowerShell) to capture the exact file body and use `write_to_file` (Overwrite: true) to reconstruct the file.
+2. **Shell Interpretation Protection**: Complex shell commands often mutate during tool transmission. Use the `./tmp/` directory for any non-trivial logic: "Write to script -> Verify -> Execute via -File". 
+3. **Strategic Halt**: If a tool behavior is ambiguous or logs are not clarifying, do NOT keep guessing. Report the status to the USER and pause (Strategic Halt) to re-evaluate the next move.

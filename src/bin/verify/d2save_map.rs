@@ -2,6 +2,11 @@ use std::env;
 use std::fs;
 use std::process;
 
+use d2r_core::save::{
+    class_name, find_jm_markers, Save, ACTIVE_WEAPON_OFFSET, CHAR_CLASS_OFFSET, CHAR_LEVEL_OFFSET,
+    CHAR_NAME_OFFSET, LAST_PLAYED_OFFSET,
+};
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -20,55 +25,46 @@ fn main() {
 
     println!("=== Section Map: {} ({} bytes) ===", path, bytes.len());
 
-    // Header fields
-    let magic = u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
-    let version = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-    let file_size = u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]);
-    let checksum = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
-    let active_weapon = u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]);
+    let save = match Save::from_bytes(&bytes) {
+        Ok(save) => save,
+        Err(err) => {
+            eprintln!("[ERROR] Cannot parse D2R header: {}", err);
+            process::exit(1);
+        }
+    };
 
     println!();
     println!("[HEADER]");
-    println!("  Offset  0 | Magic:         0x{:08X}", magic);
-    println!("  Offset  4 | Version:       {}", version);
-    println!("  Offset  8 | File Size:     {} bytes", file_size);
-    println!("  Offset 12 | Checksum:      0x{:08X}", checksum);
-    println!("  Offset 16 | Active Weapon: {}", active_weapon);
-
-    // Character name (offset 20, 16 bytes)
-    let name_bytes = &bytes[20..36];
-    let name = String::from_utf8_lossy(name_bytes)
-        .trim_matches('\0')
-        .to_string();
-    println!("  Offset 20 | Char Name:     '{}'", name);
-
-    // Char class (offset 40)
-    let char_class = bytes[40];
-    let class_name = match char_class {
-        0 => "Amazon",
-        1 => "Sorceress",
-        2 => "Necromancer",
-        3 => "Paladin",
-        4 => "Barbarian",
-        5 => "Druid",
-        6 => "Assassin",
-        _ => "Unknown",
-    };
+    println!("  Offset  0 | Magic:         0x{:08X}", save.header.magic);
+    println!("  Offset  4 | Version:       {}", save.header.version);
+    println!("  Offset  8 | File Size:     {} bytes", save.header.file_size);
+    println!("  Offset 12 | Checksum:      0x{:08X}", save.header.checksum);
     println!(
-        "  Offset 40 | Char Class:    {} ({})",
-        class_name, char_class
+        "  Offset {ACTIVE_WEAPON_OFFSET:<2} | Active Weapon: {}",
+        save.header.active_weapon
+    );
+    println!(
+        "  Offset {CHAR_CLASS_OFFSET:<2} | Char Class:    {} ({})",
+        class_name(save.header.char_class),
+        save.header.char_class
+    );
+    println!(
+        "  Offset {CHAR_LEVEL_OFFSET:<2} | Char Level:    {}",
+        save.header.char_level
+    );
+    println!(
+        "  Offset {LAST_PLAYED_OFFSET} | Last Played:   0x{:08X}",
+        save.header.last_played
+    );
+    println!(
+        "  Offset {CHAR_NAME_OFFSET} | Char Name:     '{}'",
+        save.header.char_name
     );
 
     println!();
     println!("[JM MARKERS]");
 
-    // Find all JM markers
-    let mut jm_positions: Vec<usize> = Vec::new();
-    for i in 0..bytes.len().saturating_sub(1) {
-        if bytes[i] == b'J' && bytes[i + 1] == b'M' {
-            jm_positions.push(i);
-        }
-    }
+    let jm_positions = find_jm_markers(&bytes);
 
     let section_labels = [
         "Player Items",

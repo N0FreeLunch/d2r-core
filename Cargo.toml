@@ -68,6 +68,3 @@ path = "src/bin/verify/dump_flags.rs"
 [[bin]]
 name = "d2save_status_diff"
 path = "src/bin/verify/d2save_status_diff.rs"
-
-[dev-dependencies]
-proptest = "1.4.0"

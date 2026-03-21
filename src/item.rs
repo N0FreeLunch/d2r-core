@@ -1011,6 +1011,16 @@ impl Item {
         let tbk_ibk_teleport = stats.17;
         let timestamp_flag = stats.18;
         let defense = stats.19;
+
+        if let Some(def_val) = defense {
+            if !crate::data::item_specs::is_valid_base_ac(trimmed_code, def_val as u16, is_ethereal) {
+                item_trace!(
+                    "  [Warn] Invalid base defense for '{}': {} (ethereal: {})",
+                    trimmed_code, def_val, is_ethereal
+                );
+            }
+        }
+
         let max_durability = stats.20;
         let current_durability = stats.21;
         let quantity = stats.22;

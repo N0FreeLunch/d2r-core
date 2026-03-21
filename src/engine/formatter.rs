@@ -169,13 +169,15 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
     // Slice 1: DescStr2 handling (e.g. Based on Character Level)
     let phrase2 = cost.descstr2.map(|k| get_loc(k, language));
     
-    // Slice 2: Level Scaling logic for Op 2 stats
-    // We detect Op 2 by descstr2: "increaseswithplaylevelX"
+    // Slice 2: Level Scaling logic utilizing op and op_param
     let mut display_value = prop.value;
-    let is_per_level = cost.descstr2 == Some("increaseswithplaylevelX");
-    if is_per_level {
-        // op_param is usually 3 for HP/Mana/Armor/Dmg/Str/Dex/etc. (1/8 units)
-        display_value = (prop.value * char_level as i32) >> 3;
+    if let (Some(op), Some(op_param)) = (cost.op, cost.op_param) {
+        match op {
+            2 | 4 | 5 => {
+                display_value = (prop.value * char_level as i32) >> op_param;
+            }
+            _ => {}
+        }
     }
     
     let signed_value = format!("{:+}", display_value);

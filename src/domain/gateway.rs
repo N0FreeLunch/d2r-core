@@ -2,7 +2,6 @@
 //! This module provides the "Sandbox" zone for validating incoming item payloads.
 
 use crate::item::{Item, HuffmanTree};
-use crate::error::DiagnosticError;
 use std::io;
 
 /// Payload represents the raw input from a Deep Link.

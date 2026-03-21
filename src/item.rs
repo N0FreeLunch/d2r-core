@@ -419,6 +419,37 @@ impl Item {
         }
     }
 
+    /// Mutates the item using a checked placement.
+    /// This clears the cached bitstream, forcing a re-encoding.
+    pub fn set_placement(&mut self, placement: crate::domain::vo::InventoryPlacement) {
+        self.x = placement.coordinate().x();
+        self.y = placement.coordinate().y();
+        // Clear bits to force re-calculation from fields
+        self.bits.clear();
+    }
+
+    /// Mutates a specific property value.
+    /// Returns true if the property was found and updated.
+    pub fn set_property_value(&mut self, stat_id: u32, value: crate::domain::vo::ItemStatValue) -> bool {
+        let mut found = false;
+        for prop in &mut self.properties {
+            if prop.stat_id == stat_id {
+                let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
+                if let Some(c) = cost {
+                    prop.value = value.value();
+                    // raw_value = value + save_add
+                    prop.raw_value = value.value().wrapping_add(c.save_add);
+                    found = true;
+                }
+            }
+        }
+        if found {
+            self.bits.clear();
+        }
+        found
+    }
+
+
     pub fn stats_view(&self) -> ItemStats {
         ItemStats {
             properties: self.properties.clone(),
@@ -1454,6 +1485,8 @@ impl Item {
     }
 
     pub fn to_bytes(&self, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
+        // If we have cached bits and no modification occurred (bits is not empty), use them.
+        // However, Mutation clears the bits cache, so this will only trigger if unmodified.
         if !self.bits.is_empty() {
             let mut emitter = BitEmitter::new();
             for &bit in &self.bits {
@@ -1462,11 +1495,14 @@ impl Item {
             emitter.byte_align()?;
             return Ok(emitter.into_bytes());
         }
+        
+        // Re-encoding from scratch
         let mut emitter = BitEmitter::new();
         self.write_recursive(&mut emitter, huffman)?;
         emitter.byte_align()?;
         Ok(emitter.into_bytes())
     }
+
 }
 
 #[cfg(test)]

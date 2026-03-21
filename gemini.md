@@ -23,6 +23,7 @@ Your default output should be:
 Avoid direct, broad code implementation unless a task spec explicitly narrows the scope.
 
 ## Operating Rules
+- **Strategic Verification Phase**: Prioritize examining the validity of the user's opinion or request before execution. If validation requires work, perform the minimal amount necessary to confirm feasibility and state your perspective on the validity first.
 - Treat `d2r-spec/` and fixtures as truth for binary behavior.
 - If `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md`, or `d2r-spec/.agents/tasks/` exists locally, use them only as a private overlay and do not copy their sensitive detail into public root docs.
 - Enforce the data boundary from `AGENTS.md`/`NAVIGATOR.md`: extracted game tables/assets belong to `d2r-data/`, and `d2r-core` edits should stay at gateway/integration level (`src/data/mod.rs` boundary).

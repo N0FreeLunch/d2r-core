@@ -1,0 +1,1 @@
+This project is built based on Specification-Driven Design. The specification documents are located in a separate repository, and the D2R-SPEC folder is placed as a symbolic link at the root of this project.

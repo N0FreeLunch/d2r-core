@@ -1026,12 +1026,12 @@ impl Item {
         quality: Option<ItemQuality>,
         set_list_count: u8,
         is_runeword: bool,
-        section_recovery: Option<(&[u8], u64)>,
+        ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
     ) -> io::Result<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
         let trimmed_code = code.trim();
         let (properties, properties_complete) =
-            read_property_list(recorder, trimmed_code, version, section_recovery, huffman, false)?;
+            read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?;
 
         let mut set_attributes = Vec::new();
         let mut runeword_attributes = Vec::new();
@@ -1040,7 +1040,7 @@ impl Item {
         if parse_property_lists && quality == Some(ItemQuality::Set) && set_list_count > 0 {
             for _ in 0..set_list_count {
                 let (set_props, complete) =
-                    read_property_list(recorder, trimmed_code, version, section_recovery, huffman, false)?;
+                    read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?;
                 set_attributes.push(set_props);
                 if !complete {
                     parse_property_lists = false;
@@ -1052,7 +1052,7 @@ impl Item {
         if parse_property_lists && is_runeword && version == 5 {
             // Alpha v105: No spacer between List 1 and List 2.
             let (rw_props, complete) =
-                read_property_list(recorder, trimmed_code, version, section_recovery, huffman, true)?;
+                read_property_list(recorder, trimmed_code, version, ctx, huffman, true)?;
            item_trace!("    [RunewordStats] Properties: {:?}", rw_props.iter().map(|p| p.stat_id).collect::<Vec<_>>());
             if complete {
                 runeword_attributes = rw_props;
@@ -1063,13 +1063,12 @@ impl Item {
     }
 
     pub fn from_reader_with_context<R: BitRead>(
-        reader: &mut R,
+        recorder: &mut BitRecorder<R>,
         huffman: &HuffmanTree,
         ctx: Option<(&[u8], u64)>,
     ) -> io::Result<Item> {
-        let mut recorder = BitRecorder::new(reader);
 
-        let (flags, version, mode, loc, x, y, page, header_socket_hint) = Self::read_item_header(&mut recorder)?;
+        let (flags, version, mode, loc, x, y, page, header_socket_hint) = Self::read_item_header(recorder)?;
 
         let is_identified = (flags & (1 << 4)) != 0;
         let is_socketed = if version == 5 { (flags & (1 << 11)) != 0 } else { (flags & (1 << 11)) != 0 };
@@ -1089,7 +1088,7 @@ impl Item {
             // We'll tentatively use "xrs " as it will be identified by stats later.
             ("xrs ".to_string(), None, None, None)
         } else {
-            Self::read_item_code(&mut recorder, is_ear, huffman, version)?
+            Self::read_item_code(recorder, is_ear, huffman, version)?
         };
 
         if is_ear {
@@ -1155,7 +1154,7 @@ impl Item {
         item_trace!("  [Header] Socket Hint: {}, Bit Offset: {}", header_socket_hint, recorder.recorded_bits.len());
 
         let stats = if !is_compact {
-            Self::read_extended_stats(&mut recorder, &code, is_socketed, is_runeword, is_personalized, version)?
+            Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version)?
         } else {
             (
                 None, None, None, false, None, false, None, None, None, None, None, None,
@@ -1201,13 +1200,13 @@ impl Item {
 
         let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact {
             Self::read_item_stats(
-                &mut recorder,
+                recorder,
                 &code,
                 version,
                 item_quality,
                 set_list_count,
                 is_runeword,
-                section_recovery,
+                ctx,
                 huffman,
             )?
         } else {
@@ -1222,7 +1221,7 @@ impl Item {
         }
 
         Ok(Item {
-            bits: recorder.recorded_bits,
+            bits: recorder.recorded_bits.clone(),
             code,
             flags,
             version,
@@ -1282,7 +1281,8 @@ impl Item {
     }
 
     pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
-        Self::from_reader_with_context(reader, huffman, None)
+        let mut recorder = BitRecorder::new(reader);
+        Self::from_reader_with_context(&mut recorder, huffman, None)
     }
 
     pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree) -> io::Result<Self> {
@@ -1768,8 +1768,9 @@ fn parse_item_at(
 
     let start_byte = (start_bit / 8) as usize;
     let mut reader = IoBitReader::endian(Cursor::new(&section_bytes[start_byte..]), LittleEndian);
+    let mut recorder = BitRecorder::new(&mut reader);
     let item =
-        Item::from_reader_with_context(&mut reader, huffman, Some((section_bytes, start_bit)))?;
+        Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)))?;
     let consumed_bits = reader.position_in_bits()?;
     item_trace!("  [ParseAt] Parsed item '{}' at bit {}. Consumed {} bits.", item.code, start_bit, consumed_bits);
     Ok((item, consumed_bits))

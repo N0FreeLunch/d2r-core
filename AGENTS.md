@@ -114,15 +114,9 @@ Before modifying any directive document, you MUST complete the following review 
 
 Arbitrary abbreviation, self-centered context deletion, or undocumented structural changes are **strictly prohibited**.
 
-## 7. Anti-Loop & Ambiguity Resolution Protocol
+## 8. Anti-Loop & Ambiguity Resolution Protocol
 - **Action Triggers over Monologues**: If you find yourself repeatedly outputting plans, intentions to use tools, or simulating future reasoning without actually executing a tool call (e.g., stuck in a generation loop), **STOP generating text**. You must either execute the specific tool immediately or directly ask the user for clarification.
 - **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"
 - **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."
 - **PowerShell Harness**: For any PowerShell logic involving pipes, loops, or complex escaping, do NOT use one-liners in `run_command`. Instead, follow the `powershell-harness` skill: write the script to `tmp/`, verify, and execute via `powershell -File`.
-
-## 8. Tactical Wisdom & Operational Tips
-Adhere to these practical tips based on real-world operational experiences to prevent repetitive failures:
-
-1. **Selective Match Failure**: If `replace_file_content` fails more than twice for short targets, there might be invisible characters or encoding issues. Immediately switch to `Get-Content -Raw` (PowerShell) to capture the exact file body and use `write_to_file` (Overwrite: true) to reconstruct the file.
-2. **Shell Interpretation Protection**: Complex shell commands often mutate during tool transmission. Use the `./tmp/` directory for any non-trivial logic: "Write to script -> Verify -> Execute via -File". 
-3. **Strategic Halt**: If a tool behavior is ambiguous or logs are not clarifying, do NOT keep guessing. Report the status to the USER and pause (Strategic Halt) to re-evaluate the next move.
+- **Strategic Halt & Tactical Wisdom**: If a tool behavior is ambiguous or logs are not clarifying, do NOT keep guessing. For technical troubleshooting and operational reliability tips (e.g., file matching failures), refer to the `tactical-wisdom` skill. If progress remains stalled, report the status to the USER and perform a **Strategic Halt**.

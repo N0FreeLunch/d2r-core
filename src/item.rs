@@ -1,4 +1,4 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use bitstream_io::{BitRead, BitReader as IoBitReader, BitWrite, BitWriter, LittleEndian};
 use std::io::{self, Cursor};
 
 fn item_trace_enabled() -> bool {
@@ -61,6 +61,48 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
             }
         }
         Ok(val)
+    }
+}
+
+pub struct BitEmitter {
+    writer: BitWriter<Vec<u8>, LittleEndian>,
+}
+
+impl BitEmitter {
+    pub fn new() -> Self {
+        BitEmitter {
+            writer: BitWriter::endian(Vec::new(), LittleEndian),
+        }
+    }
+
+    pub fn write_bit(&mut self, bit: bool) -> io::Result<()> {
+        self.writer.write_bit(bit)
+    }
+
+    pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
+        for i in 0..count {
+            let bit = (value >> i) & 1 != 0;
+            self.writer.write_bit(bit)?;
+        }
+        Ok(())
+    }
+
+    pub fn extend_bits<I>(&mut self, bits: I) -> io::Result<()>
+    where
+        I: IntoIterator<Item = bool>,
+    {
+        for bit in bits {
+            self.writer.write_bit(bit)?;
+        }
+        Ok(())
+    }
+
+    pub fn byte_align(&mut self) -> io::Result<()> {
+        self.writer.byte_align()
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.writer.into_writer()
     }
 }
 
@@ -230,14 +272,27 @@ impl From<u8> for ItemQuality {
 pub struct Item {
     pub bits: Vec<bool>,
     pub code: String,
+    pub flags: u32,
+    pub version: u8,
+    pub is_ear: bool,
+    pub ear_class: Option<u8>,
+    pub ear_level: Option<u8>,
+    pub ear_player_name: Option<String>,
+    pub personalized_player_name: Option<String>,
     pub mode: u8,
     pub x: u8,
     pub y: u8,
     pub page: u8,
     pub location: u8,
+    pub header_socket_hint: u8,
+    pub has_multiple_graphics: bool,
+    pub multi_graphics_bits: Option<u8>,
+    pub has_class_specific_data: bool,
+    pub class_specific_bits: Option<u16>,
     pub id: Option<u32>,
     pub level: Option<u8>,
     pub quality: Option<ItemQuality>,
+    pub low_high_graphic_bits: Option<u8>,
     pub is_compact: bool,
     pub is_socketed: bool,
     pub is_identified: bool,
@@ -250,11 +305,17 @@ pub struct Item {
     pub rare_name_2: Option<u8>,
     pub rare_affixes: Vec<u16>,
     pub unique_id: Option<u16>,
+    pub runeword_id: Option<u16>,
+    pub runeword_level: Option<u8>,
     pub properties: Vec<ItemProperty>,
     pub set_attributes: Vec<Vec<ItemProperty>>,
     pub runeword_attributes: Vec<ItemProperty>,
     pub num_socketed_items: u8,
     pub socketed_items: Vec<Item>,
+    pub timestamp_flag: bool,
+    pub properties_complete: bool,
+    pub set_list_count: u8,
+    pub tbk_ibk_teleport: Option<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,15 +354,46 @@ fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<Str
 
 fn read_property_list<R: BitRead>(
     recorder: &mut BitRecorder<R>,
-    _code: &str,
-) -> io::Result<Vec<ItemProperty>> {
+    code: &str,
+    section_recovery: Option<(&[u8], u64)>,
+    huffman: &HuffmanTree,
+) -> io::Result<(Vec<ItemProperty>, bool)> {
     let mut props = Vec::new();
 
     loop {
         let bit_pos = recorder.recorded_bits.len();
-        let stat_id = recorder.read_bits(9)?;
+        let stat_id = match recorder.read_bits(9) {
+            Ok(stat_id) => stat_id,
+            Err(err) => {
+                if let Some((section_bytes, item_start_bit)) = section_recovery {
+                    if recover_property_reader(
+                        recorder,
+                        code,
+                        section_bytes,
+                        item_start_bit,
+                        huffman,
+                    )? {
+                        item_trace!(
+                            "    [DEBUG] EOF while reading properties for '{}' at bit {}. Recovered to next item header.",
+                            code,
+                            bit_pos
+                        );
+                        return Ok((props, false));
+                    }
+                    item_trace!(
+                        "    [DEBUG] EOF while reading properties for '{}' at bit {}. No recovery target.",
+                        code,
+                        bit_pos
+                    );
+                    return Ok((props, false));
+                }
+                return Err(err);
+            }
+        };
+
         if stat_id == 0x1FF {
-            return Ok(props);
+            item_trace!("    [DEBUG] Property terminator 0x1FF at bit {}", bit_pos);
+            return Ok((props, true));
         }
 
         let cost = match crate::data::stat_costs::STAT_COSTS
@@ -311,11 +403,23 @@ fn read_property_list<R: BitRead>(
             Some(c) => c,
             None => {
                 item_trace!(
-                    "    [DEBUG] Unknown stat ID {} at bit {}. Aborting property parse.",
+                    "    [DEBUG] Unknown stat ID {} at bit {} for '{}'. Attempting recovery.",
                     stat_id,
-                    bit_pos
+                    bit_pos,
+                    code
                 );
-                return Ok(props);
+                if let Some((section_bytes, item_start_bit)) = section_recovery {
+                    if recover_property_reader(
+                        recorder,
+                        code,
+                        section_bytes,
+                        item_start_bit,
+                        huffman,
+                    )? {
+                        return Ok((props, false));
+                    }
+                }
+                return Ok((props, false));
             }
         };
 
@@ -343,12 +447,47 @@ fn read_property_list<R: BitRead>(
     }
 }
 
+fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
+    for ch in name.chars() {
+        emitter.write_bits((ch as u8 & 0x7F) as u32, 7)?;
+    }
+    emitter.write_bits(0, 7)?;
+    Ok(())
+}
+
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty]) -> io::Result<()> {
+    for prop in props {
+        let stat = crate::data::stat_costs::STAT_COSTS
+            .iter()
+            .find(|s| s.id == prop.stat_id)
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Missing stat_cost entry for stat_id {}", prop.stat_id),
+                )
+            })?;
+        emitter.write_bits(prop.stat_id, 9)?;
+        if stat.save_param_bits > 0 {
+            emitter.write_bits(prop.param, stat.save_param_bits as u32)?;
+        }
+        if stat.save_bits > 0 {
+            emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
+        }
+    }
+    emitter.write_bits(0x1FF, 9)?;
+    Ok(())
+}
+
 impl Item {
-    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
+    fn from_reader_with_context<R: BitRead>(
+        reader: &mut R,
+        huffman: &HuffmanTree,
+        section_recovery: Option<(&[u8], u64)>,
+    ) -> io::Result<Self> {
         let mut recorder = BitRecorder::new(reader);
 
         let flags = recorder.read_bits(32)?;
-        let _version = recorder.read_bits(3)?;
+        let version = recorder.read_bits(3)? as u8;
         let mode = recorder.read_bits(3)? as u8;
         let loc = recorder.read_bits(4)? as u8;
         let x = (recorder.read_bits(4)? & 0x0F) as u8;
@@ -363,10 +502,16 @@ impl Item {
         let is_personalized = (flags & (1 << 24)) != 0;
         let is_runeword = (flags & (1 << 26)) != 0;
 
+        let mut ear_class = None;
+        let mut ear_level = None;
+        let mut ear_player_name = None;
         let code = if is_ear {
-            let _ = recorder.read_bits(3)?; // ear class
-            let _ = recorder.read_bits(7)?; // ear level
-            let _ = read_player_name(&mut recorder)?;
+            let ear_class_bits = recorder.read_bits(3)? as u8;
+            let ear_level_bits = recorder.read_bits(7)? as u8;
+            let player_name = read_player_name(&mut recorder)?;
+            ear_class = Some(ear_class_bits);
+            ear_level = Some(ear_level_bits);
+            ear_player_name = Some(player_name.clone());
             "ear ".to_string()
         } else {
             let mut decoded = String::new();
@@ -380,14 +525,27 @@ impl Item {
             return Ok(Item {
                 bits: recorder.recorded_bits,
                 code,
+                flags,
+                version,
+                is_ear,
+                ear_class,
+                ear_level,
+                ear_player_name,
+                personalized_player_name: None,
                 mode,
                 x,
                 y,
                 page,
                 location: loc,
+                header_socket_hint: 0,
+                has_multiple_graphics: false,
+                multi_graphics_bits: None,
+                has_class_specific_data: false,
+                class_specific_bits: None,
                 id: None,
                 level: None,
                 quality: None,
+                low_high_graphic_bits: None,
                 is_compact: false,
                 is_socketed: false,
                 is_identified,
@@ -400,11 +558,17 @@ impl Item {
                 rare_name_2: None,
                 rare_affixes: Vec::new(),
                 unique_id: None,
+                runeword_id: None,
+                runeword_level: None,
                 properties: Vec::new(),
                 set_attributes: Vec::new(),
                 runeword_attributes: Vec::new(),
                 num_socketed_items: 0,
                 socketed_items: Vec::new(),
+                timestamp_flag: false,
+                properties_complete: false,
+                set_list_count: 0,
+                tbk_ibk_teleport: None,
             });
         }
 
@@ -413,9 +577,14 @@ impl Item {
 
         // D2R still carries a 3-bit post-code field here. It often behaves like a
         // socket-child count, but some malformed or partially-understood items do not
-        // line up cleanly yet, so we keep the raw value for heuristics/debugging.
-        let num_socketed_items = recorder.read_bits(3)? as u8;
-        item_trace!("  [Item] num_socketed_items = {}", num_socketed_items);
+        // line up cleanly yet, so we keep the raw value for heuristics/research.
+        let header_socket_hint = recorder.read_bits(3)? as u8;
+        item_trace!(
+            "  [Item] post-code 3-bit field = {} (raw socket child hint for '{}')",
+            header_socket_hint,
+            trimmed_code
+        );
+        let num_socketed_items = header_socket_hint;
 
         let mut item_id = None;
         let mut item_level = None;
@@ -426,11 +595,22 @@ impl Item {
         let mut rare_name_2 = None;
         let mut rare_affixes = Vec::new();
         let mut unique_id = None;
+        let mut low_high_graphic_bits: Option<u8> = None;
 
         let mut properties = Vec::new();
         let mut set_attributes = Vec::new();
         let mut runeword_attributes = Vec::new();
-        let has_class_specific_data;
+        let mut has_multiple_graphics = false;
+        let mut multi_graphics_bits: Option<u8> = None;
+        let mut has_class_specific_data = false;
+        let mut class_specific_bits: Option<u16> = None;
+        let mut timestamp_flag = false;
+        let mut tbk_ibk_teleport: Option<u8> = None;
+        let mut properties_complete = true;
+        let mut set_list_count = 0;
+        let mut personalized_player_name: Option<String> = None;
+        let mut runeword_id: Option<u16> = None;
+        let mut runeword_level: Option<u8> = None;
 
         if !is_compact {
             let template = item_template(&code);
@@ -446,19 +626,23 @@ impl Item {
                 quality
             );
 
-            let has_multiple_graphics = recorder.read_bits(1)? != 0;
-            if has_multiple_graphics {
-                let _ = recorder.read_bits(3)?;
-            }
+            has_multiple_graphics = recorder.read_bits(1)? != 0;
+            multi_graphics_bits = if has_multiple_graphics {
+                Some(recorder.read_bits(3)? as u8)
+            } else {
+                None
+            };
             has_class_specific_data = recorder.read_bits(1)? != 0;
-            if has_class_specific_data {
-                let _ = recorder.read_bits(11)?;
-            }
+            class_specific_bits = if has_class_specific_data {
+                Some(recorder.read_bits(11)? as u16)
+            } else {
+                None
+            };
 
             match quality {
                 ItemQuality::Low | ItemQuality::High => {
                     // Low or High Quality
-                    let _ = recorder.read_bits(3)?;
+                    low_high_graphic_bits = Some(recorder.read_bits(3)? as u8);
                 }
                 ItemQuality::Magic => {
                     // Magic
@@ -486,20 +670,26 @@ impl Item {
             }
 
             if is_runeword {
-                let _ = recorder.read_bits(12)?;
-                let _ = recorder.read_bits(4)?;
+                runeword_id = Some(recorder.read_bits(12)? as u16);
+                runeword_level = Some(recorder.read_bits(4)? as u8);
             }
 
             if is_personalized {
-                let _ = read_player_name(&mut recorder)?;
+                personalized_player_name = Some(read_player_name(&mut recorder)?);
             }
 
-            if trimmed_code == "tbk" || trimmed_code == "ibk" {
-                let _ = recorder.read_bits(5)?;
-            }
+            tbk_ibk_teleport = if trimmed_code == "tbk" || trimmed_code == "ibk" {
+                Some(recorder.read_bits(5)? as u8)
+            } else {
+                None
+            };
 
             // D2R stores a 1-bit timestamp flag here, not a 96-bit realm-data block.
-            let _timestamp = recorder.read_bits(1)?;
+            timestamp_flag = recorder.read_bits(1)? != 0;
+            item_trace!(
+                "  [Debug] Earliest known timestamp flag = {}",
+                timestamp_flag
+            );
 
             let (reads_defense, reads_durability, reads_quantity) = if let Some(template) = template
             {
@@ -545,7 +735,6 @@ impl Item {
                 let _sockets = recorder.read_bits(4)?;
             }
 
-            let mut set_list_count = 0;
             if item_quality == Some(ItemQuality::Set) {
                 let set_list_value = recorder.read_bits(5)?;
                 set_list_count = match set_list_value {
@@ -558,7 +747,10 @@ impl Item {
                 };
             }
 
-            properties = read_property_list(&mut recorder, trimmed_code)?;
+            let (parsed_properties, props_complete) =
+                read_property_list(&mut recorder, trimmed_code, section_recovery, huffman)?;
+            properties = parsed_properties;
+            properties_complete = props_complete;
 
             for p in &properties {
                 item_trace!(
@@ -570,29 +762,60 @@ impl Item {
                 );
             }
 
-            if item_quality == Some(ItemQuality::Set) && set_list_count > 0 {
+            let mut parse_property_lists = properties_complete;
+            if parse_property_lists && item_quality == Some(ItemQuality::Set) && set_list_count > 0
+            {
                 for _ in 0..set_list_count {
-                    let set_props = read_property_list(&mut recorder, trimmed_code)?;
+                    let (set_props, complete) =
+                        read_property_list(&mut recorder, trimmed_code, section_recovery, huffman)?;
                     set_attributes.push(set_props);
+                    if !complete {
+                        parse_property_lists = false;
+                        break;
+                    }
                 }
             }
 
-            if is_runeword {
-                runeword_attributes = read_property_list(&mut recorder, trimmed_code)?;
+            if parse_property_lists && is_runeword {
+                let (rw_props, complete) =
+                    read_property_list(&mut recorder, trimmed_code, section_recovery, huffman)?;
+                if complete {
+                    runeword_attributes = rw_props;
+                }
+            }
+
+            if !properties_complete {
+                item_trace!(
+                    "  [Warn] Property list for '{}' ended by recovery boundary; skipping set/runeword blocks.",
+                    trimmed_code
+                );
             }
         }
 
         Ok(Item {
             bits: recorder.recorded_bits,
             code,
+            flags,
+            version,
+            is_ear,
+            ear_class,
+            ear_level,
+            ear_player_name,
+            personalized_player_name,
             mode,
             x,
             y,
             page,
             location: loc,
+            header_socket_hint,
+            has_multiple_graphics,
+            multi_graphics_bits,
+            has_class_specific_data,
+            class_specific_bits,
             id: item_id,
             level: item_level,
             quality: item_quality,
+            low_high_graphic_bits,
             is_compact,
             is_socketed,
             is_identified,
@@ -605,12 +828,22 @@ impl Item {
             rare_name_2,
             rare_affixes,
             unique_id,
+            runeword_id,
+            runeword_level,
             properties,
             set_attributes,
             runeword_attributes,
             num_socketed_items,
             socketed_items: Vec::new(),
+            timestamp_flag,
+            properties_complete,
+            set_list_count,
+            tbk_ibk_teleport,
         })
+    }
+
+    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
+        Self::from_reader_with_context(reader, huffman, None)
     }
 
     pub fn read_section(
@@ -623,7 +856,16 @@ impl Item {
         let mut bit_pos = 0u64;
 
         while bit_pos < section_bits {
-            bit_pos = align_to_byte(bit_pos);
+            let aligned = align_to_byte(bit_pos);
+            if bit_pos != aligned {
+                item_trace!(
+                    "  [Section] Aligning item cursor from {} to {}",
+                    bit_pos,
+                    aligned
+                );
+            }
+            bit_pos = aligned;
+
             let start = bit_pos;
             if start >= section_bits {
                 break;
@@ -644,7 +886,7 @@ impl Item {
             }
             bit_pos = end;
 
-            if item.mode == 6 {
+            if item.mode == 6 || item.location == 6 {
                 if let Some(parent) = items.last_mut() {
                     parent.socketed_items.push(item);
                 } else {
@@ -732,6 +974,159 @@ impl Item {
         }
         item_starts
     }
+
+    fn write_header_block(
+        &self,
+        emitter: &mut BitEmitter,
+        huffman: &HuffmanTree,
+    ) -> io::Result<()> {
+        emitter.write_bits(self.flags, 32)?;
+        emitter.write_bits(self.version as u32, 3)?;
+        emitter.write_bits(self.mode as u32, 3)?;
+        emitter.write_bits(self.location as u32, 4)?;
+        emitter.write_bits(self.x as u32, 4)?;
+        emitter.write_bits(self.y as u32, 4)?;
+        emitter.write_bits(self.page as u32, 3)?;
+
+        if self.is_ear {
+            emitter.write_bits(self.ear_class.unwrap_or(0) as u32, 3)?;
+            emitter.write_bits(self.ear_level.unwrap_or(0) as u32, 7)?;
+            if let Some(name) = &self.ear_player_name {
+                write_player_name(emitter, name)?;
+            } else {
+                write_player_name(emitter, "")?;
+            }
+            return Ok(());
+        }
+
+        let encoded_code = huffman.encode(&self.code)?;
+        emitter.extend_bits(encoded_code)?;
+        emitter.write_bits(self.header_socket_hint as u32, 3)?;
+
+        if self.is_compact {
+            return Ok(());
+        }
+
+        emitter.write_bit(self.has_multiple_graphics)?;
+        if self.has_multiple_graphics {
+            emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
+        }
+        emitter.write_bit(self.has_class_specific_data)?;
+        if self.has_class_specific_data {
+            emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_extended_stats(&self, emitter: &mut BitEmitter) -> io::Result<()> {
+        if self.is_ear || self.is_compact {
+            return Ok(());
+        }
+
+        emitter.write_bits(self.id.unwrap_or(0), 32)?;
+        emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
+        let quality = self.quality.unwrap_or(ItemQuality::Normal);
+        emitter.write_bits(quality as u32, 4)?;
+
+        match quality {
+            ItemQuality::Low | ItemQuality::High => {
+                emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
+            }
+            ItemQuality::Magic => {
+                emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
+                emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
+            }
+            ItemQuality::Rare | ItemQuality::Crafted => {
+                emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
+                emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
+                let mut affix_iter = self.rare_affixes.iter();
+                for _ in 0..3 {
+                    for _ in 0..2 {
+                        if let Some(&value) = affix_iter.next() {
+                            emitter.write_bit(true)?;
+                            emitter.write_bits(value as u32, 11)?;
+                        } else {
+                            emitter.write_bit(false)?;
+                        }
+                    }
+                }
+            }
+            ItemQuality::Set | ItemQuality::Unique => {
+                emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
+            }
+            _ => {}
+        }
+
+        if self.is_runeword {
+            emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
+            emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
+        }
+
+        if self.is_personalized {
+            let name = self.personalized_player_name.as_deref().unwrap_or("");
+            write_player_name(emitter, name)?;
+        }
+
+        let trimmed_code = self.code.trim();
+        if trimmed_code == "tbk" || trimmed_code == "ibk" {
+            emitter.write_bits(self.tbk_ibk_teleport.unwrap_or(0) as u32, 5)?;
+        }
+
+        emitter.write_bit(self.timestamp_flag)?;
+        Ok(())
+    }
+
+    fn write_property_groups(
+        &self,
+        emitter: &mut BitEmitter,
+        huffman: &HuffmanTree,
+    ) -> io::Result<()> {
+        if self.is_ear {
+            return Ok(());
+        }
+
+        write_property_list(emitter, &self.properties)?;
+
+        if self.properties_complete {
+            for idx in 0..(self.set_list_count as usize) {
+                if let Some(set_props) = self.set_attributes.get(idx) {
+                    write_property_list(emitter, set_props)?;
+                } else {
+                    break;
+                }
+            }
+            if self.is_runeword && !self.runeword_attributes.is_empty() {
+                write_property_list(emitter, &self.runeword_attributes)?;
+            }
+        } else {
+            item_trace!(
+                "  [Warn] Skipping dependent property lists for '{}' (incomplete)",
+                self.code.trim()
+            );
+        }
+
+        for child in &self.socketed_items {
+            emitter.byte_align()?;
+            child.write_recursive(emitter, huffman)?;
+        }
+
+        Ok(())
+    }
+
+    fn write_recursive(&self, emitter: &mut BitEmitter, huffman: &HuffmanTree) -> io::Result<()> {
+        self.write_header_block(emitter, huffman)?;
+        self.write_extended_stats(emitter)?;
+        self.write_property_groups(emitter, huffman)?;
+        Ok(())
+    }
+
+    pub fn to_bytes(&self, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
+        let mut emitter = BitEmitter::new();
+        self.write_recursive(&mut emitter, huffman)?;
+        emitter.byte_align()?;
+        Ok(emitter.into_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -781,7 +1176,8 @@ fn parse_item_at(
 
     let start_byte = (start_bit / 8) as usize;
     let mut reader = IoBitReader::endian(Cursor::new(&section_bytes[start_byte..]), LittleEndian);
-    let item = Item::from_reader(&mut reader, huffman)?;
+    let item =
+        Item::from_reader_with_context(&mut reader, huffman, Some((section_bytes, start_bit)))?;
     let consumed_bits = reader.position_in_bits()?;
     Ok((item, consumed_bits))
 }
@@ -798,18 +1194,43 @@ fn socket_rescue_limit(parent: &Item) -> usize {
     }
 }
 
-fn is_plausible_socket_child_header(mode: u8, code: &str) -> bool {
+fn is_plausible_item_header(mode: u8, location: u8, code: &str) -> bool {
+    if mode > 6 || location > 15 {
+        return false;
+    }
+
+    if item_template(code).is_some() {
+        return code != "    " && code.trim().chars().count() > 0;
+    }
+
+    let trimmed_code = code.trim();
+    if trimmed_code.is_empty() {
+        return false;
+    }
+
+    let is_rune = trimmed_code.len() == 3
+        && trimmed_code.starts_with('r')
+        && trimmed_code.chars().skip(1).all(|ch| ch.is_ascii_digit());
+    let is_gem_like = trimmed_code.starts_with('g') || trimmed_code.starts_with("sk");
+    let is_jewel = matches!(trimmed_code, "jew" | "j34" | "cjw");
+
+    is_rune || is_jewel || is_gem_like
+}
+
+fn is_plausible_socket_child_header(mode: u8, location: u8, code: &str) -> bool {
     let Some(template) = item_template(code) else {
         return false;
     };
+    if !(mode == 6 || location == 6) {
+        return false;
+    }
     let code = code.trim();
     let is_rune =
         code.len() == 3 && code.starts_with('r') && code[1..].chars().all(|ch| ch.is_ascii_digit());
     let is_jewel = matches!(code, "jew" | "j34" | "cjw");
     let is_gem_like = code.starts_with('g') || code.starts_with("sk");
 
-    mode == 6
-        && (is_rune || is_jewel || is_gem_like)
+    (is_rune || is_jewel || is_gem_like)
         && template.width == 1
         && template.height == 1
         && !template.is_armor
@@ -861,11 +1282,12 @@ fn find_next_socket_child(
     let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
 
     while probe < max_probe {
-        let Some((mode, code)) = peek_item_header_at(section_bytes, probe, huffman) else {
+        let Some((mode, location, code)) = peek_item_header_at(section_bytes, probe, huffman)
+        else {
             probe += 8;
             continue;
         };
-        if !is_plausible_socket_child_header(mode, &code) {
+        if !is_plausible_socket_child_header(mode, location, &code) {
             probe += 8;
             continue;
         }
@@ -875,7 +1297,7 @@ fn find_next_socket_child(
             continue;
         };
 
-        if is_plausible_socket_child_header(full_item.mode, &full_item.code) {
+        if is_plausible_socket_child_header(full_item.mode, full_item.location, &full_item.code) {
             return Some((full_item, probe + consumed_bits));
         }
 
@@ -889,7 +1311,7 @@ fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
-) -> Option<(u8, String)> {
+) -> Option<(u8, u8, String)> {
     if start_bit % 8 != 0 {
         return None;
     }
@@ -900,7 +1322,7 @@ fn peek_item_header_at(
     let _flags = recorder.read_bits(32).ok()?;
     let _version = recorder.read_bits(3).ok()?;
     let mode = recorder.read_bits(3).ok()? as u8;
-    let _location = recorder.read_bits(4).ok()?;
+    let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
     let _y = recorder.read_bits(4).ok()?;
     let _page = recorder.read_bits(3).ok()?;
@@ -910,5 +1332,52 @@ fn peek_item_header_at(
         code.push(huffman.decode_recorded(&mut recorder).ok()?);
     }
 
-    Some((mode, code))
+    Some((mode, location, code))
+}
+
+fn recover_property_reader<R: BitRead>(
+    recorder: &mut BitRecorder<R>,
+    code: &str,
+    section_bytes: &[u8],
+    item_start_bit: u64,
+    huffman: &HuffmanTree,
+) -> io::Result<bool> {
+    let section_bits = (section_bytes.len() * 8) as u64;
+    let section_pos = item_start_bit + recorder.recorded_bits.len() as u64;
+
+    let mut probe = align_to_byte(section_pos);
+    while probe < section_bits {
+        let Some((mode, location, probe_code)) = peek_item_header_at(section_bytes, probe, huffman)
+        else {
+            probe += 8;
+            continue;
+        };
+
+        if is_plausible_item_header(mode, location, &probe_code) {
+            if probe > section_pos {
+                let skip = probe - section_pos;
+                for _ in 0..skip {
+                    recorder.read_bit()?;
+                }
+            }
+            item_trace!(
+                "    [DEBUG] Recovered property parse for '{}': next plausible item header '{}' at bit {} (mode={}, location={})",
+                code,
+                probe_code,
+                probe,
+                mode,
+                location
+            );
+            return Ok(true);
+        }
+
+        probe += 8;
+    }
+
+    item_trace!(
+        "    [DEBUG] Property parse recovery failed for '{}': no plausible header from bit {}",
+        code,
+        section_pos
+    );
+    Ok(false)
 }

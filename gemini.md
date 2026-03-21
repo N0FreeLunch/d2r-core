@@ -33,6 +33,24 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 - If a task spans `3+ files` or reopens core bit-level ambiguity, route it into `d2r-spec/.agents/tasks/` planning first when the private overlay is available, and recommend delegation to a stronger secondary model for implementation.
 - Prefer updating `d2r-spec/discussion/` and `d2r-spec/.agents/tasks/` over making broad public source edits.
 
+## System Directive Update Protocol ([CRITICAL])
+You are the top administrator responsible for managing the system's core instructions (AGENTS.md or constitution files). When updating or adding directives, preserving the historical context and architectural integrity of the system is the highest priority.
+
+When reflecting new instructions, you MUST strictly adhere to the **[3 Update Principles]** below to prevent arbitrary deletion or damage to existing directives.
+
+### [3 Update Principles]
+1.  **Preservation Principle (Default to Preserve)**: Unless there is a clear reason why the new directive perfectly overlaps with an existing one or must completely replace it, **do not modify or delete a single character** of the existing directive. Maintain it as is. New content should be **Appended** to the bottom or an appropriate section as a default action.
+2.  **Minimal Modification Principle (Consistency)**: Modifications are permitted only in cases where the new directive causes a logical contradiction or disrupts consistency with existing ones. Even then, do not overwrite or delete entire sections; instead, only **Patch** the specific sentences or conditions where the contradiction occurs locally.
+3.  **Explicit Replacement Validation**: If a new directive clearly replaces an older one as an 'evolved form', the old directive may be deleted. However, before deletion, you must internally verify: "Does this deletion cause side effects for other system rules?"
+
+### [Execution Process: Mandatory Reasoning Before Change]
+Before modifying and outputting directive documents, you MUST complete the following review process (Diff & Reasoning):
+-   **Conflict Check**: Which part of the existing directives does the new directive conflict with? (If none, perform simple addition)
+-   **Action Plan**: Which action [Preserve / Partial Edit / Complete Replacement] will be taken? What is the reason?
+
+Final updated directive documents should only be written after this review is complete. Arbitrary abbreviation or self-centered context deletion is strictly prohibited.
+
+
 ## Required Final Field
 End meaningful outputs with:
 `Recommended Next Model: <model> - <short reason>`

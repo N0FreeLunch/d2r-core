@@ -138,7 +138,7 @@ pub fn format_item(item: &Item, language: &str, active_set_count: usize, char_le
     let warnings = validate_item(item).map(|res| res.warnings).unwrap_or_default();
 
     FormattedItem {
-        name: resolve_item_name(item, language),
+        name: strip_d2_color_codes(&resolve_item_name(item, language)),
         level: item.level.unwrap_or(0),
         quality_name: format!("{:?}", item.quality),
         base_attributes,
@@ -190,56 +190,22 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
         }
     };
 
+    let f = |base_fallback: String| -> String {
+        if loc_str.contains('%') {
+            format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
+        } else {
+            format_with_phrase2(base_fallback)
+        }
+    };
+
     match descfunc {
-        1 | 19 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{} {}", signed_value, loc_str))
-            }
-        }
-        2 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{}% {}", display_value, loc_str))
-            }
-        }
-        3 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{} {}", display_value, loc_str))
-            }
-        }
-        4 | 8 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{}% {}", signed_value, loc_str))
-            }
-        }
-        5 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{} {}%", loc_str, display_value))
-            }
-        }
-        6 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{}% {}", signed_value, loc_str))
-            }
-        }
-        7 => {
-            if loc_str.contains('%') {
-                format_with_phrase2(format_template(loc_str, &[display_value.to_string()]))
-            } else {
-                format_with_phrase2(format!("{}% {}", display_value, loc_str))
-            }
-        }
+        1 | 19 => f(format!("{} {}", signed_value, loc_str)),
+        2 => f(format!("{}% {}", display_value, loc_str)),
+        3 => f(format!("{} {}", display_value, loc_str)),
+        4 | 8 => f(format!("{}% {}", signed_value, loc_str)),
+        5 => f(format!("{} {}%", loc_str, display_value)),
+        6 => f(format!("{}% {}", signed_value, loc_str)),
+        7 => f(format!("{}% {}", display_value, loc_str)),
         11 => {
             if loc_str.contains('%') {
                 format_template(loc_str, &[display_value.to_string()])
@@ -409,8 +375,23 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
                 format!("{} {}", signed_value, loc_str)
             }
         }
-        _ => format!("{} (func {}): {}", loc_str, descfunc, display_value),
+        _ => strip_d2_color_codes(&format!("{} (func {}): {}", loc_str, descfunc, display_value)),
     }
+}
+
+pub fn strip_d2_color_codes(s: &str) -> String {
+    let mut out = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\u{00FF}' && i + 1 < chars.len() && chars[i + 1] == 'c' {
+            i += 3; // Skip ÿ, c, and the color code character
+            continue;
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
 }
 
 fn class_name(class_id: usize, language: &str) -> Option<&'static str> {
@@ -775,5 +756,12 @@ mod tests {
         // ModStr1u in ko is "생명력" (Wait, I should check this)
         // Let's assume it's "+120 생명력 (캐릭터 레벨에 비례해서)"
         assert_eq!(formatted, "+120 라이프 (캐릭터 레벨에 비례해서)");
+    }
+
+    #[test]
+    fn test_strip_color_codes() {
+        assert_eq!(strip_d2_color_codes("ÿc1Redÿc0White"), "RedWhite");
+        assert_eq!(strip_d2_color_codes("ÿcUUnique"), "Unique");
+        assert_eq!(strip_d2_color_codes("Normal"), "Normal");
     }
 }

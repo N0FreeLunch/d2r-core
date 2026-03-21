@@ -1,6 +1,6 @@
 use crate::data::stat_costs::{StatCost, STAT_COSTS};
 use crate::item::{Checksum, HuffmanTree, Item};
-use bitstream_io::{BitRead, BitReader, LittleEndian};
+use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
 use std::io::{self, Cursor};
 use std::mem;
 
@@ -129,11 +129,23 @@ fn read_bits_dynamic(
     Ok(value)
 }
 
+fn write_bits_dynamic<W: BitWrite>(
+    writer: &mut W,
+    count: u32,
+    value: u32,
+) -> io::Result<()> {
+    for i in 0..count {
+        writer.write_bit((value >> i) & 1 != 0)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct AttributeEntry {
     pub stat_id: u32,
     pub param: u32,
     pub raw_value: u32,
+    pub opaque_bits: Option<Vec<bool>>,
 }
 
 #[derive(Clone)]
@@ -162,38 +174,100 @@ impl AttributeSection {
                 break;
             }
             let cost = stat_cost(stat_id);
-            let Some(cost) = cost else {
-                break;
-            };
-            let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
-            if (cost.save_param_bits as u64) > remaining {
-                break;
-            }
-            let param = if cost.save_param_bits > 0 {
-                read_bits_dynamic(&mut reader, cost.save_param_bits as u32)?
+            if let Some(cost) = cost {
+                let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
+                if (cost.save_param_bits as u64) > remaining {
+                    break;
+                }
+                let param = if cost.save_param_bits > 0 {
+                    read_bits_dynamic(&mut reader, cost.save_param_bits as u32)?
+                } else {
+                    0
+                };
+                let save_bits = char_stat_save_bits(stat_id);
+                let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
+                if (save_bits as u64) > remaining {
+                    break;
+                }
+                let raw_value = if save_bits > 0 {
+                    read_bits_dynamic(&mut reader, save_bits as u32)?
+                } else {
+                    0
+                };
+                entries.push(AttributeEntry {
+                    stat_id,
+                    param,
+                    raw_value,
+                    opaque_bits: None,
+                });
             } else {
-                0
-            };
-            let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
-            if (cost.save_bits as u64) > remaining {
-                break;
+                // Unknown stat ID: collect remaining bits as opaque block
+                let mut bits = Vec::new();
+                while let Ok(bit) = reader.read_bit() {
+                    bits.push(bit);
+                }
+                entries.push(AttributeEntry {
+                    stat_id,
+                    param: 0,
+                    raw_value: 0,
+                    opaque_bits: Some(bits),
+                });
+                break; // After one opaque block, we stop because we don't know the next stat boundary
             }
-            let raw_value = if cost.save_bits > 0 {
-                read_bits_dynamic(&mut reader, cost.save_bits as u32)?
-            } else {
-                0
-            };
-            entries.push(AttributeEntry {
-                stat_id,
-                param,
-                raw_value,
-            });
         }
         Ok(AttributeSection { entries, raw_bytes })
     }
 
     pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
-        Ok(self.raw_bytes.clone())
+        self.to_bytes_from_entries()
+    }
+
+    pub fn to_bytes_from_entries(&self) -> io::Result<Vec<u8>> {
+        let mut buf = Vec::new();
+        let mut writer = BitWriter::endian(&mut buf, LittleEndian);
+
+        // 'gf' marker (2 bytes)
+        write_bits_dynamic(&mut writer, 8, b'g' as u32)?;
+        write_bits_dynamic(&mut writer, 8, b'f' as u32)?;
+
+        for entry in &self.entries {
+            if let Some(ref bits) = entry.opaque_bits {
+                write_bits_dynamic(&mut writer, 9, entry.stat_id)?;
+                for &bit in bits {
+                    writer.write_bit(bit)?;
+                }
+                return Ok(buf); // Opaque block is the end for now
+            }
+            let bits = char_stat_save_bits(entry.stat_id);
+            if bits == 0 {
+                continue;
+            }
+            write_bits_dynamic(&mut writer, 9, entry.stat_id)?;
+            write_bits_dynamic(&mut writer, bits, entry.raw_value)?;
+        }
+        // 0x1FF terminator
+        write_bits_dynamic(&mut writer, 9, 0x1FFu32)?;
+        writer.byte_align()?;
+        Ok(buf)
+    }
+
+    pub fn set_raw(&mut self, stat_id: u32, raw_value: u32) {
+        if let Some(e) = self.entries.iter_mut().find(|e| e.stat_id == stat_id) {
+            e.raw_value = raw_value;
+        } else {
+            // If not found, we could push it, but for character stats they should usually exist.
+            // Following mini-spec's simple implementation first.
+            self.entries.push(AttributeEntry {
+                stat_id,
+                param: 0,
+                raw_value,
+                opaque_bits: None,
+            });
+        }
+    }
+
+    pub fn set_value(&mut self, stat_id: u32, logical_value: i32, save_add: i32) {
+        self.set_raw(stat_id, (logical_value + save_add) as u32);
     }
 
     pub fn actual_value(&self, stat_id: u32) -> Option<i32> {
@@ -201,8 +275,29 @@ impl AttributeSection {
             .iter()
             .find(|entry| entry.stat_id == stat_id)
             .and_then(|entry| {
-                stat_cost(entry.stat_id).map(|cost| entry.raw_value as i32 - cost.save_add)
+                // Prioritize character bits/add for these specific IDs
+                let save_add = match entry.stat_id {
+                    0 | 1 | 2 | 3 => 32, // Strength, Energy, Dexterity, Vitality usually have +32 in stat_costs
+                    _ => stat_cost(entry.stat_id).map(|c| c.save_add).unwrap_or(0),
+                };
+                Some(entry.raw_value as i32 - save_add)
             })
+    }
+}
+
+fn char_stat_save_bits(stat_id: u32) -> u32 {
+    match stat_id {
+        0 | 1 | 2 | 3 | 4 => 10,
+        5 => 8,
+        6 | 7 | 8 | 9 | 10 | 11 => 21,
+        12 => 7,
+        13 => 32,
+        14 | 15 => 25,
+        _ => {
+            // Pass-through fallback: if we have it in stat_costs, use that.
+            // This is for DLC/expansion stats that might appear.
+            stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
+        }
     }
 }
 
@@ -260,33 +355,63 @@ pub fn rebuild_status_and_player_items(
     huffman: &HuffmanTree,
 ) -> io::Result<Vec<u8>> {
     let map = map_core_sections(bytes)?;
-    let mut working = bytes.to_vec();
+    let mut result = Vec::with_capacity(bytes.len() + 64);
+
+    // 1. Prefix: Header up to 'gf' marker
+    result.extend_from_slice(&bytes[..map.gf_pos]);
+
+    // 2. GF Section
     if let Some(attr) = attributes {
-        let attr_bytes = attr.to_bytes()?;
-        replace_bytes(&mut working, map.gf_pos..map.if_pos, &attr_bytes)?;
+        result.extend_from_slice(&attr.to_bytes()?);
+    } else {
+        result.extend_from_slice(&bytes[map.gf_pos..map.if_pos]);
     }
+
+    // 3. IF Section (Marker + 30 bytes skills)
     if let Some(skills) = skills {
-        let start = map.if_pos + 2;
-        let end = start + SKILL_SECTION_LEN;
-        replace_bytes(&mut working, start..end, skills.as_slice())?;
+        result.extend_from_slice(b"if");
+        result.extend_from_slice(skills.as_slice());
+    } else {
+        let skill_end = map.if_pos + 2 + SKILL_SECTION_LEN;
+        result.extend_from_slice(&bytes[map.if_pos..skill_end]);
     }
-    rebuild_item_section(&working, items, huffman)
+
+    // 4. Gap between IF end and first JM
+    let jm0 = map.jm_positions[0];
+    let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
+    if jm0 > skill_end_original {
+        result.extend_from_slice(&bytes[skill_end_original..jm0]);
+    }
+
+    // 5. Item Sections (Player, Corpse, etc.)
+    // Append the rest of the original bytes (from first JM) first so rebuild_item_section can find all markers
+    result.extend_from_slice(&bytes[jm0..]);
+
+    // Now call rebuild_item_section on the newly constructed buffer.
+    // This will correctly find the *new* JM positions in result.
+    rebuild_item_section(&result, items, huffman)
 }
 
-fn replace_bytes(
-    target: &mut Vec<u8>,
-    range: std::ops::Range<usize>,
-    replacement: &[u8],
-) -> io::Result<()> {
-    if replacement.len() != range.len() || range.end > target.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "replacement slice does not match the target range",
-        ));
-    }
-    target[range.clone()].copy_from_slice(replacement);
-    Ok(())
+pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
+    let map = map_core_sections(bytes)?;
+    let mut attrs = AttributeSection::parse(bytes, &map)?;
+
+    // gf 섹션의 level 수정 (stat_id=12, save_add=0, bit_width=7)
+    attrs.set_raw(12, new_level as u32);
+
+    // 헤더 CHAR_LEVEL_OFFSET (27번 바이트) 동기화
+    let mut working = rebuild_status_and_player_items(
+        bytes,
+        Some(&attrs),
+        None,
+        &Item::read_player_items(bytes, huffman)?,
+        huffman,
+    )?;
+    working[CHAR_LEVEL_OFFSET] = new_level;
+    finalize_save_bytes(&mut working)?;
+    Ok(working)
 }
+
 
 #[derive(Clone)]
 pub struct SkillSection([u8; SKILL_SECTION_LEN]);

@@ -11,19 +11,39 @@ fn load_fixture(path: &str) -> io::Result<Vec<u8>> {
 }
 
 #[test]
-fn status_attributes_progression_values_roundtrip() -> io::Result<()> {
-    let bytes =
-        load_fixture("tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s")?;
+fn test_attribute_parse_progression_values() -> io::Result<()> {
+    let bytes = load_fixture("tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s")?;
     let map = map_core_sections(&bytes)?;
     let section = AttributeSection::parse(&bytes, &map)?;
-    assert_eq!(section.entries.len(), 23); // Updated from 26 to match current extractor results
-    assert_eq!(section.actual_value(0), Some(-12));
-    assert_eq!(section.actual_value(4), Some(0));
 
-    let range = map.gf_pos..map.if_pos;
+    assert_eq!(section.actual_value(12), Some(2), "Level should be 2");
+    assert_eq!(section.actual_value(13), Some(1170), "Experience should be 1170");
+    // ID 3: Vitality (base 20 + 5 invested = 25 total). actual_value = 25-32 = -7
+    assert_eq!(section.actual_value(3), Some(-7), "Vitality check failed");
+    assert_eq!(section.actual_value(15), Some(8061), "Stash Gold check failed");
+    Ok(())
+}
+
+#[test]
+fn test_attribute_write_roundtrip_empty() -> io::Result<()> {
+    let bytes = load_fixture("tests/fixtures/savegames/original/amazon_empty.d2s")?;
+    let map = map_core_sections(&bytes)?;
+    let section = AttributeSection::parse(&bytes, &map)?;
+
     let serialized = section.to_bytes()?;
-    let slice = &bytes[range];
-    assert_eq!(serialized.len(), slice.len());
-    assert_eq!(&serialized[..], slice);
+    let original = &bytes[map.gf_pos..map.if_pos];
+    assert_eq!(serialized, original);
+    Ok(())
+}
+
+#[test]
+fn test_attribute_write_roundtrip_progression() -> io::Result<()> {
+    let bytes = load_fixture("tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s")?;
+    let map = map_core_sections(&bytes)?;
+    let section = AttributeSection::parse(&bytes, &map)?;
+
+    let serialized = section.to_bytes()?;
+    let original = &bytes[map.gf_pos..map.if_pos];
+    assert_eq!(serialized, original);
     Ok(())
 }

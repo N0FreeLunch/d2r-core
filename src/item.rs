@@ -572,13 +572,20 @@ pub fn read_property_list<R: BitRead>(
 ) -> io::Result<(Vec<ItemProperty>, bool)> {
     let mut props = Vec::new();
 
-    if version == 5 { println!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
+    if version == 5 { item_trace!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
     loop {
         let _bit_pos = recorder.recorded_bits.len();
-        match parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword)? {
-            PropertyParseResult::Property(prop) => props.push(prop),
-            PropertyParseResult::Terminator => return Ok((props, true)),
-            PropertyParseResult::Recovered => return Ok((props, false)),
+        let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
+        
+        match result {
+            Ok(PropertyParseResult::Property(prop)) => props.push(prop),
+            Ok(PropertyParseResult::Terminator) => return Ok((props, true)),
+            Ok(PropertyParseResult::Recovered) => return Ok((props, false)),
+            Err(e) if version == 5 && e.kind() == io::ErrorKind::UnexpectedEof => {
+                item_trace!("  [Alpha v5] Property list ended by EOF.");
+                return Ok((props, true));
+            }
+            Err(e) => return Err(e),
         }
     }
 }
@@ -615,8 +622,9 @@ pub fn parse_single_property<R: BitRead>(
 
     if stat_id == terminator {
         if version == 5 {
-            // Alpha v105: Terminator consumes 18 bits total (9 ID + 9 Dummy).
-            let _ = recorder.read_bits(9)?;
+            // Alpha v105: Terminator consumes 17 bits total (9 ID + 8 Dummy).
+            // Verified by 0054 bit-map. 18-bit alignment violation noted.
+            let _ = recorder.read_bits(8)?;
         }
         return Ok(PropertyParseResult::Terminator);
     }
@@ -707,7 +715,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     }
     emitter.write_bits(terminator, id_bits)?;
     if version == 5 {
-        emitter.write_bits(0, 9)?;
+        emitter.write_bits(0, 8)?;
     }
     Ok(())
 }
@@ -810,15 +818,30 @@ impl Item {
         let template = item_template(code);
 
         if version == 5 {
-            // Alpha v105 (v5): List 1 starts immediately after the dynamic header + item code.
-            // Stats like Defense/Durability are stored as properties (ID 31, 72, etc.) in the list.
+            // Alpha v105 (v5): 16-bit base header (matches writer at L1563)
+            let level = recorder.read_bits(7)? as u8;
+            let quality_raw = recorder.read_bits(4)? as u8;
+            let quality = ItemQuality::from(quality_raw);
+            let _padding = recorder.read_bits(5)?; // 5 bits padding/flags
+
+            let (magic_prefix, magic_suffix) = if quality == ItemQuality::Magic && !is_runeword {
+                // Alpha v105: 7-bit affixes (matches writer at L1570)
+                let p = recorder.read_bits(7)? as u16;
+                let s = recorder.read_bits(7)? as u16;
+                (Some(p), Some(s))
+            } else {
+                (None, None)
+            };
+
+            let has_multiple_graphics = recorder.read_bit()?;
+            let has_class_specific_data = recorder.read_bit()?;
+            let timestamp_flag = recorder.read_bit()?;
+
             return Ok((
-                None, None, None, 
-                false, None, false, None, None, None, None, 
-                None, None, [None; 6], 
-                None, None, None, 
-                None, None, 
-                false, None, None, None, None, None, 0
+                None, Some(level), Some(quality), has_multiple_graphics, None,
+                has_class_specific_data, None, None, magic_prefix, magic_suffix,
+                None, None, [None; 6], None, None, None, None, None, timestamp_flag,
+                None, None, None, None, None, 0,
             ));
         }
 
@@ -1046,7 +1069,9 @@ impl Item {
         }
 
         if parse_property_lists && is_runeword {
-            let has_list2 = if version == 5 { is_personalized } else { true };
+            // Alpha v105: Runewords always have a second list (runeword attributes) and a 93-bit spacer.
+            // The previous condition erroneously relied on `is_personalized`.
+            let has_list2 = true;
             if has_list2 {
                 if version == 5 {
                     // Alpha v105: 93-bit spacer confirmed between List 1 and List 2.
@@ -1080,14 +1105,7 @@ impl Item {
         let is_personalized = (flags & (1 << 24)) != 0;
         
         let is_runeword = (flags & (1 << 26)) != 0;
-
-        let (code, ear_class, ear_level, ear_player_name) = if version == 5 && !is_ear && is_runeword {
-            // Alpha v105: Runeword items (version 5) seem to skip Huffman item code.
-            // We'll tentatively use "xrs " as it will be identified by stats later.
-            ("xrs ".to_string(), None, None, None)
-        } else {
-            Self::read_item_code(recorder, is_ear, huffman, version)?
-        };
+        let (code, ear_class, ear_level, ear_player_name) = Self::read_item_code(recorder, is_ear, huffman, version)?;
 
         if is_ear {
             return Ok(Item {
@@ -1147,7 +1165,7 @@ impl Item {
         }
         let trimmed_code = code.trim();
         if version == 5 {
-            println!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
+            item_trace!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
             // Alpha v105: Items in Inventory (Loc 0) or Equipped (Loc 1) have an 8-bit gap after code.
             if loc == 0 || loc == 1 {
                 let _ = recorder.read_bits(8)?;
@@ -1165,6 +1183,16 @@ impl Item {
         let item_id = stats.0;
         let item_level = stats.1;
         let item_quality = stats.2;
+        let mut is_runeword = is_runeword;
+        if version == 5 && is_runeword {
+            // Alpha v105: Only Normal (Quality 2) items can be runewords.
+            // Plate Mail (Quality 4) is magic even if bit 23 is set.
+            if let Some(q) = item_quality {
+                if q != ItemQuality::Normal {
+                    is_runeword = false;
+                }
+            }
+        }
         let has_multiple_graphics = stats.3;
         let multi_graphics_bits = stats.4;
         let has_class_specific_data = stats.5;
@@ -1312,16 +1340,21 @@ impl Item {
             }
 
             let (item, consumed_bits) = parse_item_at(section_bytes, start, huffman)?;
-            bit_pos = align_to_byte(start + consumed_bits);
-
             let end = start + consumed_bits;
+            
+            if item.version == 5 {
+                // Alpha v105: Every item is followed by byte alignment padding.
+                bit_pos = align_to_byte(end);
+            } else {
+                bit_pos = end;
+            }
+            
             if end <= start {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "item parser did not advance",
                 ));
             }
-            bit_pos = end;
 
             if item.mode == 6 || item.location == 6 {
                 if let Some(parent) = items.last_mut() {

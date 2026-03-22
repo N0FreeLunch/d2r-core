@@ -109,6 +109,9 @@ path = "src/bin/verify/find_authority.rs"
 name = "d2item_find_fixed"
 path = "src/bin/verify/find_fixed.rs"
 [[bin]]
+name = "d2item_extract_fixed"
+path = "src/bin/verify/extract_fixed.rs"
+[[bin]]
 name = "d2item_alpha_trace"
 path = "src/bin/verify/alpha_trace.rs"
 [[bin]]

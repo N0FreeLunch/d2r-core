@@ -615,6 +615,7 @@ pub fn parse_single_property<R: BitRead>(
 
     if stat_id == terminator {
         if version == 5 {
+            // Alpha v105: Terminator consumes 18 bits total (9 ID + 9 Dummy).
             let _ = recorder.read_bits(9)?;
         }
         return Ok(PropertyParseResult::Terminator);
@@ -719,9 +720,25 @@ impl Item {
         let mode = recorder.read_bits(3)? as u8;
         let loc = recorder.read_bits(4)? as u8;
         let x = (recorder.read_bits(4)? & 0x0F) as u8;
-        let y = (recorder.read_bits(4)? & 0x0F) as u8;
-        let page = (recorder.read_bits(3)? & 0x07) as u8;
-        let socket_hint = (recorder.read_bits(3)? & 0x07) as u8;
+
+        let (y, page, socket_hint) = if version == 5 {
+            // Alpha v105 (v5): Dynamic header. 
+            // Y (4 bits) and Page (3 bits) only present if location is Inventory/Storage (loc 0).
+            // Socket hint (3 bits) is not present in v5 header.
+            if loc == 0 {
+                let y = (recorder.read_bits(4)? & 0x0F) as u8;
+                let page = (recorder.read_bits(3)? & 0x07) as u8;
+                (y, page, 0)
+            } else {
+                (0, 0, 0)
+            }
+        } else {
+            let y = (recorder.read_bits(4)? & 0x0F) as u8;
+            let page = (recorder.read_bits(3)? & 0x07) as u8;
+            let socket_hint = (recorder.read_bits(3)? & 0x07) as u8;
+            (y, page, socket_hint)
+        };
+
         Ok((flags, version, mode, loc, x, y, page, socket_hint))
     }
 
@@ -792,32 +809,28 @@ impl Item {
         let trimmed_code = code.trim();
         let template = item_template(code);
 
-        let (item_id, item_level, quality) = parse_base_header(recorder, version)?;
-        let mut item_id = Some(item_id);
-        let mut item_level = Some(item_level);
-        let mut item_quality = Some(quality);
-
         if version == 5 {
-            // Alpha v105 (v5): We confirmed List 1 starts at exactly offset 230 bits.
-            // Current bits consumed: read_item_header (56) + code (0) + parse_base_header (16+27?) = 99?
-            // We use a confirmed 141-bit skip to align from current early-return structure (v5 header=16, flags=3).
-            // Actually, let's just use the brute-force confirmed skip if we find it.
-            // For now, use the empirical offset: 230 (L1 start) - current (read_item_header 56 + base_header 16 + padding/flags 17) = 141.
-            for _ in 0..93 { let _ = recorder.read_bit()?; }
+            // Alpha v105 (v5): List 1 starts immediately after the dynamic header + item code.
+            // Stats like Defense/Durability are stored as properties (ID 31, 72, etc.) in the list.
             return Ok((
-                item_id, item_level, item_quality, 
-                false, None, false, None, None, None, None, // Graphics/Class/Magic
-                None, None, [None; 6], // Rare
-                None, None, None, // Unique/Runeword IDs
-                None, None, // Personalization/Teleport
-                false, None, None, None, None, None, 0 // Fields/Defense/Durability
+                None, None, None, 
+                false, None, false, None, None, None, None, 
+                None, None, [None; 6], 
+                None, None, None, 
+                None, None, 
+                false, None, None, None, None, None, 0
             ));
         }
+
+        let (item_id_val, item_level_val, quality_val) = parse_base_header(recorder, version)?;
+        let item_id = Some(item_id_val);
+        let item_level = Some(item_level_val);
+        let item_quality = Some(quality_val);
         item_trace!(
             "  [Stats] ID: {:?}, Lvl: {:?}, Quality: {:?}",
             item_id,
             item_level,
-            quality
+            quality_val
         );
 
         let has_multiple_graphics = recorder.read_bits(1)? != 0;
@@ -841,7 +854,7 @@ impl Item {
         let mut rare_affixes = [None; 6];
         let mut unique_id = None;
 
-        match quality {
+        match quality_val {
             ItemQuality::Low | ItemQuality::High => {
                 low_high_graphic_bits = Some(recorder.read_bits(3)? as u8);
             }
@@ -1008,6 +1021,7 @@ impl Item {
         quality: Option<ItemQuality>,
         set_list_count: u8,
         is_runeword: bool,
+        is_personalized: bool,
         ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
     ) -> io::Result<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
@@ -1031,13 +1045,19 @@ impl Item {
             }
         }
 
-        if parse_property_lists && is_runeword && version == 5 {
-            // Alpha v105: 93-bit spacer confirmed between List 1 and List 2.
-            for _ in 0..93 { let _ = recorder.read_bit()?; }
+        if parse_property_lists && is_runeword {
+            let has_list2 = if version == 5 { is_personalized } else { true };
+            if has_list2 {
+                if version == 5 {
+                    // Alpha v105: 93-bit spacer confirmed between List 1 and List 2.
+                    for _ in 0..93 { let _ = recorder.read_bit()?; }
+                }
             let (rw_props, complete) =
                 read_property_list(recorder, trimmed_code, version, ctx, huffman, true)?;
-            if complete {
-                runeword_attributes = rw_props;
+            runeword_attributes = rw_props;
+            if !complete {
+                parse_property_lists = false;
+            }
             }
         }
 
@@ -1059,11 +1079,7 @@ impl Item {
         let is_ethereal = (flags & (1 << 22)) != 0;
         let is_personalized = (flags & (1 << 24)) != 0;
         
-        let is_runeword = if version == 5 { 
-            (flags & (1 << 11)) != 0 
-        } else { 
-            (flags & (1 << 26)) != 0 
-        };
+        let is_runeword = (flags & (1 << 26)) != 0;
 
         let (code, ear_class, ear_level, ear_player_name) = if version == 5 && !is_ear && is_runeword {
             // Alpha v105: Runeword items (version 5) seem to skip Huffman item code.
@@ -1129,12 +1145,14 @@ impl Item {
                 modules: Vec::new(),
             });
         }
-
         let trimmed_code = code.trim();
-        item_trace!("  [Item] Code: '{}', Flags: 0x{:08X}", trimmed_code, flags);
-
-        item_trace!("  [Header] Socket Hint: {}, Bit Offset: {}", header_socket_hint, recorder.recorded_bits.len());
-
+        if version == 5 {
+            println!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
+            // Alpha v105: Items in Inventory (Loc 0) or Equipped (Loc 1) have an 8-bit gap after code.
+            if loc == 0 || loc == 1 {
+                let _ = recorder.read_bits(8)?;
+            }
+        }
         let stats = if !is_compact {
             Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version)?
         } else {
@@ -1188,6 +1206,7 @@ impl Item {
                 item_quality,
                 set_list_count,
                 is_runeword,
+                is_personalized,
                 ctx,
                 huffman,
             )?

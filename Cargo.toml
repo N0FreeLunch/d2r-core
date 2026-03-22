@@ -130,5 +130,5 @@ path = "src/bin/verify/find_bits_width.rs"
 name = "d2item_find_list1"
 path = "src/bin/verify/find_list1.rs"
 [[bin]]
-name = "d2item_bit_coords"
-path = "src/bin/verify/find_bits.rs"
+name = "d2item_v5_peek"
+path = "src/bin/verify/d2item_v5_peek.rs"

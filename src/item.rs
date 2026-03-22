@@ -673,10 +673,15 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
 
     for prop in props {
         if version == 5 {
-            // Alpha v105 (v5): Fixed-width binary stats.
-            let val_bits = if alpha_runeword { 12 } else { 10 };
-            emitter.write_bits(prop.stat_id, 9)?;
-            emitter.write_bits(prop.raw_value as u32, val_bits)?;
+             let alpha_stat_id = match prop.stat_id {
+                127 => 256,
+                99 => 496,
+                16 => 499,
+                9 => 289,
+                _ => prop.stat_id,
+            };
+            emitter.write_bits(alpha_stat_id, 9)?;
+            emitter.write_bits(prop.raw_value as u32, 9)?;
         } else {
            let stat = crate::data::stat_costs::STAT_COSTS
                 .iter()

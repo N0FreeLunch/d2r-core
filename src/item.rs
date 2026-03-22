@@ -572,6 +572,7 @@ pub fn read_property_list<R: BitRead>(
 ) -> io::Result<(Vec<ItemProperty>, bool)> {
     let mut props = Vec::new();
 
+    if version == 5 { println!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
     loop {
         let _bit_pos = recorder.recorded_bits.len();
         match parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword)? {
@@ -617,11 +618,32 @@ pub fn parse_single_property<R: BitRead>(
     }
 
     let cost_opt = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
-    let (name, save_add, unknown) = match cost_opt {
-        Some(c) => (c.name.to_string(), c.save_add, false),
+    match cost_opt {
+        Some(cost) => {
+            let save_bits = cost.save_bits;
+            let val = recorder.read_bits(save_bits as u32)?;
+            if version == 5 {
+                println!("  [ID {}] name={}, val={}, start_bit={}", stat_id, cost.name, val, bit_pos);
+            }
+            return Ok(PropertyParseResult::Property(ItemProperty {
+                stat_id,
+                name: cost.name.to_string(),
+                param: 0, // Simplified for trace
+                raw_value: val as i32,
+                value: (val as i32) - cost.save_add,
+            }));
+        }
         None => {
             if version == 5 {
-                (format!("unknown_stat_{}", stat_id), 0i32, true)
+                println!("  [ID {}] UNKNOWN. Assuming 15-bit value for trace...", stat_id);
+                let val = recorder.read_bits(15)?;
+                return Ok(PropertyParseResult::Property(ItemProperty {
+                    stat_id,
+                    name: format!("unknown_{}", stat_id),
+                    param: 0,
+                    raw_value: val as i32,
+                    value: val as i32,
+                }));
             } else {
                 let err = crate::error::DiagnosticError::new(
                     bit_pos,
@@ -638,37 +660,7 @@ pub fn parse_single_property<R: BitRead>(
                 return Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string()));
             }
         }
-    };
-
-    let (param_bits, save_bits, final_save_add) = {
-        let c = cost_opt.ok_or_else(|| {
-             io::Error::new(io::ErrorKind::InvalidData, format!("Missing stat_cost entry for stat_id {}", stat_id))
-        })?;
-        (c.save_param_bits as u16, c.save_bits as u16, c.save_add)
-    };
-
-    let param = if param_bits > 0 {
-        recorder.read_bits(param_bits as u32)? as u32
-    } else {
-        0
-    };
-
-    let raw_value = if save_bits > 0 {
-        recorder.read_bits(save_bits as u32)? as i32
-    } else {
-        0
-    };
-
-    let value = calculate_stat_value(raw_value, final_save_add);
-    item_trace!("    [Prop] ID {}: {} = {} (param: {})", stat_id, name, value, param);
-
-    Ok(PropertyParseResult::Property(ItemProperty {
-        stat_id,
-        name,
-        param,
-        raw_value,
-        value,
-    }))
+    }
 }
 
 /// A pure function for stat value adjustment.

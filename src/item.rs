@@ -614,6 +614,9 @@ pub fn parse_single_property<R: BitRead>(
     };
 
     if stat_id == terminator {
+        if version == 5 {
+            let _ = recorder.read_bits(9)?;
+        }
         return Ok(PropertyParseResult::Terminator);
     }
 
@@ -702,6 +705,9 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
         }
     }
     emitter.write_bits(terminator, id_bits)?;
+    if version == 5 {
+        emitter.write_bits(0, 9)?;
+    }
     Ok(())
 }
 

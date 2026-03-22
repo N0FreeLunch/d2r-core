@@ -617,17 +617,19 @@ pub fn parse_single_property<R: BitRead>(
         return Ok(PropertyParseResult::Terminator);
     }
 
-    // Alpha v105 (Version 5) Stat Mapping Override
     let (effective_stat_id, save_bits, save_add, stat_name) = if version == 5 {
-        match stat_id {
-            256 => (127, 9, 0, "item_allskills".to_string()),
-            496 => (99, 9, 0, "item_fastergethitrate".to_string()),
-            499 => (16, 9, 0, "item_enandefense_percent".to_string()), // ED
-            289 => (9, 9, 0, "maxmana".to_string()), // Mana
-            _ => {
-                // Default width for Alpha v105 properties seems to be 9 bits value.
-                (stat_id, 9, 0, format!("alpha_stat_{}", stat_id))
-            }
+        let alpha_map = match stat_id {
+            256 => (127, "item_allskills"),
+            496 => (99, "item_fastergethitrate"),
+            499 => (16, "item_enandefense_percent"),
+            289 => (9, "maxmana"),
+            _ => (stat_id, ""),
+        };
+
+        if !alpha_map.1.is_empty() {
+             (alpha_map.0, 9, 0, alpha_map.1.to_string())
+        } else {
+             (stat_id, 9, 0, format!("alpha_stat_{}", stat_id))
         }
     } else {
         let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id).ok_or_else(|| {

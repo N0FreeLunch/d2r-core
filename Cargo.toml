@@ -115,6 +115,9 @@ path = "src/bin/verify/extract_fixed.rs"
 name = "d2item_alpha_trace"
 path = "src/bin/verify/alpha_trace.rs"
 [[bin]]
+name = "d2item_probe_layout"
+path = "src/bin/verify/probe_layout.rs"
+[[bin]]
 name = "d2item_find_mana"
 path = "src/bin/verify/find_mana.rs"
 [[bin]]

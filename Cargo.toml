@@ -132,3 +132,7 @@ path = "src/bin/verify/find_list1.rs"
 [[bin]]
 name = "d2item_v5_peek"
 path = "src/bin/verify/d2item_v5_peek.rs"
+
+[[bin]]
+name = "d2item_bit_align"
+path = "src/bin/verify/d2item_bit_align.rs"

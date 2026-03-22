@@ -20,6 +20,7 @@ pub mod inventory;
 pub mod item;
 pub mod save;
 pub mod spec;
+pub mod algo;
 
 #[cfg(test)]
 mod tests {

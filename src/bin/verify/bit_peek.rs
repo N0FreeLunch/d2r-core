@@ -11,7 +11,18 @@ fn main() {
         return;
     }
     let path = &args[1];
+    let offset = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
+    let count_bits = args.get(3).and_then(|s| s.parse::<u32>().ok()).unwrap_or(64);
     let bytes = fs::read(path).expect("failed to read save file");
+
+    if offset > 0 {
+        let mut reader = IoBitReader::endian(Cursor::new(&bytes[(offset/8) as usize..]), LittleEndian);
+        let mut recorder = BitRecorder::new(&mut reader);
+        for _ in 0..(offset % 8) { recorder.read_bit().unwrap(); }
+        let val = recorder.read_bits_u64(count_bits).unwrap_or(0);
+        println!("Bits at offset {}: {:0width$b}", offset, val, width=count_bits as usize);
+        return;
+    }
 
     let jm_pos = (0..bytes.len() - 2)
         .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')

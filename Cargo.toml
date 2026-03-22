@@ -96,3 +96,30 @@ path = "src/bin/verify/scan_terminator.rs"
 [[bin]]
 name = "d2item_bit_dump"
 path = "src/bin/verify/peek_jav.rs"
+[[bin]]
+name = "d2item_find_sequence"
+path = "src/bin/verify/find_sequence.rs"
+[[bin]]
+name = "d2item_find_v2"
+path = "src/bin/verify/find_v2.rs"
+[[bin]]
+name = "d2item_find_authority"
+path = "src/bin/verify/find_authority.rs"
+[[bin]]
+name = "d2item_find_fixed"
+path = "src/bin/verify/find_fixed.rs"
+[[bin]]
+name = "d2item_find_mana"
+path = "src/bin/verify/find_mana.rs"
+[[bin]]
+name = "d2item_find_310"
+path = "src/bin/verify/find_310.rs"
+[[bin]]
+name = "d2item_find_bits_width"
+path = "src/bin/verify/find_bits_width.rs"
+[[bin]]
+name = "d2item_find_list1"
+path = "src/bin/verify/find_list1.rs"
+[[bin]]
+name = "d2item_bit_coords"
+path = "src/bin/verify/find_bits.rs"

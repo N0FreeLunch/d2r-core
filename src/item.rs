@@ -1495,10 +1495,17 @@ impl Item {
         emitter.write_bits(self.mode as u32, 3)?;
         emitter.write_bits(self.location as u32, 4)?;
         emitter.write_bits(self.x as u32, 4)?;
-        emitter.write_bits(self.y as u32, 4)?;
-        emitter.write_bits(self.page as u32, 3)?;
 
         if self.version == 5 {
+            // Alpha v105: Dynamic header (y and page only if loc == 0)
+            if self.location == 0 {
+                emitter.write_bits(self.y as u32, 4)?;
+                emitter.write_bits(self.page as u32, 3)?;
+            }
+            // Note: read_item_header doesn't read socket_hint for v5.
+        } else {
+            emitter.write_bits(self.y as u32, 4)?;
+            emitter.write_bits(self.page as u32, 3)?;
             emitter.write_bits(self.header_socket_hint as u32, 3)?;
         }
 
@@ -1519,13 +1526,14 @@ impl Item {
             emitter.extend_bits(encoded_code)?;
         }
 
-        if self.version != 5 {
-            emitter.write_bits(self.header_socket_hint as u32, 3)?;
+        if self.version == 5 {
+            // Alpha v105: 8-bit alignment gap after code, present when item is in inventory/equipped.
+            if self.location == 0 || self.location == 1 {
+                emitter.write_bits(0, 8)?;
+            }
+            return Ok(());
         }
 
-        if self.version == 5 {
-             return Ok(());
-        }
 
         emitter.write_bit(self.has_multiple_graphics)?;
         if self.has_multiple_graphics {
@@ -1672,7 +1680,12 @@ impl Item {
             }
             if self.is_runeword {
                 if self.version == 5 {
-                    // Alpha v105: No spacer.
+                    // Alpha v105: 93-bit spacer confirmed between List 1 and List 2 (fixture-verified, 0054).
+                    // TODO: Verify if this spacer exists even when runeword_attributes (List 2) is empty.
+                    // Current fixture (Authority) suggests it triggers for all v5 runewords.
+                    for _ in 0..93 {
+                        emitter.write_bit(false)?;
+                    }
                     write_property_list(emitter, &self.runeword_attributes, self.version, true)?;
                 } else if !self.runeword_attributes.is_empty() {
                    write_property_list(emitter, &self.runeword_attributes, self.version, false)?;

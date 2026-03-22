@@ -617,50 +617,37 @@ pub fn parse_single_property<R: BitRead>(
         return Ok(PropertyParseResult::Terminator);
     }
 
-    let cost_opt = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
-    match cost_opt {
-        Some(cost) => {
-            let save_bits = cost.save_bits;
-            let val = recorder.read_bits(save_bits as u32)?;
-            if version == 5 {
-                println!("  [ID {}] name={}, val={}, start_bit={}", stat_id, cost.name, val, bit_pos);
-            }
-            return Ok(PropertyParseResult::Property(ItemProperty {
-                stat_id,
-                name: cost.name.to_string(),
-                param: 0, // Simplified for trace
-                raw_value: val as i32,
-                value: (val as i32) - cost.save_add,
-            }));
-        }
-        None => {
-            if version == 5 {
-                println!("  [ID {}] UNKNOWN. Assuming 15-bit value for trace...", stat_id);
-                let val = recorder.read_bits(15)?;
-                return Ok(PropertyParseResult::Property(ItemProperty {
-                    stat_id,
-                    name: format!("unknown_{}", stat_id),
-                    param: 0,
-                    raw_value: val as i32,
-                    value: val as i32,
-                }));
-            } else {
-                let err = crate::error::DiagnosticError::new(
-                    bit_pos,
-                    "Expected valid stat ID from STAT_COSTS",
-                    stat_id.to_string(),
-                    format!("Stat ID {} is not defined in game data for item '{}'.", stat_id, code)
-                );
-                item_trace!("    [ERROR] Found unknown stat ID: {}", err);
-                if let Some((section_bytes, item_start_bit)) = section_recovery {
-                    if recover_property_reader(recorder, code, section_bytes, item_start_bit, huffman)? {
-                        return Ok(PropertyParseResult::Recovered);
-                    }
-                }
-                return Err(io::Error::new(io::ErrorKind::InvalidData, err.to_string()));
+    // Alpha v105 (Version 5) Stat Mapping Override
+    let (effective_stat_id, save_bits, save_add, stat_name) = if version == 5 {
+        match stat_id {
+            256 => (127, 9, 0, "item_allskills".to_string()),
+            496 => (99, 9, 0, "item_fastergethitrate".to_string()),
+            499 => (16, 9, 0, "item_enandefense_percent".to_string()), // ED
+            289 => (9, 9, 0, "maxmana".to_string()), // Mana
+            _ => {
+                // Default width for Alpha v105 properties seems to be 9 bits value.
+                (stat_id, 9, 0, format!("alpha_stat_{}", stat_id))
             }
         }
+    } else {
+        let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id).ok_or_else(|| {
+             io::Error::new(io::ErrorKind::InvalidData, format!("Missing stat_cost entry for stat_id {}", stat_id))
+        })?;
+        (stat_id, cost.save_bits as u32, cost.save_add, cost.name.to_string())
+    };
+
+    let val = recorder.read_bits(save_bits)?;
+    if version == 5 {
+        println!("  [Alpha v5] ID {} -> {} ({}), val={}, bits={}", stat_id, effective_stat_id, stat_name, val, save_bits);
     }
+
+    Ok(PropertyParseResult::Property(ItemProperty {
+        stat_id: effective_stat_id,
+        name: stat_name,
+        param: 0,
+        raw_value: val as i32,
+        value: (val as i32) - save_add,
+    }))
 }
 
 /// A pure function for stat value adjustment.

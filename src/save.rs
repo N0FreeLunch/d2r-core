@@ -386,9 +386,9 @@ pub fn rebuild_status_and_player_items(
     // Update QUESTS if present (Alpha v105)
     if version == 105 {
         if let Some(qs) = quests {
-            let offset = 0x78;
-            let max_len = 0x193 - offset;
+            let offset = 415; // 0x19F: Real Quest Anchor
             let slice = qs.as_slice();
+            let max_len = 833 - offset;
             let len = slice.len().min(max_len);
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
@@ -399,9 +399,9 @@ pub fn rebuild_status_and_player_items(
     // Update WAYPOINTS if present (Alpha v105)
     if version == 105 {
         if let Some(wps) = waypoints {
-            let offset = 0x193;
+            let offset = 0x193; // Marker "Woo!"
             let slice = wps.as_slice();
-            let max_len = 0x2BD - offset; // up to start of WS
+            let max_len = 415 - offset; // data ends before 0x19F
             let len = slice.len().min(max_len);
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
@@ -645,10 +645,11 @@ impl QuestSection {
 
     pub fn is_v105_completed_by_name(&self, name: &str) -> bool {
         if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 0x78;
+            let offset = entry.v105_offset - 415; // 0x19F relative
             if offset < self.raw_bytes.len() {
                 let val = self.raw_bytes[offset];
-                return val == 0x02 || val == 0x39;
+                // In v105, 0x01 is the completion bit (bit 0)
+                return (val & 0x01) != 0;
             }
         }
         false
@@ -656,9 +657,13 @@ impl QuestSection {
 
     pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
         if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 0x78;
+            let offset = entry.v105_offset - 415; // 0x19F relative
             if offset < self.raw_bytes.len() {
-                self.raw_bytes[offset] = if completed { 0x02 } else { 0xFF };
+                if completed {
+                    self.raw_bytes[offset] |= 0x01;
+                } else {
+                    self.raw_bytes[offset] &= !0x01;
+                }
                 return true;
             }
         }
@@ -831,16 +836,17 @@ impl Save {
             }
             .min(bytes.len())]
                 .to_vec(),
-            quests: if version == 105 && bytes.len() >= 0x78 + 96 {
-                // Read from quest start (0x78) to waypoints start (0x193)
-                let end = 0x193.min(bytes.len());
-                Some(QuestSection::from_slice(&bytes[0x78..end]))
+            quests: if version == 105 && bytes.len() >= 415 + 120 {
+                // Read from quest anchor (415) to end of header (833)
+                // NM block is 120 bytes, Hell block follows.
+                let end = 833.min(bytes.len());
+                Some(QuestSection::from_slice(&bytes[415..end]))
             } else {
                 None
             },
-            waypoints: if version == 105 && bytes.len() >= 0x193 + 80 {
-                // Read from waypoints start (0x193) to expansion start (0x2BD)
-                let end = 0x2BD.min(bytes.len());
+            waypoints: if version == 105 && bytes.len() >= 0x193 + 12 {
+                // 8 bytes marker + 4 bytes data
+                let end = 415.min(bytes.len());
                 Some(WaypointSection::from_slice(&bytes[0x193..end]))
             } else {
                 None
@@ -864,9 +870,9 @@ impl Header {
 
         // Update QUESTS if present (Alpha v105)
         if let Some(ref qs) = self.quests {
-            let offset = 0x78;
+            let offset = 415;
             let slice = qs.as_slice();
-            let max_len = 0x193 - offset;
+            let max_len = 833 - offset;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);

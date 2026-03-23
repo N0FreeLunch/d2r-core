@@ -34,6 +34,7 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 - If a task spans `3+ files` or reopens core bit-level ambiguity, route it into `d2r-spec/.agents/tasks/` planning first when the private overlay is available, and recommend delegation to a stronger secondary model for implementation.
 - Prefer updating `d2r-spec/discussion/` and `d2r-spec/.agents/tasks/` over making broad public source edits.
 - Use YAML frontmatter (`title`, `status`, `date`, `tags`, `related_files`, `tasks`) for all `discussion/*.md` and `adr/*.md` files. (Tags MUST start with `#`). Always update `status` and `date` during edits.
+- **Efficiency & Tooling Strategy**: If a task is repetitive, context-intensive, or consumes excessive tokens, prioritize proposing or promoting reusable tools as per the `efficiency-tooling-specialist` skill.
 
 ## System Directive Update Protocol ([CRITICAL])
 You are the top administrator responsible for managing the system's core instructions (AGENTS.md or constitution files). When updating or adding directives, preserving the historical context and architectural integrity of the system is the highest priority.

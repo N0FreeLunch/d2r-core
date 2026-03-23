@@ -86,6 +86,32 @@ fn main() -> io::Result<()> {
     println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [{} Sects]", "Items (JM total)", "JM", jm0, bytes.len(), bytes.len() - jm0, map.jm_positions.len());
     println!();
 
+    // === Progression Sections (Header) ===
+    println!("=== Progression Sections (Header) ===");
+
+    // Woo! (Waypoints) at fixed offset 0x193
+    let woo_offset: usize = 0x193;
+    let woo_len: usize = 32;
+    if bytes.len() >= woo_offset + woo_len {
+        let woo_bytes = &bytes[woo_offset..woo_offset + woo_len];
+        let hex = woo_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
+        println!("[Waypoints] Woo! at 0x{:04X} ({}) | {}", woo_offset, woo_offset, hex);
+    } else {
+        println!("[Waypoints] WARN: file too short for Woo! section");
+    }
+
+    // WS (Expansion/Weapon Swap) at fixed offset 0x2BD
+    let ws_offset: usize = 0x2BD;
+    let ws_len: usize = 32;
+    if bytes.len() >= ws_offset + ws_len {
+        let ws_bytes = &bytes[ws_offset..ws_offset + ws_len];
+        let hex = ws_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
+        println!("[WS]        WS   at 0x{:04X} ({}) | {}", ws_offset, ws_offset, hex);
+    } else {
+        println!("[WS] WARN: file too short for WS section");
+    }
+    println!();
+
     let mut all_items = Vec::new();
     let jm_positions = &map.jm_positions;
     for (jm_idx, &start_pos) in jm_positions.iter().enumerate() {

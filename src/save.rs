@@ -608,6 +608,25 @@ impl ExpansionSection {
         &self.raw_bytes
     }
 
+    pub fn is_activated_by_name(&self, difficulty: u8, name: &str) -> bool {
+        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
+            let act_idx = (entry.act - 1) as usize;
+            let bit_in_act = entry.index as usize;
+            let diff_offset = match difficulty {
+                1 => 10, // Nightmare
+                2 => 14, // Hell
+                _ => return false,
+            };
+            let global_bit_idx = (diff_offset * 8) + (act_idx * 16) + bit_in_act;
+            let byte_idx = global_bit_idx / 8;
+            let bit_in_byte = global_bit_idx % 8;
+            if byte_idx < self.raw_bytes.len() {
+                return self.raw_bytes[byte_idx] & (1 << bit_in_byte) != 0;
+            }
+        }
+        false
+    }
+
     pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
             let act_idx = (entry.act - 1) as usize;
@@ -666,11 +685,15 @@ impl QuestSection {
     pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
         if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
             let offset = entry.v105_offset - 415; // 0x19F relative
-            if offset < self.raw_bytes.len() {
+            if offset + 1 < self.raw_bytes.len() {
                 if completed {
+                    // Set Byte 0 bit 0 (Completed)
                     self.raw_bytes[offset] |= 0x01;
+                    // Set Byte 1 bit 4 (Checked/Seen - 0x10)
+                    self.raw_bytes[offset + 1] |= 0x10;
                 } else {
                     self.raw_bytes[offset] &= !0x01;
+                    self.raw_bytes[offset + 1] &= !0x10;
                 }
                 return true;
             }

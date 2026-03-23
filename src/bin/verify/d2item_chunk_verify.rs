@@ -152,28 +152,54 @@ fn main() -> io::Result<()> {
     }
     println!();
 
-    // Woo! (Waypoints) at fixed offset 0x193
-    let woo_offset: usize = 0x193;
-    let woo_len: usize = 128; // Changed from 32 to 128
-    if bytes.len() >= woo_offset + woo_len {
-        let woo_bytes = &bytes[woo_offset..woo_offset + woo_len];
-        let hex = woo_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-        println!("[Waypoints] Woo! at 0x{:04X} ({}) | {}", woo_offset, woo_offset, hex);
-    } else {
-        println!("[Waypoints] WARN: file too short for Woo! section");
-    }
+    // Waypoints at fixed offsets
+    let woo_offset: usize = 0x193; // Normal
+    let ws_offset: usize = 0x2BD;  // NM/Hell
+    
+    // === Character Progression (Alpha v105 Engine) ===
+    if let Ok(save) = d2r_core::save::Save::from_bytes(&bytes) {
+        println!("=== Character Progression (Alpha v105) ===");
+        
+        // Quests
+        println!("Completed Quests:");
+        let mut completed_any = false;
+        if let Some(ref quests) = save.header.quests {
+            for quest in d2r_core::data::quests::V105_QUESTS {
+                if quests.is_v105_completed_by_name(quest.name) {
+                    let diff_str = match quest.difficulty { 0 => "Normal", 1 => "NM", 2 => "Hell", _ => "?" };
+                    println!("  [{:<6}] Act {} - {}", diff_str, quest.act, quest.name);
+                    completed_any = true;
+                }
+            }
+        }
+        if !completed_any { println!("  (None)"); }
+        println!();
 
-    // WS (Expansion/Weapon Swap) at fixed offset 0x2BD
-    let ws_offset: usize = 0x2BD;
-    let ws_len: usize = 128; // Changed from 32 to 128
-    if bytes.len() >= ws_offset + ws_len {
-        let ws_bytes = &bytes[ws_offset..ws_offset + ws_len];
-        let hex = ws_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
-        println!("[WS]        WS   at 0x{:04X} ({}) | {}", ws_offset, ws_offset, hex);
-    } else {
-        println!("[WS] WARN: file too short for WS section");
+        // Waypoints
+        println!("Activated Waypoints:");
+        let mut wp_any = false;
+        for diff in 0..3 {
+            let mut diff_wps = Vec::new();
+            for wp in d2r_core::data::waypoints::WAYPOINTS {
+                let activated = match diff {
+                    0 => save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name)).unwrap_or(false),
+                    1 | 2 => save.header.expansion.as_ref().map(|e| e.is_activated_by_name(diff as u8, wp.name)).unwrap_or(false),
+                    _ => false,
+                };
+                if activated {
+                    let name_clean = wp.name.replace(&format!("Act {} - ", wp.act), "");
+                    diff_wps.push(format!("(A{}){}", wp.act, name_clean));
+                }
+            }
+            if !diff_wps.is_empty() {
+                let diff_str = match diff { 0 => "Normal", 1 => "Nightmare", 2 => "Hell", _ => "?" };
+                println!("  [{:>9}]: {}", diff_str, diff_wps.join(", "));
+                wp_any = true;
+            }
+        }
+        if !wp_any { println!("  (None)"); }
+        println!();
     }
-    println!();
 
     let mut all_items = Vec::new();
     let jm_positions = &map.jm_positions;
@@ -223,8 +249,6 @@ fn main() -> io::Result<()> {
                 Ok(sect_items) => all_items.extend(sect_items),
                 Err(err) => {
                     println!("  └── [ERROR] JM @ 0x{:04X}: {}", start_pos, err);
-                    // Crucial: continue to collect items found before the error if possible
-                    // But read_section currently returns Err and discards items.
                 }
             }
         }

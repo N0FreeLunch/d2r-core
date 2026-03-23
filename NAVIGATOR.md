@@ -29,7 +29,7 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 | **Interpretation** | `src/engine/formatter.rs` | `discussion/0033`, `0034` | `option_rendering_test` |
 | **Inventory Grid** | `src/inventory.rs` | `discussion/0021` | `d2save_inventory_check`|
 | **Game Data Gateway**| `src/data/mod.rs` | `discussion/0035` | `cargo check` |
-| **Quest/Waypoint (v105)** | `src/save.rs`, `d2r-data/quests.rs`, `d2r-data/waypoints.rs` | `discussion/0068`, `0069` | `d2item_chunk_verify`, `progression_test` |
+| **Quest/Waypoint (v105)** | `src/save.rs`, `d2r-data/quests.rs`, `d2r-data/waypoints.rs` | `discussion/0068`, `0069` | `d2item_chunk_verify`, `v105_unlocker` |
 
 ## 1. Core Domains & File Map
 
@@ -97,6 +97,8 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 | **`d2save_status_inspect`**| Status | **New**: Dumps attribute/skill bit-fields and logical values. |
 | **`dump_character`** | Save | **Comprehensive**: Dumps full character status, skills, and item map. |
 | **`d2item_chunk_verify`**| Save | **New**: Dumps specific header sections (Woo!, WS) and items for v105. |
+| `v105_unlocker` | Save | **Example**: Unlocks all progression bits for Alpha v105 save files. |
+
 | `d2save_inventory_check`| Logic | Verifies inventory grid integrity (no overlaps, valid coordinates). |
 
 ### 🚀 Common Verification Commands
@@ -104,6 +106,10 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 ```powershell
 # 1. Verify save checksum/magic (after saving a file)
 cargo run --bin d2save_verify -- tests/fixtures/savegames/modified/generated.d2s
+
+# 2. Unlock all progression for Alpha v105
+cargo run --example v105_unlocker -- input.d2s output.d2s
+
 
 # 2. Compare item data only (ignoring login metadata/timestamp changes)
 cargo run --bin d2save_item_diff -- actual.d2s expected.d2s

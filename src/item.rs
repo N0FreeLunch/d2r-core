@@ -633,9 +633,9 @@ pub fn parse_single_property<R: BitRead>(
 
     if stat_id == terminator {
         if version == 5 || version == 1 {
-            // Alpha v105: Terminator consumes 17 bits total (9 ID + 8 Dummy).
-            // Verified by 0054 bit-map.
-            let _ = recorder.read_bits(8)?;
+            // Alpha v105: Terminator consumes 18 bits total (9 ID + 9 Dummy).
+            // Verified by initial 100% symmetry success on Authority runeword.
+            let _ = recorder.read_bits(9)?;
         }
         return Ok(PropertyParseResult::Terminator);
     }
@@ -649,7 +649,7 @@ pub fn parse_single_property<R: BitRead>(
             _ => (stat_id, ""),
         };
 
-        let width = 8;
+        let width = 9;
 
         if !alpha_map.1.is_empty() {
              (alpha_map.0, width, 0, alpha_map.1.to_string())
@@ -707,7 +707,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
                 _ => prop.stat_id,
             };
             emitter.write_bits(alpha_stat_id, 9)?;
-            emitter.write_bits(prop.raw_value as u32, 8)?;
+            emitter.write_bits(prop.raw_value as u32, 9)?;
         } else {
            let stat = crate::data::stat_costs::STAT_COSTS
                 .iter()

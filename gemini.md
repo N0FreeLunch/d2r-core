@@ -35,6 +35,7 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 - Prefer updating `d2r-spec/discussion/` and `d2r-spec/.agents/tasks/` over making broad public source edits.
 - Use YAML frontmatter (`title`, `status`, `date`, `tags`, `related_files`, `tasks`) for all `discussion/*.md` and `adr/*.md` files. (Tags MUST start with `#`). Always update `status` and `date` during edits.
 - **Efficiency & Tooling Strategy**: If a task is repetitive, context-intensive, or consumes excessive tokens, prioritize proposing or promoting reusable tools as per the `efficiency-tooling-specialist` skill.
+- **No Automatic Push**: Never execute `git push` without an explicit, direct command from the user. Automatic pushing as part of a workflow or "finished" state is strictly prohibited.
 
 ## System Directive Update Protocol ([CRITICAL])
 You are the top administrator responsible for managing the system's core instructions (AGENTS.md or constitution files). When updating or adding directives, preserving the historical context and architectural integrity of the system is the highest priority.

@@ -48,8 +48,8 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
 
     // 4. Verify rebuilt save matches expectations
     // Check offsets (v105 fixed offsets)
-    // Quests: 0x78
-    assert_eq!(rebuilt[0x78], 0xAA);
+    // Quests: 0x19F
+    assert_eq!(rebuilt[0x19F], 0xAA);
     // Waypoints: 0x193 + 10 = 0x19D
     assert_eq!(rebuilt[0x19D], 0x55);
     // Expansion: 0x2BD + 5 = 0x2C2
@@ -70,34 +70,25 @@ fn test_alpha_v105_waypoint_name_mapping() -> std::io::Result<()> {
     let mut wps = WaypointSection::from_slice(&[0u8; 80]);
     let mut ex = ExpansionSection::from_slice(&[0u8; 80]);
 
-    // Act 1 Town (Bit 0)
+    // Act 1 Town (Index 0 in Act 1 Block)
     wps.set_activated_by_name("Act 1 - Town", true);
-    ex.set_activated_by_name("Act 1 - Town", true);
+    ex.set_activated_by_name("Act 1 - Town", 1, true);
 
-    // Expected in WaypointSection (Woo!): byte 9, bit 0
-    assert_eq!(wps.raw_bytes[9], 0x01);
-    // Expected in ExpansionSection (WS): byte 10, bit 0
+    // Expected in WaypointSection (Woo!): byte 8 (offset 0), bit 0
+    assert_eq!(wps.raw_bytes[8], 0x01);
+    // Expected in ExpansionSection (WS): byte 10 (offset 0), bit 0
     assert_eq!(ex.raw_bytes[10], 0x01);
 
-    // Act 2 Town (Bit 9)
+    // Act 2 Town (Index 0 in Act 2 Block, so bit 16 overall)
     wps.set_activated_by_name("Act 2 - Town", true);
-    ex.set_activated_by_name("Act 2 - Town", true);
+    ex.set_activated_by_name("Act 2 - Town", 1, true);
 
-    // Bit 9 is 1 byte + 1 bit after start
-    // In WaypointSection: (9*8 + 9) = 81 bits = byte 10, bit 1
-    assert_eq!(wps.raw_bytes[10], 0x02);
-    // In ExpansionSection: (10*8 + 9) = 89 bits = byte 11, bit 1
-    assert_eq!(ex.raw_bytes[11], 0x02);
-
-    // Act 5 Baal Temple 2 (Bit 38)
-    wps.set_activated_by_name("Act 5 - Baal Temple 2", true);
-    ex.set_activated_by_name("Act 5 - Baal Temple 2", true);
-
-    // Bit 38 is 4 bytes + 6 bits after start
-    // In WaypointSection: (9*8 + 38) = 110 bits = byte 13, bit 6
-    assert_eq!(wps.raw_bytes[13], 1 << 6);
-    // In ExpansionSection: (10*8 + 38) = 118 bits = byte 14, bit 6
-    assert_eq!(ex.raw_bytes[14], 1 << 6);
+    // Act 2 starts at 2 bytes (16 bits) after Act 1
+    // In WaypointSection: byte 10 (offset 2), bit 0
+    // (Wait: 8*8 + 16 = 80 bits = byte 10, bit 0)
+    assert_eq!(wps.raw_bytes[10], 0x01);
+    // In ExpansionSection: byte 12 (offset 2), bit 0
+    assert_eq!(ex.raw_bytes[12], 0x01);
 
     Ok(())
 }

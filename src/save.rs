@@ -566,9 +566,9 @@ impl WaypointSection {
 
     pub fn is_activated_by_name(&self, name: &str) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let bit_idx = entry.v105_bit_index as usize;
-            // Alpha v105 Normal waypoints start at offset 9 in Woo! section
-            let global_bit_idx = (9 * 8) + bit_idx;
+            let act_idx = (entry.act - 1) as usize;
+            let bit_in_act = entry.index as usize;
+            let global_bit_idx = (8 * 8) + (act_idx * 16) + bit_in_act;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {
@@ -580,8 +580,9 @@ impl WaypointSection {
 
     pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let bit_idx = entry.v105_bit_index as usize;
-            let global_bit_idx = (9 * 8) + bit_idx;
+            let act_idx = (entry.act - 1) as usize;
+            let bit_in_act = entry.index as usize;
+            let global_bit_idx = (8 * 8) + (act_idx * 16) + bit_in_act;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             self.set_activated(byte_idx, bit_in_byte, active);
@@ -607,11 +608,18 @@ impl ExpansionSection {
         &self.raw_bytes
     }
 
-    pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
+    pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let bit_idx = entry.v105_bit_index as usize;
-            // Alpha v105 Normal waypoints start at offset 10 in WS section
-            let global_bit_idx = (10 * 8) + bit_idx;
+            let act_idx = (entry.act - 1) as usize;
+            let bit_in_act = entry.index as usize;
+            // Alpha v105 Nightmare/Hell (WS section)
+            // Marker "WS" at 0x2BD, NM data at 0x2C7 (10 bytes after)
+            let diff_offset = match difficulty {
+                1 => 10, // Nightmare
+                2 => 14, // Hell
+                _ => return false,
+            };
+            let global_bit_idx = (diff_offset * 8) + (act_idx * 16) + bit_in_act;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {

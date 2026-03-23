@@ -387,10 +387,10 @@ pub fn rebuild_status_and_player_items(
     if version == 105 {
         if let Some(qs) = quests {
             let offset = 0x78;
-            let q_len = 56;
-            if header_bytes.len() >= offset + q_len {
-                let slice = qs.as_slice();
-                let len = slice.len().min(q_len);
+            let max_len = 0x193 - offset;
+            let slice = qs.as_slice();
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
@@ -400,8 +400,11 @@ pub fn rebuild_status_and_player_items(
     if version == 105 {
         if let Some(wps) = waypoints {
             let offset = 0x193;
-            if header_bytes.len() >= offset + 32 {
-                header_bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+            let slice = wps.as_slice();
+            let max_len = 0x2BD - offset; // up to start of WS
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= offset + len {
+                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
     }
@@ -410,8 +413,11 @@ pub fn rebuild_status_and_player_items(
     if version == 105 {
         if let Some(ex) = expansion {
             let offset = 0x2BD;
-            if header_bytes.len() >= offset + 32 {
-                header_bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+            let slice = ex.as_slice();
+            let max_len = 833 - offset; // up to header end
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= offset + len {
+                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
     }
@@ -534,18 +540,17 @@ pub fn patch_skill_section(
 
 #[derive(Debug, Clone)]
 pub struct WaypointSection {
-    pub raw_bytes: [u8; 32],
+    pub raw_bytes: Vec<u8>,
 }
 
 impl WaypointSection {
     pub fn from_slice(slice: &[u8]) -> Self {
-        let mut data = [0u8; 32];
-        let len = slice.len().min(32);
-        data[..len].copy_from_slice(&slice[..len]);
-        WaypointSection { raw_bytes: data }
+        WaypointSection {
+            raw_bytes: slice.to_vec(),
+        }
     }
 
-    pub fn as_slice(&self) -> &[u8; 32] {
+    pub fn as_slice(&self) -> &[u8] {
         &self.raw_bytes
     }
 
@@ -561,11 +566,13 @@ impl WaypointSection {
 
     pub fn is_activated_by_name(&self, name: &str) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = entry.act.saturating_sub(1) as usize;
-            let byte_idx = act_idx * 2 + (entry.index / 8) as usize;
-            let bit_idx = (entry.index % 8) as usize;
+            let bit_idx = entry.v105_bit_index as usize;
+            // Alpha v105 Normal waypoints start at offset 9 in Woo! section
+            let global_bit_idx = (9 * 8) + bit_idx;
+            let byte_idx = global_bit_idx / 8;
+            let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {
-                return self.raw_bytes[byte_idx] & (1 << bit_idx) != 0;
+                return self.raw_bytes[byte_idx] & (1 << bit_in_byte) != 0;
             }
         }
         false
@@ -573,10 +580,11 @@ impl WaypointSection {
 
     pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = entry.act.saturating_sub(1) as usize;
-            let byte_idx = act_idx * 2 + (entry.index / 8) as usize;
-            let bit_idx = (entry.index % 8) as usize;
-            self.set_activated(byte_idx, bit_idx, active);
+            let bit_idx = entry.v105_bit_index as usize;
+            let global_bit_idx = (9 * 8) + bit_idx;
+            let byte_idx = global_bit_idx / 8;
+            let bit_in_byte = global_bit_idx % 8;
+            self.set_activated(byte_idx, bit_in_byte, active);
             return true;
         }
         false
@@ -585,19 +593,37 @@ impl WaypointSection {
 
 #[derive(Debug, Clone)]
 pub struct ExpansionSection {
-    pub raw_bytes: [u8; 32],
+    pub raw_bytes: Vec<u8>,
 }
 
 impl ExpansionSection {
     pub fn from_slice(slice: &[u8]) -> Self {
-        let mut data = [0u8; 32];
-        let len = slice.len().min(32);
-        data[..len].copy_from_slice(&slice[..len]);
-        ExpansionSection { raw_bytes: data }
+        ExpansionSection {
+            raw_bytes: slice.to_vec(),
+        }
     }
 
-    pub fn as_slice(&self) -> &[u8; 32] {
+    pub fn as_slice(&self) -> &[u8] {
         &self.raw_bytes
+    }
+
+    pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
+        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
+            let bit_idx = entry.v105_bit_index as usize;
+            // Alpha v105 Normal waypoints start at offset 10 in WS section
+            let global_bit_idx = (10 * 8) + bit_idx;
+            let byte_idx = global_bit_idx / 8;
+            let bit_in_byte = global_bit_idx % 8;
+            if byte_idx < self.raw_bytes.len() {
+                if active {
+                    self.raw_bytes[byte_idx] |= 1 << bit_in_byte;
+                } else {
+                    self.raw_bytes[byte_idx] &= !(1 << bit_in_byte);
+                }
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -805,18 +831,24 @@ impl Save {
             }
             .min(bytes.len())]
                 .to_vec(),
-            quests: if version == 105 && bytes.len() >= 0x78 + 16 {
-                Some(QuestSection::from_slice(&bytes[0x78..0x78 + 16]))
+            quests: if version == 105 && bytes.len() >= 0x78 + 96 {
+                // Read from quest start (0x78) to waypoints start (0x193)
+                let end = 0x193.min(bytes.len());
+                Some(QuestSection::from_slice(&bytes[0x78..end]))
             } else {
                 None
             },
-            waypoints: if version == 105 && bytes.len() >= 0x193 + 32 {
-                Some(WaypointSection::from_slice(&bytes[0x193..0x193 + 32]))
+            waypoints: if version == 105 && bytes.len() >= 0x193 + 80 {
+                // Read from waypoints start (0x193) to expansion start (0x2BD)
+                let end = 0x2BD.min(bytes.len());
+                Some(WaypointSection::from_slice(&bytes[0x193..end]))
             } else {
                 None
             },
-            expansion: if version == 105 && bytes.len() >= 0x2BD + 32 {
-                Some(ExpansionSection::from_slice(&bytes[0x2BD..0x2BD + 32]))
+            expansion: if version == 105 && bytes.len() >= 0x2BD + 80 {
+                // Read from expansion start (0x2BD) to header end (833)
+                let end = 833.min(bytes.len());
+                Some(ExpansionSection::from_slice(&bytes[0x2BD..end]))
             } else {
                 None
             },
@@ -833,9 +865,10 @@ impl Header {
         // Update QUESTS if present (Alpha v105)
         if let Some(ref qs) = self.quests {
             let offset = 0x78;
-            if bytes.len() >= offset + 16 {
-                let slice = qs.as_slice();
-                let len = slice.len().min(16);
+            let slice = qs.as_slice();
+            let max_len = 0x193 - offset;
+            let len = slice.len().min(max_len);
+            if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
@@ -843,16 +876,22 @@ impl Header {
         // Update WAYPOINTS if present (Alpha v105)
         if let Some(ref wps) = self.waypoints {
             let offset = 0x193;
-            if bytes.len() >= offset + 32 {
-                bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+            let slice = wps.as_slice();
+            let max_len = 0x2BD - offset;
+            let len = slice.len().min(max_len);
+            if bytes.len() >= offset + len {
+                bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
 
         // Update EXPANSION if present (Alpha v105)
         if let Some(ref ex) = self.expansion {
             let offset = 0x2BD;
-            if bytes.len() >= offset + 32 {
-                bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+            let slice = ex.as_slice();
+            let max_len = 833 - offset;
+            let len = slice.len().min(max_len);
+            if bytes.len() >= offset + len {
+                bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
 

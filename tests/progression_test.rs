@@ -64,3 +64,40 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn test_alpha_v105_waypoint_name_mapping() -> std::io::Result<()> {
+    let mut wps = WaypointSection::from_slice(&[0u8; 80]);
+    let mut ex = ExpansionSection::from_slice(&[0u8; 80]);
+
+    // Act 1 Town (Bit 0)
+    wps.set_activated_by_name("Act 1 - Town", true);
+    ex.set_activated_by_name("Act 1 - Town", true);
+
+    // Expected in WaypointSection (Woo!): byte 9, bit 0
+    assert_eq!(wps.raw_bytes[9], 0x01);
+    // Expected in ExpansionSection (WS): byte 10, bit 0
+    assert_eq!(ex.raw_bytes[10], 0x01);
+
+    // Act 2 Town (Bit 9)
+    wps.set_activated_by_name("Act 2 - Town", true);
+    ex.set_activated_by_name("Act 2 - Town", true);
+
+    // Bit 9 is 1 byte + 1 bit after start
+    // In WaypointSection: (9*8 + 9) = 81 bits = byte 10, bit 1
+    assert_eq!(wps.raw_bytes[10], 0x02);
+    // In ExpansionSection: (10*8 + 9) = 89 bits = byte 11, bit 1
+    assert_eq!(ex.raw_bytes[11], 0x02);
+
+    // Act 5 Baal Temple 2 (Bit 38)
+    wps.set_activated_by_name("Act 5 - Baal Temple 2", true);
+    ex.set_activated_by_name("Act 5 - Baal Temple 2", true);
+
+    // Bit 38 is 4 bytes + 6 bits after start
+    // In WaypointSection: (9*8 + 38) = 110 bits = byte 13, bit 6
+    assert_eq!(wps.raw_bytes[13], 1 << 6);
+    // In ExpansionSection: (10*8 + 38) = 118 bits = byte 14, bit 6
+    assert_eq!(ex.raw_bytes[14], 1 << 6);
+
+    Ok(())
+}

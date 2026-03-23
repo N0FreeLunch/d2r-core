@@ -83,6 +83,7 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 | `d2save_inject` | Item | Injects a raw `.d2i` item into a specific save file. |
 | **`d2save_status_inspect`**| Status | **New**: Dumps attribute/skill bit-fields and logical values. |
 | **`dump_character`** | Save | **Comprehensive**: Dumps full character status, skills, and item map. |
+| **`d2item_chunk_verify`**| Save | **New**: Dumps specific header sections (Woo!, WS) and items for v105. |
 | `d2save_inventory_check`| Logic | Verifies inventory grid integrity (no overlaps, valid coordinates). |
 
 ### 🚀 Common Verification Commands

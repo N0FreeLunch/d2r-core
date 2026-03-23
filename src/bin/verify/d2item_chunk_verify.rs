@@ -91,7 +91,7 @@ fn main() -> io::Result<()> {
 
     // Woo! (Waypoints) at fixed offset 0x193
     let woo_offset: usize = 0x193;
-    let woo_len: usize = 32;
+    let woo_len: usize = 128; // Changed from 32 to 128
     if bytes.len() >= woo_offset + woo_len {
         let woo_bytes = &bytes[woo_offset..woo_offset + woo_len];
         let hex = woo_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");
@@ -102,7 +102,7 @@ fn main() -> io::Result<()> {
 
     // WS (Expansion/Weapon Swap) at fixed offset 0x2BD
     let ws_offset: usize = 0x2BD;
-    let ws_len: usize = 32;
+    let ws_len: usize = 128; // Changed from 32 to 128
     if bytes.len() >= ws_offset + ws_len {
         let ws_bytes = &bytes[ws_offset..ws_offset + ws_len];
         let hex = ws_bytes.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ");

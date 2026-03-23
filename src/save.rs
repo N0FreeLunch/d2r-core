@@ -524,6 +524,16 @@ impl WaypointSection {
     pub fn as_slice(&self) -> &[u8; 32] {
         &self.raw_bytes
     }
+
+    pub fn set_activated(&mut self, byte_idx: usize, bit_idx: usize, active: bool) {
+        if byte_idx < self.raw_bytes.len() {
+            if active {
+                self.raw_bytes[byte_idx] |= 1 << bit_idx;
+            } else {
+                self.raw_bytes[byte_idx] &= !(1 << bit_idx);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

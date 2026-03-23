@@ -39,21 +39,55 @@ fn main() -> io::Result<()> {
 
     let bytes = fs::read(path)?;
     let huffman = HuffmanTree::new();
-    
-    // Find all JM markers
-    let mut jm_positions = Vec::new();
-    for i in 0..bytes.len().saturating_sub(1) {
-        if bytes[i] == b'J' && bytes[i + 1] == b'M' {
-            jm_positions.push(i);
-        }
-    }
 
-    if jm_positions.is_empty() {
-        println!("No JM markers found.");
-        return Ok(());
-    }
+    // Map save file sections
+    let map = match d2r_core::save::map_core_sections(&bytes) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("[ERROR] Failed to map save sections: {}", e);
+            return Ok(());
+        }
+    };
+
+    // Verify Checksum
+    let original_checksum = u32::from_le_bytes(bytes[12..16].try_into().unwrap_or([0; 4]));
+    let calculated_checksum = d2r_core::save::recalculate_checksum(&bytes).unwrap_or(0);
+    let checksum_status = if original_checksum == calculated_checksum {
+        format!("VALID (0x{:08X})", original_checksum)
+    } else {
+        format!("INVALID (Expected 0x{:08X}, Got 0x{:08X})", calculated_checksum, original_checksum)
+    };
+
+    // Print Save Structure Table
+    println!("=== Save File Structure ===");
+    println!("Checksum: {}", checksum_status);
+    println!();
+    println!("{:<20} | {:<4} | {:<10} | {:<10} | {:<10} | {:<10}", "Section", "Mark", "Start(Hex)", "End(Hex)", "Len(Dec)", "Status");
+    println!("---------------------|------|------------|------------|------------|-----------");
+
+    // 1. Header
+    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Header", "-", 0, map.gf_pos, map.gf_pos);
+
+    // 2. Attributes (gf)
+    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Attributes", "gf", map.gf_pos, map.if_pos, map.if_pos - map.gf_pos);
+
+    // 3. Skills (if)
+    let skill_len = 2 + d2r_core::save::SKILL_SECTION_LEN;
+    let skill_end = map.if_pos + skill_len;
+    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Skills", "if", map.if_pos, skill_end, skill_len);
+
+    // 4. Gap (Quest/Progression?)
+    let jm0 = map.jm_positions[0];
+    let gap_len = jm0.saturating_sub(skill_end);
+    let gap_status = if gap_len > 0 { format!("[?? {} bytes]", gap_len) } else { "[None]".to_string() };
+    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | {}", "Gap (Quest?)", "-", skill_end, jm0, gap_len, gap_status);
+
+    // 5. Items (First JM to End)
+    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [{} Sects]", "Items (JM total)", "JM", jm0, bytes.len(), bytes.len() - jm0, map.jm_positions.len());
+    println!();
 
     let mut all_items = Vec::new();
+    let jm_positions = &map.jm_positions;
     for (jm_idx, &start_pos) in jm_positions.iter().enumerate() {
         let count_val = if start_pos + 3 < bytes.len() {
             u16::from_le_bytes([bytes[start_pos + 2], bytes[start_pos + 3]])

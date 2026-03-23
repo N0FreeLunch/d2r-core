@@ -69,17 +69,18 @@ Before execution, evaluate complexity. Pause and report if:
   - Do not copy extracted tables, raw assets, or private extraction notes into `d2r-core` source/tests/docs/task artifacts.
 
 ## 5. Operational Protocol
-- **Repository Structure**: Root workspace `./` (Implementation) and `./d2r-spec` (Specification, symlinked).
+- **Repository Structure**: Root workspace `./` (Implementation) and optional local private overlay at `./d2r-spec` when present.
 - **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone, publishable, and focused on code plus publishable outcomes. **All detailed strategic research, internal reasoning, internal workflows, and task-specific execution plans are managed within the local `./d2r-spec` private overlay.** Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the overlay, but they should direct local agents to the overlay whenever it is present.
+- **Overlay Bootstrap Rule**: Root directives should treat `./d2r-spec` as a local companion policy path, not as a symlink requirement. When the overlay is readable, consult `d2r-spec/AGENTS.md` and `d2r-spec/AI_WORKFLOW.md` for private execution workflow details.
 - **Data Task Routing Gate**:
   1. Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`.
   2. `Core-only`: edit `d2r-core` implementation and verifiers only.
   3. `Data-only`: route extraction/table changes to `d2r-data` planning/execution; keep `d2r-core` unchanged unless a gateway signature update is required.
   4. `Cross-boundary`: split into clearly separated scopes (data repo vs core repo) and document the boundary in the task spec before implementation.
 - **Copyright Boundary Truth Source**: Treat `./d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
-- **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` must use its original path.
+- **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` may use relative `git -C` roots, but any `safe.directory` value must use the normalized resolved repository path.
 - **Env-First Path Resolution**: Resolve `D2R_CORE_PATH`, `D2R_SPEC_PATH`, and `D2R_DATA_PATH` from `.env` before choosing execution roots. When these variables are set, prefer them over inferred sibling paths.
-- **Overlay Availability Gate (Symlink/Junction Aware)**: Treat `./d2r-spec` as available only when its target path is actually readable and writable in the current harness. A symlink/junction entry by itself does not satisfy availability.
+- **Overlay Availability Gate (Path/Access Aware)**: Treat `./d2r-spec` as available only when the resolved path is actually readable and writable in the current harness. A visible directory entry, symlink, or junction alone does not satisfy availability.
 - **Write Probe & Escalation Gate**: Before the first write to overlay/data repositories in a session, run a minimal create/delete probe in a safe temporary location (for example `tmp/`). If access is denied, request one escalation attempt. If still unavailable, mark the target repo as unavailable and use the approved fallback path (for task specs, `./.agents/tasks/`).
 - **Missing `.env` Gate**: If `.env` is missing or required path variables are unset, stop cross-repository execution and ask the user to provide the required environment setup.
 - **Stateless Shell Execution Rule**: Tool/shell invocations are isolated; never assume prior `cd` state persists. Set explicit command roots per call (`workdir` or tool-native root flags such as `git -C`).
@@ -133,6 +134,10 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
 
 ## 8. Anti-Loop & Ambiguity Resolution Protocol
 - **Action Triggers over Monologues**: If you find yourself repeatedly outputting plans, intentions to use tools, or simulating future reasoning without actually executing a tool call (e.g., stuck in a generation loop), **STOP generating text**. You must either execute the specific tool immediately or directly ask the user for clarification.
+- **No Repeated Preface in the Same Session**: If the immediately preceding assistant response already explained the same intent, scope, or next action, do not restate that preface unless there is materially new information.
+- **Short Notice, Then Execute**: For clear, low-risk work such as file creation, file edits, searches, or verification, provide at most a 1-2 sentence progress notice and then execute the tool immediately.
+- **No Second Preamble for the Same Task**: If a short pre-execution notice has already been given for the current task and no new blocker has appeared, the next assistant turn must execute the relevant tool or ask the single blocking clarification. A second preamble is prohibited.
+- **New-Info Gate for Extra Explanation**: Additional pre-execution explanation is allowed only when there is a new risk, scope change, failure, permission issue, verification result, or genuine ambiguity that was not already covered in the immediately preceding response.
 - **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"
 - **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."
 - **PowerShell Harness**: For any PowerShell logic involving pipes, loops, or complex escaping, do NOT use one-liners in `run_command`. Instead, follow the `powershell-harness` skill: write the script to `tmp/`, verify, and execute via `powershell -File`.

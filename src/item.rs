@@ -652,7 +652,7 @@ pub fn parse_single_property<R: BitRead>(
 
     let val = recorder.read_bits(save_bits)?;
     if version == 5 {
-        println!("  [Alpha v5] ID {} -> {} ({}), val={}, bits={}", stat_id, effective_stat_id, stat_name, val, save_bits);
+        item_trace!("  [Alpha v5] ID {} -> {} ({}), val={}, bits={}", stat_id, effective_stat_id, stat_name, val, save_bits);
     }
 
     Ok(PropertyParseResult::Property(ItemProperty {

@@ -380,29 +380,39 @@ pub fn rebuild_status_and_player_items(
     // 1. Prefix: Header up to 'gf' marker
     let mut header_bytes = bytes[..map.gf_pos].to_vec();
     
+    // Detect version from header_bytes
+    let version = u32::from_le_bytes(header_bytes[4..8].try_into().unwrap_or([0; 4]));
+
     // Update QUESTS if present (Alpha v105)
-    if let Some(qs) = quests {
-        let offset = 0x78;
-        if header_bytes.len() >= offset + 16 {
-            let slice = qs.as_slice();
-            let len = slice.len().min(16);
-            header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+    if version == 105 {
+        if let Some(qs) = quests {
+            let offset = 0x78;
+            let q_len = 56;
+            if header_bytes.len() >= offset + q_len {
+                let slice = qs.as_slice();
+                let len = slice.len().min(q_len);
+                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            }
         }
     }
 
     // Update WAYPOINTS if present (Alpha v105)
-    if let Some(wps) = waypoints {
-        let offset = 0x193;
-        if header_bytes.len() >= offset + 32 {
-            header_bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+    if version == 105 {
+        if let Some(wps) = waypoints {
+            let offset = 0x193;
+            if header_bytes.len() >= offset + 32 {
+                header_bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+            }
         }
     }
 
     // Update EXPANSION if present (Alpha v105)
-    if let Some(ex) = expansion {
-        let offset = 0x2BD;
-        if header_bytes.len() >= offset + 32 {
-            header_bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+    if version == 105 {
+        if let Some(ex) = expansion {
+            let offset = 0x2BD;
+            if header_bytes.len() >= offset + 32 {
+                header_bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+            }
         }
     }
     
@@ -425,12 +435,15 @@ pub fn rebuild_status_and_player_items(
     }
 
     // 4. Quest/Progression Section (Gap between IF end and first JM)
-    if let Some(q) = quests {
-        result.extend_from_slice(q.as_slice());
-    } else {
-        let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
-        let jm0 = map.jm_positions[0];
-        if jm0 > skill_end_original {
+    // For Alpha v105, quests are in header, no gap section expected.
+    let jm0 = map.jm_positions[0];
+    let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+
+    if version != 105 {
+        if let Some(q) = quests {
+            result.extend_from_slice(q.as_slice());
+        } else if jm0 > skill_end_original {
             result.extend_from_slice(&bytes[skill_end_original..jm0]);
         }
     }
@@ -881,14 +894,15 @@ impl Header {
 
 impl Save {
     pub fn apply_header_to_bytes(&self, bytes: &mut Vec<u8>) -> io::Result<()> {
-        if bytes.len() < MIN_HEADER_LEN {
+        let header_bytes = self.header.to_bytes()?;
+        let header_len = header_bytes.len();
+        if bytes.len() < header_len {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Target buffer is too short to receive header bytes.",
             ));
         }
-        let header_bytes = self.header.to_bytes()?;
-        bytes[..MIN_HEADER_LEN].copy_from_slice(&header_bytes);
+        bytes[..header_len].copy_from_slice(&header_bytes);
         finalize_save_bytes(bytes)?;
         Ok(())
     }
@@ -964,7 +978,8 @@ mod tests {
         let bytes = fixture_bytes("tests/fixtures/savegames/original/amazon_empty.d2s");
         let save = Save::from_bytes(&bytes)?;
         let header_bytes = save.header.to_bytes()?;
-        assert_eq!(header_bytes, bytes[..MIN_HEADER_LEN]);
+        let prefix_len = save.header.raw_prefix.len();
+        assert_eq!(header_bytes, bytes[..prefix_len]);
         Ok(())
     }
 

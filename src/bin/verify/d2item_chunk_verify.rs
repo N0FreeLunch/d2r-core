@@ -89,6 +89,69 @@ fn main() -> io::Result<()> {
     // === Progression Sections (Header) ===
     println!("=== Progression Sections (Header) ===");
 
+    // Wide-range Signature Scanning
+    let header_range = bytes.len().min(0x341);
+    let header_slice = &bytes[..header_range];
+
+    println!("[Scanning signatures in 0x0000..0x{:04X}]", header_range - 1);
+    
+    // Normal Pattern: [02, FF, 02] (Odd ON)
+    let mut normal_found = false;
+    for (i, win) in header_slice.windows(3).enumerate() {
+        if win == [0x02, 0xFF, 0x02] {
+            println!("[PatternFound] Normal at 0x{:04X}", i);
+            normal_found = true;
+        }
+    }
+    if !normal_found {
+        println!("[PatternFound] Normal not found in header range");
+    }
+    // NM Pattern: [FF, 02, FF] (Even ON)
+    let mut nm_found = false;
+    for (i, win) in header_slice.windows(3).enumerate() {
+        if win == [0xFF, 0x02, 0xFF] {
+            println!("[PatternFound] NM at 0x{:04X}", i);
+            nm_found = true;
+        }
+    }
+    if !nm_found {
+        println!("[PatternFound] NM not found in header range");
+    }
+    // Hell Pattern: [FF, FF, FF, FF, 02] (5th ON)
+    let mut hell_found = false;
+    for (i, win) in header_slice.windows(5).enumerate() {
+        if win == [0xFF, 0xFF, 0xFF, 0xFF, 0x02] {
+            println!("[PatternFound] Hell at 0x{:04X}", i);
+            hell_found = true;
+        }
+    }
+    if !hell_found {
+        println!("[PatternFound] Hell not found in header range");
+    }
+    println!();
+
+    // Raw Header Dump (0x000..0x340)
+    println!("=== Raw Header Dump (0x000..0x{:04X}) ===", header_range - 1);
+    for row in 0..((header_range + 15) / 16) {
+        let row_start = row * 16;
+        let row_end = (row_start + 16).min(header_range);
+        print!("  0x{:04X} |", row_start);
+        // Hex
+        for b in row_start..row_end {
+            print!(" {:02X}", bytes[b]);
+        }
+        for _ in row_end..(row_start+16) { print!("   "); }
+        print!(" | ");
+        // Binary (Compact)
+        for b in row_start..row_end {
+            // print bit string but slightly more compact
+            let bin = format!("{:08b}", bytes[b]);
+            print!("{} ", bin);
+        }
+        println!();
+    }
+    println!();
+
     // Woo! (Waypoints) at fixed offset 0x193
     let woo_offset: usize = 0x193;
     let woo_len: usize = 128; // Changed from 32 to 128

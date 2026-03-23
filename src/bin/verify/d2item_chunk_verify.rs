@@ -100,6 +100,8 @@ fn main() -> io::Result<()> {
                 Ok(sect_items) => all_items.extend(sect_items),
                 Err(err) => {
                     println!("  └── [ERROR] JM @ 0x{:04X}: {}", start_pos, err);
+                    // Crucial: continue to collect items found before the error if possible
+                    // But read_section currently returns Err and discards items.
                 }
             }
         }

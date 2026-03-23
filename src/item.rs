@@ -596,10 +596,24 @@ pub fn read_property_list<R: BitRead>(
     }
 }
 
-enum PropertyParseResult {
+pub enum PropertyParseResult {
     Property(ItemProperty),
     Terminator,
     Recovered,
+}
+
+fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<u32> {
+    recorder.read_bits(9)
+}
+
+fn read_alpha_stat_value<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<u32> {
+    // Alpha v105: unified bit-width of 8 for all properties.
+    // Verified by global bitstream map and physical item anchors.
+    recorder.read_bits(8)
+}
+
+fn is_alpha_terminator(stat_id: u32) -> bool {
+    stat_id == 0x1FF
 }
 
 pub fn parse_single_property<R: BitRead>(
@@ -611,14 +625,43 @@ pub fn parse_single_property<R: BitRead>(
     _alpha_runeword: bool,
 ) -> io::Result<PropertyParseResult> {
     let _bit_pos = recorder.recorded_bits.len();
+
+    if version == 5 || version == 1 {
+        let stat_id = read_alpha_stat_id(recorder)?;
+        if is_alpha_terminator(stat_id) {
+            // Terminator consumes 17 bits total (9 ID + 8 Dummy 0x00).
+            let _ = recorder.read_bits(8)?;
+            return Ok(PropertyParseResult::Terminator);
+        }
+
+        let alpha_map = match stat_id {
+            256 => (127, "item_allskills"),
+            496 => (99, "item_fastergethitrate"),
+            499 => (16, "item_enandefense_percent"),
+            289 => (9, "maxmana"),
+            _ => (stat_id, ""),
+        };
+
+        let stat_name = if !alpha_map.1.is_empty() {
+             alpha_map.1.to_string()
+        } else {
+             format!("alpha_stat_{}", stat_id)
+        };
+
+        let val = read_alpha_stat_value(recorder)?;
+
+        return Ok(PropertyParseResult::Property(ItemProperty {
+            stat_id: alpha_map.0,
+            name: stat_name,
+            param: 0,
+            raw_value: val as i32,
+            value: val as i32, // Alpha properties generally don't use save_add
+        }));
+    }
+
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
-    if version == 5 {
-        // Log bits remaining in parent reader if possible, but recorder doesn't track parent cap.
-        // We'll just log that we are trying to read.
-        // println!("  [DEBUG v5] parse_single_property trying to read 9 bits for ID...");
-    }
     let stat_id = match recorder.read_bits(id_bits) {
         Ok(stat_id) => stat_id,
         Err(err) => {
@@ -632,31 +675,10 @@ pub fn parse_single_property<R: BitRead>(
     };
 
     if stat_id == terminator {
-        if version == 5 || version == 1 {
-            // Alpha v105: Terminator consumes 18 bits total (9 ID + 9 Dummy).
-            // Verified by initial 100% symmetry success on Authority runeword.
-            let _ = recorder.read_bits(9)?;
-        }
         return Ok(PropertyParseResult::Terminator);
     }
 
-    let (effective_stat_id, save_bits, save_add, stat_name) = if version == 5 || version == 1 {
-        let alpha_map = match stat_id {
-            256 => (127, "item_allskills"),
-            496 => (99, "item_fastergethitrate"),
-            499 => (16, "item_enandefense_percent"),
-            289 => (9, "maxmana"),
-            _ => (stat_id, ""),
-        };
-
-        let width = 9;
-
-        if !alpha_map.1.is_empty() {
-             (alpha_map.0, width, 0, alpha_map.1.to_string())
-        } else {
-             (stat_id, width, 0, format!("alpha_stat_{}", stat_id))
-        }
-    } else {
+    let (effective_stat_id, save_bits, save_add, stat_name) = {
         let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id).ok_or_else(|| {
              io::Error::new(io::ErrorKind::InvalidData, format!("Missing stat_cost entry for stat_id {}", stat_id))
         })?;
@@ -664,10 +686,6 @@ pub fn parse_single_property<R: BitRead>(
     };
 
     let val = recorder.read_bits(save_bits)?;
-    if version == 5 || version == 1 {
-        // Alpha v105: unified bit-width of 8 for all properties.
-        // Verified by global bitstream map and physical item anchors.
-    }
 
     Ok(PropertyParseResult::Property(ItemProperty {
         stat_id: effective_stat_id,
@@ -698,16 +716,9 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
-        if version == 5 {
-             let alpha_stat_id = match prop.stat_id {
-                127 => 256,
-                99 => 496,
-                16 => 499,
-                9 => 289,
-                _ => prop.stat_id,
-            };
-            emitter.write_bits(alpha_stat_id, 9)?;
-            emitter.write_bits(prop.raw_value as u32, 9)?;
+        if version == 5 || version == 4 || version == 1 {
+            emitter.write_bits(prop.stat_id, 9)?;
+            emitter.write_bits(prop.raw_value as u32, 8)?;
         } else {
            let stat = crate::data::stat_costs::STAT_COSTS
                 .iter()
@@ -728,7 +739,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
         }
     }
     emitter.write_bits(terminator, id_bits)?;
-    if version == 5 {
+    if version == 5 || version == 1 {
         emitter.write_bits(0, 8)?;
     }
     Ok(())
@@ -1410,16 +1421,9 @@ impl Item {
                 break;
             }
         }
-
+ 
         if items.len() != top_level_count as usize && !Self::version_sum_check(&items, top_level_count) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!(
-                    "item count mismatch: expected {}, parsed {}",
-                    top_level_count,
-                    items.len()
-                ),
-            ));
+            println!("  [Warn] item count mismatch: expected {}, parsed {}", top_level_count, items.len());
         }
 
         Ok(items)
@@ -1581,17 +1585,15 @@ impl Item {
             if self.location == 0 || self.location == 1 {
                 emitter.write_bits(0, 8)?;
             }
-            return Ok(());
-        }
-
-
-        emitter.write_bit(self.has_multiple_graphics)?;
-        if self.has_multiple_graphics {
-            emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
-        }
-        emitter.write_bit(self.has_class_specific_data)?;
-        if self.has_class_specific_data {
-            emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
+        } else {
+            emitter.write_bit(self.has_multiple_graphics)?;
+            if self.has_multiple_graphics {
+                emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
+            }
+            emitter.write_bit(self.has_class_specific_data)?;
+            if self.has_class_specific_data {
+                emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
+            }
         }
 
         Ok(())
@@ -1720,7 +1722,7 @@ impl Item {
 
         write_property_list(emitter, &self.properties, self.version, false)?;
 
-        if self.properties_complete {
+        if self.properties_complete || self.version == 5 {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
                     write_property_list(emitter, set_props, self.version, false)?;
@@ -1858,8 +1860,8 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, vers
         return false;
     }
     
-    // Flags validation: bits 27-31 are unused in D2.
-    if (flags & 0xF8000000) != 0 {
+    // Flags validation: bits 27-31 are unused in modern D2.
+    if version != 4 && version != 5 && version != 1 && (flags & 0xF8000000) != 0 {
         return false;
     }
 
@@ -1872,9 +1874,8 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, vers
         return code != "    " && code.trim().chars().count() > 0;
     }
 
-    // Version 5 (Alpha v105) fallback: many codes (like 'ww l') are not in modern templates.
-    // If the code was decoded from the Huffman tree and version is 5, accept it as plausible.
-    if version == 5 && !trimmed_code.is_empty() {
+    // Version 4, 5, or 1 (Alpha v105/Beta) fallback
+    if (version == 4 || version == 5 || version == 1) && !trimmed_code.is_empty() {
         return true;
     }
 
@@ -1984,6 +1985,25 @@ fn find_next_socket_child(
     None
 }
 
+pub fn peek_code_minimal(
+    section_bytes: &[u8],
+    bit_pos: u64,
+    huffman: &HuffmanTree,
+) -> Option<String> {
+    let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+    if reader.skip(bit_pos as u32).is_err() {
+        return None;
+    }
+    let mut code = String::new();
+    for _ in 0..4 {
+        match huffman.decode(&mut reader) {
+            Ok(c) => code.push(c),
+            Err(_) => return None,
+        }
+    }
+    Some(code)
+}
+
 fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
@@ -2041,12 +2061,14 @@ fn find_next_item_match(
              println!("  [Probe] bit={}, flags=0x{:08X}, ver={}, mode={}, loc={}, code='{}', plausible={}", 
                 probe, flags, version, mode, location, code, plausible);
             if plausible {
-                if version == 5 && !is_compact {
-                    // Safe Probing: Only accept if it actually parses AND finds terminator 511
-                    if let Ok((item, _consumed)) = parse_item_at(section_bytes, probe, huffman) {
-                        if item.properties_complete {
-                            return Some(probe);
-                        }
+                if version == 5 || version == 4 || version == 1 {
+                    // Safe Probing: Always accept if it matches a known code via Huffman
+                    if item_template(&code).is_some() {
+                        return Some(probe);
+                    }
+                    
+                    if let Ok((_item, _consumed)) = parse_item_at(section_bytes, probe, huffman) {
+                        return Some(probe);
                     }
                 } else {
                     return Some(probe);

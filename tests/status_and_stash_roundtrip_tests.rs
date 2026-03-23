@@ -1,6 +1,7 @@
 use d2r_core::item::{HuffmanTree, Item};
 use d2r_core::save::{
-    AttributeSection, map_core_sections, parse_skill_section, rebuild_status_and_player_items,
+    AttributeSection, map_core_sections, parse_quest_section, parse_skill_section,
+    rebuild_status_and_player_items, QuestSection,
 };
 use std::fs;
 use std::io;
@@ -25,11 +26,13 @@ fn status_and_stash_roundtrip_fixtures() -> io::Result<()> {
         let map = map_core_sections(&bytes)?;
         let attributes = AttributeSection::parse(&bytes, &map)?;
         let skills = parse_skill_section(&bytes, &map)?;
+        let quests = parse_quest_section(&bytes, &map)?;
         let items = Item::read_player_items(&bytes, &huffman)?;
         let rebuilt = rebuild_status_and_player_items(
             &bytes,
             Some(&attributes),
             Some(&skills),
+            Some(&quests),
             &items,
             &huffman,
         )?;
@@ -65,6 +68,7 @@ fn test_level_and_header_sync() -> io::Result<()> {
         &patched,
         Some(&attributes),
         Some(&skills_updated),
+        None,
         &items,
         &huffman
     )?;
@@ -92,6 +96,7 @@ fn test_variable_length_rebuild() -> io::Result<()> {
     let rebuilt = rebuild_status_and_player_items(
         &bytes,
         Some(&attrs),
+        None,
         None,
         &items,
         &huffman

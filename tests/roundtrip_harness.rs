@@ -126,4 +126,48 @@ mod roundtrip_tests {
             assert_eq!(item.properties.len(), item_back.properties.len(), "Properties length mismatch for {}", item.code);
         }
     }
+
+    #[test]
+    fn test_full_save_roundtrip_regression() -> std::io::Result<()> {
+        use d2r_core::save::{
+            AttributeSection, map_core_sections, parse_quest_section, parse_skill_section,
+            rebuild_status_and_player_items,
+        };
+        
+        // Target fixtures for full save integrity
+        let fixtures = [
+            "tests/fixtures/savegames/original/amazon_10_scrolls.d2s",
+            "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
+            "tests/fixtures/savegames/original/amazon_empty.d2s",
+            "tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s",
+        ];
+        
+        let huffman = HuffmanTree::new();
+        for fixture in fixtures {
+            let path = repo_path(fixture);
+            let bytes = fs::read(path).expect("fixture should be readable");
+            
+            // 1. Map and Parse all sections
+            let map = map_core_sections(&bytes)?;
+            let attributes = AttributeSection::parse(&bytes, &map)?;
+            let skills = parse_skill_section(&bytes, &map)?;
+            let quests = parse_quest_section(&bytes, &map)?;
+            let items = Item::read_player_items(&bytes, &huffman)?;
+            
+            // 2. Rebuild the entire save
+            let rebuilt = rebuild_status_and_player_items(
+                &bytes,
+                Some(&attributes),
+                Some(&skills),
+                Some(&quests),
+                &items,
+                &huffman,
+            )?;
+            
+            // 3. 100% Binary match requirement for these specific fixtures
+            assert_eq!(rebuilt.len(), bytes.len(), "Length mismatch for {}", fixture);
+            assert_eq!(rebuilt, bytes, "Full save binary mismatch for {}", fixture);
+        }
+        Ok(())
+    }
 }

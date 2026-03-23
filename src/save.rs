@@ -365,6 +365,7 @@ pub fn rebuild_status_and_player_items(
     bytes: &[u8],
     attributes: Option<&AttributeSection>,
     skills: Option<&SkillSection>,
+    quests: Option<&QuestSection>,
     items: &[Item],
     huffman: &HuffmanTree,
 ) -> io::Result<Vec<u8>> {
@@ -390,19 +391,21 @@ pub fn rebuild_status_and_player_items(
         result.extend_from_slice(&bytes[map.if_pos..skill_end]);
     }
 
-    // 4. Gap between IF end and first JM
-    let jm0 = map.jm_positions[0];
-    let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
-    if jm0 > skill_end_original {
-        result.extend_from_slice(&bytes[skill_end_original..jm0]);
+    // 4. Quest/Progression Section (Gap between IF end and first JM)
+    if let Some(q) = quests {
+        result.extend_from_slice(q.as_slice());
+    } else {
+        let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
+        let jm0 = map.jm_positions[0];
+        if jm0 > skill_end_original {
+            result.extend_from_slice(&bytes[skill_end_original..jm0]);
+        }
     }
 
     // 5. Item Sections (Player, Corpse, etc.)
-    // Append the rest of the original bytes (from first JM) first so rebuild_item_section can find all markers
+    let jm0 = map.jm_positions[0];
     result.extend_from_slice(&bytes[jm0..]);
 
-    // Now call rebuild_item_section on the newly constructed buffer.
-    // This will correctly find the *new* JM positions in result.
     rebuild_item_section(&result, items, huffman)
 }
 
@@ -417,6 +420,7 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
     let mut working = rebuild_status_and_player_items(
         bytes,
         Some(&attrs),
+        None,
         None,
         &Item::read_player_items(bytes, huffman)?,
         huffman,
@@ -478,6 +482,35 @@ pub fn patch_skill_section(
     rebuilt[start..end].copy_from_slice(skills.as_slice());
     finalize_save_bytes(&mut rebuilt)?;
     Ok(rebuilt)
+}
+
+#[derive(Debug, Clone)]
+pub struct QuestSection {
+    pub raw_bytes: Vec<u8>,
+}
+
+impl QuestSection {
+    pub fn from_slice(slice: &[u8]) -> Self {
+        QuestSection {
+            raw_bytes: slice.to_vec(),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.raw_bytes
+    }
+}
+
+pub fn parse_quest_section(bytes: &[u8], map: &SaveSectionMap) -> io::Result<QuestSection> {
+    let skill_end = map.if_pos + 2 + SKILL_SECTION_LEN;
+    let jm0 = map.jm_positions[0];
+    if jm0 < skill_end {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "JM section starts before skill section ends",
+        ));
+    }
+    Ok(QuestSection::from_slice(&bytes[skill_end..jm0]))
 }
 
 pub fn recalculate_checksum(bytes: &[u8]) -> io::Result<u32> {

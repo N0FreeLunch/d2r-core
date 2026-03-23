@@ -1373,7 +1373,19 @@ impl Item {
             };
             
             println!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
-            let end = start + consumed_bits;
+            let mut end = start + consumed_bits;
+            
+            // Alpha Resync: If we find a new plausible item header starting BEFORE the current item's reported end,
+            // it means the current item probably "swallowed" the next one (e.g., due to a missing terminator).
+            if (item.version == 5 || item.version == 4 || item.version == 1) && items.len() < top_level_count as usize - 1 {
+                if let Some(next_match) = find_next_item_match(section_bytes, start + 1, huffman) {
+                    if next_match < end {
+                        item_trace!("  [Alpha] Lookahead found next item at {} (swallowed by current item at {}). Trimming {} bits to {}.", next_match, start, consumed_bits, next_match - start);
+                        end = next_match;
+                    }
+                }
+            }
+            
             bit_pos = end;
             
             if end <= start {

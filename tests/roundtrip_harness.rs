@@ -104,4 +104,26 @@ mod roundtrip_tests {
         let new_stat = all_stats.iter().find(|p| p.stat_id == target_stat_id).expect("Mutated stat not found");
         assert_eq!(new_stat.value, 300);
     }
+
+    #[test]
+    fn test_10scrolls_full_roundtrip() {
+        let path = repo_path("tests/fixtures/savegames/original/amazon_10_scrolls.d2s");
+        let bytes = fs::read(path).expect("fixture should be readable");
+        let huffman = HuffmanTree::new();
+
+        // 1. Read all items - Expecting 16 items (via rescue strategy)
+        let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+        assert_eq!(items.len(), 16, "Should have recovered all 16 items from 10-scrolls fixture");
+
+        for item in &items {
+            // 2. Re-serialize
+            let reserialized = item.to_bytes(&huffman).expect("should re-serialize");
+
+            // 3. Parse back and verify basic identity
+            let item_back = Item::from_bytes(&reserialized, &huffman).expect("should parse back");
+            assert_eq!(item.code, item_back.code, "Code mismatch for {}", item.code);
+            assert_eq!(item.version, item_back.version, "Version mismatch for {}", item.code);
+            assert_eq!(item.properties.len(), item_back.properties.len(), "Properties length mismatch for {}", item.code);
+        }
+    }
 }

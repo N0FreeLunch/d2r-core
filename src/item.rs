@@ -602,9 +602,9 @@ pub fn parse_single_property<R: BitRead>(
     version: u8,
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
-    alpha_runeword: bool,
+    _alpha_runeword: bool,
 ) -> io::Result<PropertyParseResult> {
-    let bit_pos = recorder.recorded_bits.len();
+    let _bit_pos = recorder.recorded_bits.len();
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
@@ -679,7 +679,7 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
@@ -1044,7 +1044,7 @@ impl Item {
         quality: Option<ItemQuality>,
         set_list_count: u8,
         is_runeword: bool,
-        is_personalized: bool,
+        _is_personalized: bool,
         ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
     ) -> io::Result<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
@@ -1166,8 +1166,8 @@ impl Item {
         let trimmed_code = code.trim();
         if version == 5 {
             item_trace!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
-            // Alpha v105: Items in Inventory (Loc 0) or Equipped (Loc 1) have an 8-bit gap after code.
-            if loc == 0 || loc == 1 {
+            // Alpha v105: Items in Inventory (Loc 0), Body Equipped (Loc 1), or Other Equipped (Loc 4) have an 8-bit gap after code.
+            if loc == 0 || loc == 1 || loc == 4 {
                 let _ = recorder.read_bits(8)?;
             }
         }
@@ -1355,6 +1355,7 @@ impl Item {
                     "item parser did not advance",
                 ));
             }
+            // println!("  [Section] After Item {}, next bit_pos={}, section_bits={}", items.len(), bit_pos, section_bits);
 
             if item.mode == 6 || item.location == 6 {
                 if let Some(parent) = items.last_mut() {
@@ -1806,15 +1807,8 @@ fn parse_item_at(
     start_bit: u64,
     huffman: &HuffmanTree,
 ) -> io::Result<(Item, u64)> {
-    if start_bit % 8 != 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "item start must be byte-aligned",
-        ));
-    }
-
-    let start_byte = (start_bit / 8) as usize;
-    let mut reader = IoBitReader::endian(Cursor::new(&section_bytes[start_byte..]), LittleEndian);
+    let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+    reader.skip(start_bit as u32)?;
     let mut recorder = BitRecorder::new(&mut reader);
     let item =
         Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)))?;
@@ -1835,7 +1829,7 @@ fn socket_rescue_limit(parent: &Item) -> usize {
     }
 }
 
-fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32) -> bool {
+fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8) -> bool {
     if mode > 6 || location > 15 {
         return false;
     }
@@ -1852,6 +1846,12 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32) -> b
 
     if item_template(code).is_some() {
         return code != "    " && code.trim().chars().count() > 0;
+    }
+
+    // Version 5 (Alpha v105) fallback: many codes (like 'ww l') are not in modern templates.
+    // If the code was decoded from the Huffman tree and version is 5, accept it as plausible.
+    if version == 5 && !trimmed_code.is_empty() {
+        return true;
     }
 
     let is_rune = trimmed_code.len() == 3
@@ -1935,12 +1935,12 @@ fn find_next_socket_child(
     let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
 
     while probe < max_probe {
-        let Some((mode, location, code, flags)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, code, flags, version)) = peek_item_header_at(section_bytes, probe, huffman)
         else {
             probe += 8;
             continue;
         };
-        if !is_plausible_socket_child_header(mode, location, &code, flags) {
+        if !is_plausible_item_header(mode, location, &code, flags, version) {
             probe += 8;
             continue;
         }
@@ -1964,28 +1964,35 @@ fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
-) -> Option<(u8, u8, String, u32)> {
-    if start_bit % 8 != 0 {
+) -> Option<(u8, u8, String, u32, u8)> {
+    let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+    if let Err(_) = reader.skip(start_bit as u32) {
         return None;
     }
-
-    let start_byte = (start_bit / 8) as usize;
-    let mut reader = IoBitReader::endian(Cursor::new(&section_bytes[start_byte..]), LittleEndian);
     let mut recorder = BitRecorder::new(&mut reader);
     let flags = recorder.read_bits(32).ok()?;
-    let _version = recorder.read_bits(3).ok()?;
+    let version = recorder.read_bits(3).ok()? as u8;
     let mode = recorder.read_bits(3).ok()? as u8;
     let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
-    let _y = recorder.read_bits(4).ok()?;
-    let _page = recorder.read_bits(3).ok()?;
+    
+    if version == 5 {
+        if location == 0 {
+            let _y = recorder.read_bits(4).ok()?;
+            let _page = recorder.read_bits(3).ok()?;
+        }
+    } else {
+        let _y = recorder.read_bits(4).ok()?;
+        let _page = recorder.read_bits(3).ok()?;
+        let _socket_hint = recorder.read_bits(3).ok()?;
+    }
 
     let mut code = String::new();
     for _ in 0..4 {
         code.push(huffman.decode_recorded(&mut recorder).ok()?);
     }
 
-    Some((mode, location, code, flags))
+    Some((mode, location, code, flags, version))
 }
 
 fn find_next_item_match(
@@ -1997,8 +2004,9 @@ fn find_next_item_match(
     let section_bits = (section_bytes.len() * 8) as u64;
 
     while probe < section_bits {
-        if let Some((mode, location, code, flags)) = peek_item_header_at(section_bytes, probe, huffman) {
-            if is_plausible_item_header(mode, location, &code, flags) {
+        let peek = peek_item_header_at(section_bytes, probe, huffman);
+        if let Some((mode, location, code, flags, version)) = peek.clone() {
+            if is_plausible_item_header(mode, location, &code, flags, version) {
                 return Some(probe);
             }
         }
@@ -2019,13 +2027,13 @@ fn recover_property_reader<R: BitRead>(
 
     let mut probe = crate::domain::vo::align_to_byte(section_pos);
     while probe < section_bits {
-        let Some((mode, location, probe_code, probe_flags)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, probe_code, probe_flags, probe_version)) = peek_item_header_at(section_bytes, probe, huffman)
         else {
             probe += 8;
             continue;
         };
 
-        if is_plausible_item_header(mode, location, &probe_code, probe_flags) {
+        if is_plausible_item_header(mode, location, &probe_code, probe_flags, probe_version) {
             let skip = if probe > section_pos { probe - section_pos } else { 0 };
             
             item_trace!(

@@ -8,6 +8,18 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | **`d2r-data`** | **Game Data** (Extracted Tables) | [NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
 | **`d2r-spec`** | **Specification** (Private Overlay) | [NAVIGATOR.md](./d2r-spec/NAVIGATOR.md) |
 
+## 0. Navigation Precedence (Read Order)
+1. `AGENTS.md` (global safety + operational constraints)
+2. `NAVIGATOR.md` (this file: public bootstrap map)
+3. Model entrypoint (`gemini.md` or `CLAUDE.md`)
+4. Private overlay when available:
+   - `d2r-spec/NAVIGATOR.md`
+   - `d2r-spec/AGENTS.md`
+   - `d2r-spec/AI_WORKFLOW.md`
+   - active `d2r-spec/.agents/tasks/*.md`
+
+If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, data boundary, anti-loop, verification-first) as non-negotiable.
+
 ## ⚡ Quick Access: Active Components
 
 | Component | Implementation | Specification / Context | Verification |
@@ -17,6 +29,7 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | **Interpretation** | `src/engine/formatter.rs` | `discussion/0033`, `0034` | `option_rendering_test` |
 | **Inventory Grid** | `src/inventory.rs` | `discussion/0021` | `d2save_inventory_check`|
 | **Game Data Gateway**| `src/data/mod.rs` | `discussion/0035` | `cargo check` |
+| **Quest/Waypoint (v105)** | `src/save.rs`, `d2r-data/quests.rs`, `d2r-data/waypoints.rs` | `discussion/0068`, `0069` | `d2item_chunk_verify`, `progression_test` |
 
 ## 1. Core Domains & File Map
 
@@ -104,3 +117,23 @@ cargo run --bin d2save_inventory_check -- path/to/save.d2s
 # 5. Inspect character attributes and skills
 cargo run --bin d2save_status_inspect -- path/to/save.d2s
 ```
+
+## 7. Navigation Routing Gate (Fast Classification)
+Before implementing, classify the request:
+- `Core-only`: implementation/verifier updates in `d2r-core` only.
+- `Data-only`: table/extraction updates in `d2r-data` only.
+- `Cross-boundary`: split into separate core/data slices and document file boundaries in task specs before coding.
+
+## 8. Canonical Directive Filenames
+Use these exact filenames for navigation and policy lookup:
+- `AGENTS.md`
+- `gemini.md` (`GEMINI.md` is a case-only alias)
+- `CLAUDE.md` (`cloude.md` is a typo alias; normalize to `CLAUDE.md`)
+- `CONSTITUTION.md`
+
+## 9. Navigator Update Integrity Protocol
+When editing this navigator:
+1. Run conflict check against `AGENTS.md` safety constraints.
+2. Apply smallest possible patch for contradictions.
+3. Append clarifications if no contradiction exists.
+4. Keep paths relative from repository root.

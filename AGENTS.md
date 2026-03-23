@@ -60,7 +60,7 @@ Before execution, evaluate complexity. Pause and report if:
   - Avoid hardcoding relative paths (e.g., `../../d2r-data`) in source code or extractors.
   - For tests, provide a fallback to `CARGO_MANIFEST_DIR` but prioritize `.env` if present.
 - **Type Safety**: Use **`elm-rs`** for 1:1 Rust-to-Elm type mapping. No intermediate TS layers.
-- **No Scripts**: Prohibited use of OS-dependent scripts (`.ps1`, `.sh`, `.bat`) or standalone Python/Node for orchestration.
+- **No Scripts**: Prohibited use of persistent OS-dependent orchestration scripts (`.ps1`, `.sh`, `.bat`) or standalone Python/Node orchestrators in tracked project workflow. Temporary harness scripts in `./tmp/` for verification/debugging are allowed and must be purged before task completion.
 - **Quality**: Prioritize scalability and readability. AI-written code must be treated as potential debt—ensure high architectural alignment.
 - **Data Boundary (Copyright-Safe by Design)**:
   - `d2r-core` contains parser/engine logic, integration points, and public-safe verification only.
@@ -132,3 +132,30 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
 - **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."
 - **PowerShell Harness**: For any PowerShell logic involving pipes, loops, or complex escaping, do NOT use one-liners in `run_command`. Instead, follow the `powershell-harness` skill: write the script to `tmp/`, verify, and execute via `powershell -File`.
 - **Strategic Halt & Tactical Wisdom**: If a tool behavior is ambiguous or logs are not clarifying, do NOT keep guessing. For technical troubleshooting and operational reliability tips (e.g., file matching failures), refer to the `tactical-wisdom` skill. For efficiency optimization and tooling promotion, refer to the `efficiency-tooling-specialist` skill. If progress remains stalled, report the status to the USER and perform a **Strategic Halt**.
+
+## 9. Directive Canonicalization & Precedence ([CRITICAL])
+- **Canonical Directive Files**:
+  - `AGENTS.md` (global baseline)
+  - `gemini.md` (Gemini entrypoint; case-insensitive alias: `GEMINI.md`)
+  - `CLAUDE.md` (Claude entrypoint; typo alias `cloude.md` MUST be normalized to this file)
+  - `CONSTITUTION.md` (non-negotiable constitutional constraints)
+- **Precedence Ladder (Default)**:
+  1. `AGENTS.md`
+  2. Model-specific entrypoint (`gemini.md` or `CLAUDE.md`)
+  3. Local private overlay (`d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md`, `d2r-spec/.agents/tasks/*.md`) when available
+- **Conflict Handling Rule**:
+  - If any lower-precedence file weakens a higher-precedence safety rule (`No Automatic Push`, data-boundary, anti-loop, verification gates), patch the lower-precedence file immediately with the smallest possible edit.
+  - If no direct conflict exists, append new rules instead of replacing existing text.
+
+## 10. Skill Quality Contract
+- Every skill in `d2r-spec/.agents/skills/*/SKILL.md` MUST contain YAML frontmatter with exactly:
+  - `name`
+  - `description` (must include clear trigger conditions)
+- Skill body MUST stay concise and operational; avoid duplicating large policy blocks already defined in `AGENTS.md`.
+- Skill instructions SHOULD include a compact execution contract:
+  - Trigger scope
+  - Required inputs
+  - Required outputs
+  - Stop/escalation gates
+  - Verification step
+- Skill updates MUST follow Section 6 (`Conflict Check -> Action Plan -> Side-Effect Scan -> Output`) before edits are applied.

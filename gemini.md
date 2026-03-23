@@ -54,6 +54,16 @@ Before modifying and outputting directive documents, you MUST complete the follo
 
 Final updated directive documents should only be written after this review is complete. Arbitrary abbreviation or self-centered context deletion is strictly prohibited.
 
+## Directive Consistency Addendum (2026-03-23)
+- **Filename Normalization**: The canonical filename is `gemini.md`. Treat `GEMINI.md` as a case-only alias, not a separate policy document.
+- **Shared Safety Gates (Inherited from `AGENTS.md`)**:
+  - Never execute `git push` without explicit user command.
+  - Preserve data-boundary separation (`d2r-core` vs `d2r-data`).
+  - Apply `Conflict Check -> Action Plan -> Side-Effect Scan` before changing directive files or skills.
+  - For complex PowerShell logic, prefer temporary `tmp/` script harness execution; purge temporary artifacts before completion.
+- **Response Contract for Meaningful Deliverables**:
+  - Include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line whenever the output contains substantive analysis or planning artifacts.
+
 
 ## Required Final Field
 End meaningful outputs with:

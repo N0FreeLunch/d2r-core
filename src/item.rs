@@ -34,16 +34,72 @@ impl HuffmanNode {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RecordedBit {
     pub bit: bool,
     pub offset: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParsingError {
+    InvalidHuffmanBit { bit_offset: u64 },
+    InvalidStatId { bit_offset: u64, stat_id: u32 },
+    UnexpectedSegmentEnd { bit_offset: u64 },
+    BitSymmetryFailure { bit_offset: u64 },
+    Io(String), 
+    Generic(String),
+}
+
+#[derive(Debug, Clone)]
+pub struct ParsingFailure {
+    pub error: ParsingError,
+    pub context_stack: Vec<String>,
+    pub bit_offset: u64,
+}
+
+impl ParsingFailure {
+    pub fn new<R: BitRead>(error: ParsingError, recorder: &BitRecorder<R>) -> Self {
+        ParsingFailure {
+            error,
+            context_stack: recorder.context_stack.clone(),
+            bit_offset: recorder.total_read,
+        }
+    }
+}
+
+impl std::fmt::Display for ParsingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParsingError::InvalidHuffmanBit { bit_offset } => write!(f, "Invalid Huffman bit at offset {}", bit_offset),
+            ParsingError::InvalidStatId { bit_offset, stat_id } => write!(f, "Invalid stat_id {} at offset {}", stat_id, bit_offset),
+            ParsingError::UnexpectedSegmentEnd { bit_offset } => write!(f, "Unexpected segment end at offset {}", bit_offset),
+            ParsingError::BitSymmetryFailure { bit_offset } => write!(f, "Bit symmetry failure at offset {}", bit_offset),
+            ParsingError::Io(s) => write!(f, "IO error: {}", s),
+            ParsingError::Generic(s) => write!(f, "Parsing error: {}", s),
+        }
+    }
+}
+
+impl std::fmt::Display for ParsingFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ctx = self.context_stack.join(" -> ");
+        write!(f, "[Bit {}] [{}] {}", self.bit_offset, ctx, self.error)
+    }
+}
+
+impl From<ParsingFailure> for io::Error {
+    fn from(f: ParsingFailure) -> Self {
+        io::Error::new(io::ErrorKind::Other, f.to_string())
+    }
+}
+
+pub type ParsingResult<T> = Result<T, ParsingFailure>;
+
 pub struct BitRecorder<'a, R: BitRead> {
     pub reader: &'a mut R,
     pub recorded_bits: Vec<RecordedBit>,
     pub total_read: u64,
+    pub context_stack: Vec<String>,
 }
 
 impl<'a, R: BitRead> BitRecorder<'a, R> {
@@ -52,18 +108,56 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
             reader,
             recorded_bits: Vec::new(),
             total_read: 0,
+            context_stack: Vec::new(),
         }
     }
 
-    pub fn read_bit(&mut self) -> io::Result<bool> {
-        let bit = self.reader.read_bit()?;
+    pub fn err<T>(&self, err: ParsingError) -> ParsingResult<T> {
+        Err(self.fail(err))
+    }
+
+    pub fn io_err(&self, e: io::Error) -> ParsingFailure {
+        self.fail(ParsingError::Io(e.to_string()))
+    }
+
+    pub fn push_context(&mut self, name: &str) {
+        self.context_stack.push(name.to_string());
+    }
+
+    pub fn pop_context(&mut self) {
+        self.context_stack.pop();
+    }
+
+    pub fn with_context<T, F>(&mut self, name: &str, mut f: F) -> ParsingResult<T>
+    where F: FnMut(&mut Self) -> ParsingResult<T>
+    {
+        self.push_context(name);
+        let res = f(self);
+        self.pop_context();
+        res
+    }
+
+    pub fn wrap_error(&self, e: io::Error) -> io::Error {
+        if self.context_stack.is_empty() {
+            return e;
+        }
+        let ctx = self.context_stack.join(" -> ");
+        io::Error::new(e.kind(), format!("[Bit {}] [{}] {}", self.total_read, ctx, e))
+    }
+
+    pub fn fail(&self, error: ParsingError) -> ParsingFailure {
+        ParsingFailure::new(error, self)
+    }
+
+    pub fn read_bit(&mut self) -> ParsingResult<bool> {
+        let bit = self.reader.read_bit().map_err(|e| self.io_err(e))?;
         let offset = self.total_read;
         self.recorded_bits.push(RecordedBit { bit, offset });
         self.total_read += 1;
         Ok(bit)
     }
 
-    pub fn read_bits(&mut self, n: u32) -> io::Result<u32> {
+    pub fn read_bits(&mut self, n: u32) -> ParsingResult<u32> {
         let mut value = 0u32;
         for i in 0..n {
             if self.read_bit()? {
@@ -73,7 +167,7 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
         Ok(value)
     }
 
-    pub fn read_bits_u64(&mut self, n: u32) -> io::Result<u64> {
+    pub fn read_bits_u64(&mut self, n: u32) -> ParsingResult<u64> {
         let mut value = 0u64;
         for i in 0..n {
             if self.read_bit()? {
@@ -228,8 +322,9 @@ impl HuffmanTree {
         }
     }
 
-    pub fn decode_recorded<R: BitRead>(&self, recorder: &mut BitRecorder<R>) -> io::Result<char> {
-        self.decode_internal(|| recorder.read_bit())
+    pub fn decode_recorded<R: BitRead>(&self, recorder: &mut BitRecorder<R>) -> ParsingResult<char> {
+        self.decode_internal(|| recorder.read_bit().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e))))
+            .map_err(|_| recorder.fail(ParsingError::InvalidHuffmanBit { bit_offset: recorder.total_read }))
     }
 
     pub fn decode<R: BitRead>(&self, reader: &mut R) -> io::Result<char> {
@@ -551,7 +646,7 @@ fn stat_save_bits(stat_id: u32) -> Option<u32> {
         .map(|stat| stat.save_bits as u32)
 }
 
-fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<String> {
+fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<String> {
     let mut name = String::new();
     loop {
         let ch = recorder.read_bits(7)? as u8;
@@ -570,7 +665,8 @@ pub fn read_property_list<R: BitRead>(
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
     alpha_runeword: bool,
-) -> io::Result<(Vec<ItemProperty>, bool)> {
+) -> ParsingResult<(Vec<ItemProperty>, bool)> {
+    recorder.push_context("Property List");
     let mut props = Vec::new();
 
     if version == 5 { item_trace!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
@@ -587,7 +683,7 @@ pub fn read_property_list<R: BitRead>(
             },
             Ok(PropertyParseResult::Terminator) => return Ok((props, true)),
             Ok(PropertyParseResult::Recovered) => return Ok((props, false)),
-            Err(e) if version == 5 && e.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(e) if version == 5 && matches!(e.error, ParsingError::Io(ref msg) if msg.contains("unexpected end of file")) => {
                 item_trace!("  [Alpha v5] Property list reached EOF without terminator.");
                 return Ok((props, false));
             }
@@ -602,11 +698,11 @@ pub enum PropertyParseResult {
     Recovered,
 }
 
-fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<u32> {
+fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<u32> {
     recorder.read_bits(9)
 }
 
-fn read_alpha_stat_value<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<u32> {
+fn read_alpha_stat_value<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<u32> {
     // Alpha v105: unified bit-width of 8 for all properties.
     // Verified by global bitstream map and physical item anchors.
     recorder.read_bits(8)
@@ -623,11 +719,13 @@ pub fn parse_single_property<R: BitRead>(
     section_recovery: Option<(&[u8], u64)>,
     huffman: &HuffmanTree,
     _alpha_runeword: bool,
-) -> io::Result<PropertyParseResult> {
+) -> ParsingResult<PropertyParseResult> {
+    recorder.push_context("Single Property");
     let _bit_pos = recorder.recorded_bits.len();
 
     if version == 5 || version == 1 {
         let stat_id = read_alpha_stat_id(recorder)?;
+        recorder.push_context(&format!("Stat {}", stat_id));
         if is_alpha_terminator(stat_id) {
             // Terminator consumes 17 bits total (9 ID + 8 Dummy 0x00).
             let _ = recorder.read_bits(8)?;
@@ -680,7 +778,7 @@ pub fn parse_single_property<R: BitRead>(
 
     let (effective_stat_id, save_bits, save_add, stat_name) = {
         let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id).ok_or_else(|| {
-             io::Error::new(io::ErrorKind::InvalidData, format!("Missing stat_cost entry for stat_id {}", stat_id))
+             recorder.fail(ParsingError::InvalidStatId { bit_offset: recorder.total_read, stat_id })
         })?;
         (stat_id, cost.save_bits as u32, cost.save_add, cost.name.to_string())
     };
@@ -747,7 +845,8 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
 
 
 impl Item {
-    fn read_item_header<R: BitRead>(recorder: &mut BitRecorder<R>) -> io::Result<(u32, u8, u8, u8, u8, u8, u8, u8)> {
+    fn read_item_header<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<(u32, u8, u8, u8, u8, u8, u8, u8)> {
+        recorder.push_context("Item Header");
         let flags = recorder.read_bits(32)?;
         let version = recorder.read_bits(3)? as u8;
         let mode = recorder.read_bits(3)? as u8;
@@ -771,7 +870,7 @@ impl Item {
             let socket_hint = (recorder.read_bits(3)? & 0x07) as u8;
             (y, page, socket_hint)
         };
-
+        recorder.pop_context();
         Ok((flags, version, mode, loc, x, y, page, socket_hint))
     }
 
@@ -781,7 +880,8 @@ impl Item {
         is_ear: bool,
         huffman: &HuffmanTree,
         _version: u8,
-    ) -> io::Result<(String, Option<u8>, Option<u8>, Option<String>)> {
+    ) -> ParsingResult<(String, Option<u8>, Option<u8>, Option<String>)> {
+        recorder.push_context("Item Code");
         let mut ear_class = None;
         let mut ear_level = None;
         let mut ear_player_name = None;
@@ -801,6 +901,7 @@ impl Item {
             }
             decoded
         };
+        recorder.pop_context();
         Ok((code, ear_class, ear_level, ear_player_name))
     }
 
@@ -812,7 +913,7 @@ impl Item {
         is_runeword: bool,
         is_personalized: bool,
         version: u8,
-    ) -> io::Result<(
+    ) -> ParsingResult<(
         Option<u32>,
         Option<u8>,
         Option<ItemQuality>,
@@ -839,6 +940,7 @@ impl Item {
         Option<u8>,
         u8,
     )> {
+        recorder.push_context("Extended Stats");
         let trimmed_code = code.trim();
         let template = item_template(code);
 
@@ -862,6 +964,7 @@ impl Item {
             let has_class_specific_data = recorder.read_bit()?;
             let timestamp_flag = recorder.read_bit()?;
 
+            recorder.pop_context();
             return Ok((
                 None, Some(level), Some(quality), has_multiple_graphics, None,
                 has_class_specific_data, None, None, magic_prefix, magic_suffix,
@@ -1032,6 +1135,7 @@ impl Item {
             };
         }
 
+        recorder.pop_context();
         Ok((
             item_id,
             item_level,
@@ -1072,7 +1176,8 @@ impl Item {
         _is_personalized: bool,
         ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
-    ) -> io::Result<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
+    ) -> ParsingResult<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
+        recorder.push_context("Item Stats");
         let trimmed_code = code.trim();
         let (properties, properties_complete) =
             read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?;
@@ -1093,26 +1198,24 @@ impl Item {
             }
         }
 
+
         if parse_property_lists && is_runeword {
-            // Alpha v105: Runewords always have a second list (runeword attributes) and a 93-bit spacer.
-            // The previous condition erroneously relied on `is_personalized`.
-            let has_list2 = true;
-            if has_list2 {
-                if version == 5 {
-                    // Alpha v105: 93-bit spacer confirmed between List 1 and List 2.
-                    for _ in 0..93 { let _ = recorder.read_bit()?; }
-                }
+            if version == 5 {
+                // Alpha v105: 93-bit spacer confirmed between List 1 and List 2 in some cases.
+                // This was previously added but might be causing desync in amazon_10_scrolls.
+                // for _ in 0..93 { let _ = recorder.read_bit()?; }
+            }
             let (rw_props, complete) =
                 read_property_list(recorder, trimmed_code, version, ctx, huffman, true)?;
             runeword_attributes = rw_props;
             if !complete {
-                parse_property_lists = false;
-            }
+                // parse_property_lists = false;
             }
         }
 
         // For Alpha v5, we ONLY consider it complete if we found a terminator (or it's compact).
         // The boolean `complete` from read_property_list already handles this.
+        recorder.pop_context();
         Ok((properties, set_attributes, runeword_attributes, properties_complete))
     }
 
@@ -1120,9 +1223,13 @@ impl Item {
         recorder: &mut BitRecorder<R>,
         huffman: &HuffmanTree,
         ctx: Option<(&[u8], u64)>,
-    ) -> io::Result<Item> {
-
+    ) -> ParsingResult<Item> {
+        let root_start = recorder.recorded_bits.len();
+        recorder.push_context("Item Root");
         let (flags, version, mode, loc, x, y, page, header_socket_hint) = Self::read_item_header(recorder)?;
+        let header_end = recorder.recorded_bits.len();
+        let is_ear = (flags & (1 << 16)) != 0;
+        item_trace!("  [BitTrace] Header bits [{}..{}] ({} bits) flags=0x{:08X} is_ear={}", root_start, header_end, header_end - root_start, flags, is_ear);
 
         let is_identified = (flags & (1 << 4)) != 0;
         let is_socketed = (flags & (1 << 11)) != 0;
@@ -1132,7 +1239,10 @@ impl Item {
         let is_personalized = (flags & (1 << 24)) != 0;
         let is_runeword = (flags & (1 << 26)) != 0;
 
+        let code_start = recorder.recorded_bits.len();
         let (code, ear_class, ear_level, ear_player_name) = Self::read_item_code(recorder, is_ear, huffman, version)?;
+        let code_end = recorder.recorded_bits.len();
+        item_trace!("  [BitTrace] Code bits [{}..{}] ({} bits)", code_start, code_end, code_end - code_start);
 
         if is_ear {
             return Ok(Item {
@@ -1272,7 +1382,7 @@ impl Item {
             );
         }
 
-        Ok(Item {
+        let item = Item {
             bits: recorder.recorded_bits.clone(),
             code,
             flags,
@@ -1325,19 +1435,21 @@ impl Item {
             quantity,
             sockets,
             modules: Vec::new(),
-        })
+        };
+        recorder.pop_context();
+        Ok(item)
     }
 
     pub fn spec_lookup(&self) -> Option<crate::engine::validation::ItemSpec> {
         crate::engine::validation::lookup_spec(self)
     }
 
-    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> io::Result<Self> {
+    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> ParsingResult<Self> {
         let mut recorder = BitRecorder::new(reader);
         Self::from_reader_with_context(&mut recorder, huffman, None)
     }
 
-    pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree) -> io::Result<Self> {
+    pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree) -> ParsingResult<Self> {
         let mut reader = IoBitReader::endian(io::Cursor::new(bytes), LittleEndian);
         Self::from_reader(&mut reader, huffman)
     }
@@ -1346,12 +1458,16 @@ impl Item {
         section_bytes: &[u8],
         top_level_count: u16,
         huffman: &HuffmanTree,
-    ) -> io::Result<Vec<Item>> {
+    ) -> ParsingResult<Vec<Item>> {
         let section_bits = (section_bytes.len() * 8) as u64;
         let mut items: Vec<Item> = Vec::with_capacity(top_level_count as usize);
         let mut bit_pos = 0u64;
+        if section_bytes.len() >= 4 {
+            println!("[DEBUG] Section bytes[0..4]: {:02X} {:02X} {:02X} {:02X}", section_bytes[0], section_bytes[1], section_bytes[2], section_bytes[3]);
+        }
 
         while bit_pos < section_bits {
+            item_trace!("  [SectionLoop] bit_pos={}, items.len()={}, top_level={}", bit_pos, items.len(), top_level_count);
             let mut start = bit_pos;
             if let Some(next_start) = find_next_item_match(section_bytes, start, huffman) {
                 if next_start != start {
@@ -1362,25 +1478,30 @@ impl Item {
                 break;
             }
 
-            let parse_result = parse_item_at(section_bytes, start, huffman);
+            let parse_result = parse_item_at(section_bytes, start, huffman, items.len());
             let (item, consumed_bits) = match parse_result {
                 Ok(res) => res,
                 Err(e) => {
-                    println!("  [Skip] Parse error at bit {}: {}. Attempting safe probe from {}...", start, e, start + 1);
+                    item_trace!("  [Skip] Parse error at bit {}: {:?}. Attempting safe probe from {}...", start, e.error, start + 1);
                     bit_pos = start + 1;
                     continue;
                 }
             };
             
-            println!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
+            item_trace!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
             let mut end = start + consumed_bits;
             
             // Alpha Resync: If we find a new plausible item header starting BEFORE the current item's reported end,
             // it means the current item probably "swallowed" the next one (e.g., due to a missing terminator).
-            if (item.version == 5 || item.version == 4 || item.version == 1) && items.len() < top_level_count as usize - 1 {
-                if let Some(next_match) = find_next_item_match(section_bytes, start + 1, huffman) {
+            // Conservative check: only resync if the item is suspiciously long (> 128 bits) or failed terminator check.
+            if (item.version == 5 || item.version == 4 || item.version == 1) && 
+               items.len() < top_level_count as usize - 1 &&
+               (consumed_bits > 128 || !item.properties_complete) {
+                
+                let min_lookahead = start + 48; // A header is at least 46 bits
+                if let Some(next_match) = find_next_item_match(section_bytes, min_lookahead, huffman) {
                     if next_match < end {
-                        item_trace!("  [Alpha] Lookahead found next item at {} (swallowed by current item at {}). Trimming {} bits to {}.", next_match, start, consumed_bits, next_match - start);
+                        item_trace!("  [Alpha] Lookahead found next item at {} (swallowed by suspicious current item at {}). Trimming {} bits to {}.", next_match, start, consumed_bits, next_match - start);
                         end = next_match;
                     }
                 }
@@ -1389,10 +1510,11 @@ impl Item {
             bit_pos = end;
             
             if end <= start {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "item parser did not advance",
-                ));
+                return Err(ParsingFailure {
+                    error: ParsingError::Generic("item parser did not advance".to_string()),
+                    context_stack: vec!["Section Loop".to_string()],
+                    bit_offset: start,
+                });
             }
             // println!("  [Section] After Item {}, next bit_pos={}, section_bits={}", items.len(), bit_pos, section_bits);
 
@@ -1400,10 +1522,11 @@ impl Item {
                 if let Some(parent) = items.last_mut() {
                     parent.socketed_items.push(item);
                 } else {
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "socketed item without a parent",
-                    ));
+                    return Err(ParsingFailure {
+                        error: ParsingError::Generic("socketed item without a parent".to_string()),
+                        context_stack: vec!["Section Loop".to_string()],
+                        bit_offset: start,
+                    });
                 }
             } else {
                 items.push(item);
@@ -1421,12 +1544,9 @@ impl Item {
                 }
             }
             
-            // Alpha v105 heuristic: if we reached the count including socketed items,
-            // then for v5 saves this might be exactly what top_level_count means.
-            if items.iter().map(|it| 1 + it.socketed_items.len()).sum::<usize>() >= top_level_count as usize {
-                if Self::version_sum_check(&items, top_level_count) {
-                    break;
-                }
+            // Alpha v105: We trust the top_level_count as the number of top-level items.
+            if items.len() >= top_level_count as usize {
+                break;
             }
 
             if items.len() == top_level_count as usize {
@@ -1506,10 +1626,14 @@ impl Item {
         }
     }
 
-    pub fn read_player_items(bytes: &[u8], huffman: &HuffmanTree) -> io::Result<Vec<Item>> {
+    pub fn read_player_items(bytes: &[u8], huffman: &HuffmanTree) -> ParsingResult<Vec<Item>> {
         let jm_pos = (0..bytes.len().saturating_sub(1))
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "JM header not found"))?;
+            .ok_or_else(|| ParsingFailure {
+                error: ParsingError::Io("JM header not found".to_string()),
+                context_stack: vec!["read_player_items".to_string()],
+                bit_offset: 0,
+            })?;
         let top_level_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
         let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
@@ -1843,14 +1967,19 @@ fn parse_item_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
-) -> io::Result<(Item, u64)> {
+    index: usize,
+) -> ParsingResult<(Item, u64)> {
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    reader.skip(start_bit as u32)?;
+    reader.skip(start_bit as u32).map_err(|e| ParsingFailure {
+        error: ParsingError::Io(e.to_string()),
+        context_stack: vec![format!("Item[{}]", index)],
+        bit_offset: start_bit,
+    })?;
     let mut recorder = BitRecorder::new(&mut reader);
+    recorder.push_context(&format!("Item[{}]", index));
     let item =
         Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)))?;
-    let pos = reader.position_in_bits()?;
-    let consumed_bits = if pos > start_bit { pos - start_bit } else { 0 };
+    let consumed_bits = recorder.total_read;
     item_trace!("  [ParseAt] Parsed item '{}' at bit {}. Consumed {} bits.", item.code, start_bit, consumed_bits);
     Ok((item, consumed_bits))
 }
@@ -1886,8 +2015,19 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, vers
         return code != "    " && code.trim().chars().count() > 0;
     }
 
-    // Version 4, 5, or 1 (Alpha v105/Beta) fallback
-    if (version == 4 || version == 5 || version == 1) && !trimmed_code.is_empty() {
+    // Version 1/5 (Alpha v105/Beta) stricter check
+    if version == 5 || version == 1 {
+        // Mode 0-6 are valid (Socketed is 6).
+        if mode > 6 { return false; }
+        // Code must be plausible: 4 chars, mostly alphanumeric or space.
+        let mut chars = trimmed_code.chars();
+        if !chars.all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '\'') {
+            return false;
+        }
+        return true;
+    }
+
+    if (version == 4) && !trimmed_code.is_empty() {
         return true;
     }
 
@@ -1982,7 +2122,7 @@ fn find_next_socket_child(
             continue;
         }
 
-        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman) else {
+        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, 0) else {
             probe += 8;
             continue;
         };
@@ -2068,24 +2208,22 @@ fn find_next_item_match(
 
     while probe < section_bits {
         let peek = peek_item_header_at(section_bytes, probe, huffman);
-        if let Some((mode, location, code, flags, version, is_compact)) = peek.clone() {
+        if let Some((mode, location, code, flags, version, _is_compact)) = peek.clone() {
             let plausible = is_plausible_item_header(mode, location, &code, flags, version);
              println!("  [Probe] bit={}, flags=0x{:08X}, ver={}, mode={}, loc={}, code='{}', plausible={}", 
                 probe, flags, version, mode, location, code, plausible);
-            if plausible {
-                if version == 5 || version == 4 || version == 1 {
-                    // Safe Probing: Always accept if it matches a known code via Huffman
+                    // Alpha Resync: Only jump if it's a KNOWN item code.
                     if item_template(&code).is_some() {
                         return Some(probe);
                     }
                     
-                    if let Ok((_item, _consumed)) = parse_item_at(section_bytes, probe, huffman) {
-                        return Some(probe);
+                    // Fallback to full parse for unknown codes (less certain)
+                    if let Ok((_item, _consumed)) = parse_item_at(section_bytes, probe, huffman, 0) {
+                        // For resync, we want to be very sure.
+                        if item_template(&_item.code).is_some() {
+                            return Some(probe);
+                        }
                     }
-                } else {
-                    return Some(probe);
-                }
-            }
         }
         probe += 1;
     }
@@ -2098,7 +2236,7 @@ fn recover_property_reader<R: BitRead>(
     section_bytes: &[u8],
     item_start_bit: u64,
     huffman: &HuffmanTree,
-) -> io::Result<bool> {
+) -> ParsingResult<bool> {
     let section_bits = (section_bytes.len() * 8) as u64;
     let section_pos = item_start_bit + recorder.recorded_bits.len() as u64;
 
@@ -2130,10 +2268,11 @@ fn recover_property_reader<R: BitRead>(
     }
     Ok(false)
 }
+
 fn parse_base_header<R: BitRead>(
     recorder: &mut BitRecorder<R>,
     version: u8,
-) -> io::Result<(u32, u8, ItemQuality)> {
+) -> ParsingResult<(u32, u8, ItemQuality)> {
     if version == 5 {
         // Alpha v105: Base header is 16 bits total.
         // Heuristic: Lvl (7 bits) + Quality (4 bits) + 5 bits padding/flags?
@@ -2254,3 +2393,4 @@ mod v5_fuzz_tests {
         }
     }
 }
+

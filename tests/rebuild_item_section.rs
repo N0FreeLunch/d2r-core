@@ -17,7 +17,7 @@ fn write_rebuilt(path: &Path, bytes: &[u8]) -> io::Result<()> {
 fn read_items(path: &Path) -> io::Result<Vec<Item>> {
     let bytes = fs::read(path)?;
     let huffman = HuffmanTree::new();
-    Item::read_player_items(&bytes, &huffman)
+    Ok(Item::read_player_items(&bytes, &huffman)?)
 }
 
 fn rebuild_and_write(base_path: &Path, items: &[Item], output_path: &Path) -> io::Result<Vec<u8>> {

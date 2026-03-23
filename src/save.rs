@@ -51,6 +51,7 @@ pub struct Header {
     pub char_level: u8,
     pub last_played: u32,
     pub raw_prefix: Vec<u8>,
+    pub quests: Option<QuestSection>,
     pub waypoints: Option<WaypointSection>,
     pub expansion: Option<ExpansionSection>,
 }
@@ -379,6 +380,16 @@ pub fn rebuild_status_and_player_items(
     // 1. Prefix: Header up to 'gf' marker
     let mut header_bytes = bytes[..map.gf_pos].to_vec();
     
+    // Update QUESTS if present (Alpha v105)
+    if let Some(qs) = quests {
+        let offset = 0x78;
+        if header_bytes.len() >= offset + 16 {
+            let slice = qs.as_slice();
+            let len = slice.len().min(16);
+            header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+        }
+    }
+
     // Update WAYPOINTS if present (Alpha v105)
     if let Some(wps) = waypoints {
         let offset = 0x193;
@@ -534,6 +545,29 @@ impl WaypointSection {
             }
         }
     }
+
+    pub fn is_activated_by_name(&self, name: &str) -> bool {
+        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
+            let act_idx = entry.act.saturating_sub(1) as usize;
+            let byte_idx = act_idx * 2 + (entry.index / 8) as usize;
+            let bit_idx = (entry.index % 8) as usize;
+            if byte_idx < self.raw_bytes.len() {
+                return self.raw_bytes[byte_idx] & (1 << bit_idx) != 0;
+            }
+        }
+        false
+    }
+
+    pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
+        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
+            let act_idx = entry.act.saturating_sub(1) as usize;
+            let byte_idx = act_idx * 2 + (entry.index / 8) as usize;
+            let bit_idx = (entry.index % 8) as usize;
+            self.set_activated(byte_idx, bit_idx, active);
+            return true;
+        }
+        false
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -568,6 +602,28 @@ impl QuestSection {
 
     pub fn as_slice(&self) -> &[u8] {
         &self.raw_bytes
+    }
+
+    pub fn is_v105_completed_by_name(&self, name: &str) -> bool {
+        if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
+            let offset = entry.v105_offset - 0x78;
+            if offset < self.raw_bytes.len() {
+                let val = self.raw_bytes[offset];
+                return val == 0x02 || val == 0x39;
+            }
+        }
+        false
+    }
+
+    pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
+        if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
+            let offset = entry.v105_offset - 0x78;
+            if offset < self.raw_bytes.len() {
+                self.raw_bytes[offset] = if completed { 0x02 } else { 0xFF };
+                return true;
+            }
+        }
+        false
     }
 }
 
@@ -736,6 +792,11 @@ impl Save {
             }
             .min(bytes.len())]
                 .to_vec(),
+            quests: if version == 105 && bytes.len() >= 0x78 + 16 {
+                Some(QuestSection::from_slice(&bytes[0x78..0x78 + 16]))
+            } else {
+                None
+            },
             waypoints: if version == 105 && bytes.len() >= 0x193 + 32 {
                 Some(WaypointSection::from_slice(&bytes[0x193..0x193 + 32]))
             } else {
@@ -755,6 +816,16 @@ impl Save {
 impl Header {
     pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
         let mut bytes = self.raw_prefix.clone();
+
+        // Update QUESTS if present (Alpha v105)
+        if let Some(ref qs) = self.quests {
+            let offset = 0x78;
+            if bytes.len() >= offset + 16 {
+                let slice = qs.as_slice();
+                let len = slice.len().min(16);
+                bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            }
+        }
 
         // Update WAYPOINTS if present (Alpha v105)
         if let Some(ref wps) = self.waypoints {

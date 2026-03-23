@@ -160,6 +160,8 @@ mod roundtrip_tests {
                 Some(&attributes),
                 Some(&skills),
                 Some(&quests),
+                None,
+                None,
                 &items,
                 &huffman,
             )?;

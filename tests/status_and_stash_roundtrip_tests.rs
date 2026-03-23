@@ -33,6 +33,8 @@ fn status_and_stash_roundtrip_fixtures() -> io::Result<()> {
             Some(&attributes),
             Some(&skills),
             Some(&quests),
+            None,
+            None,
             &items,
             &huffman,
         )?;
@@ -69,6 +71,8 @@ fn test_level_and_header_sync() -> io::Result<()> {
         Some(&attributes),
         Some(&skills_updated),
         None,
+        None,
+        None,
         &items,
         &huffman
     )?;
@@ -96,6 +100,8 @@ fn test_variable_length_rebuild() -> io::Result<()> {
     let rebuilt = rebuild_status_and_player_items(
         &bytes,
         Some(&attrs),
+        None,
+        None,
         None,
         None,
         &items,

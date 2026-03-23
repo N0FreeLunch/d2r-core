@@ -39,7 +39,7 @@ fn find_marker(bytes: &[u8], first: u8, second: u8) -> Option<usize> {
         .find(|&i| bytes[i] == first && bytes[i + 1] == second)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Header {
     pub magic: u32,
     pub version: u32,
@@ -51,9 +51,11 @@ pub struct Header {
     pub char_level: u8,
     pub last_played: u32,
     pub raw_prefix: Vec<u8>,
+    pub waypoints: Option<WaypointSection>,
+    pub expansion: Option<ExpansionSection>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Save {
     pub header: Header,
 }
@@ -366,6 +368,8 @@ pub fn rebuild_status_and_player_items(
     attributes: Option<&AttributeSection>,
     skills: Option<&SkillSection>,
     quests: Option<&QuestSection>,
+    waypoints: Option<&WaypointSection>,
+    expansion: Option<&ExpansionSection>,
     items: &[Item],
     huffman: &HuffmanTree,
 ) -> io::Result<Vec<u8>> {
@@ -373,7 +377,25 @@ pub fn rebuild_status_and_player_items(
     let mut result = Vec::with_capacity(bytes.len() + 64);
 
     // 1. Prefix: Header up to 'gf' marker
-    result.extend_from_slice(&bytes[..map.gf_pos]);
+    let mut header_bytes = bytes[..map.gf_pos].to_vec();
+    
+    // Update WAYPOINTS if present (Alpha v105)
+    if let Some(wps) = waypoints {
+        let offset = 0x193;
+        if header_bytes.len() >= offset + 32 {
+            header_bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+        }
+    }
+
+    // Update EXPANSION if present (Alpha v105)
+    if let Some(ex) = expansion {
+        let offset = 0x2BD;
+        if header_bytes.len() >= offset + 32 {
+            header_bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+        }
+    }
+    
+    result.extend_from_slice(&header_bytes);
 
     // 2. GF Section
     if let Some(attr) = attributes {
@@ -420,6 +442,8 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
     let mut working = rebuild_status_and_player_items(
         bytes,
         Some(&attrs),
+        None,
+        None,
         None,
         None,
         &Item::read_player_items(bytes, huffman)?,
@@ -482,6 +506,42 @@ pub fn patch_skill_section(
     rebuilt[start..end].copy_from_slice(skills.as_slice());
     finalize_save_bytes(&mut rebuilt)?;
     Ok(rebuilt)
+}
+
+#[derive(Debug, Clone)]
+pub struct WaypointSection {
+    pub raw_bytes: [u8; 32],
+}
+
+impl WaypointSection {
+    pub fn from_slice(slice: &[u8]) -> Self {
+        let mut data = [0u8; 32];
+        let len = slice.len().min(32);
+        data[..len].copy_from_slice(&slice[..len]);
+        WaypointSection { raw_bytes: data }
+    }
+
+    pub fn as_slice(&self) -> &[u8; 32] {
+        &self.raw_bytes
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ExpansionSection {
+    pub raw_bytes: [u8; 32],
+}
+
+impl ExpansionSection {
+    pub fn from_slice(slice: &[u8]) -> Self {
+        let mut data = [0u8; 32];
+        let len = slice.len().min(32);
+        data[..len].copy_from_slice(&slice[..len]);
+        ExpansionSection { raw_bytes: data }
+    }
+
+    pub fn as_slice(&self) -> &[u8; 32] {
+        &self.raw_bytes
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -660,7 +720,22 @@ impl Save {
             char_class,
             char_level,
             last_played,
-            raw_prefix: bytes[..MIN_HEADER_LEN].to_vec(),
+            raw_prefix: bytes[..match version {
+                105 => 833, // Alpha v105 Fixed Header
+                _ => MIN_HEADER_LEN,
+            }
+            .min(bytes.len())]
+                .to_vec(),
+            waypoints: if version == 105 && bytes.len() >= 0x193 + 32 {
+                Some(WaypointSection::from_slice(&bytes[0x193..0x193 + 32]))
+            } else {
+                None
+            },
+            expansion: if version == 105 && bytes.len() >= 0x2BD + 32 {
+                Some(ExpansionSection::from_slice(&bytes[0x2BD..0x2BD + 32]))
+            } else {
+                None
+            },
         };
 
         Ok(Save { header })
@@ -670,6 +745,23 @@ impl Save {
 impl Header {
     pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
         let mut bytes = self.raw_prefix.clone();
+
+        // Update WAYPOINTS if present (Alpha v105)
+        if let Some(ref wps) = self.waypoints {
+            let offset = 0x193;
+            if bytes.len() >= offset + 32 {
+                bytes[offset..offset + 32].copy_from_slice(wps.as_slice());
+            }
+        }
+
+        // Update EXPANSION if present (Alpha v105)
+        if let Some(ref ex) = self.expansion {
+            let offset = 0x2BD;
+            if bytes.len() >= offset + 32 {
+                bytes[offset..offset + 32].copy_from_slice(ex.as_slice());
+            }
+        }
+
         if bytes.len() < MIN_HEADER_LEN {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,

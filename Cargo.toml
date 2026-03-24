@@ -15,6 +15,14 @@ dotenvy = "0.15"
 thiserror = "2.0.18"
 
 [[bin]]
+name = "d2save_status_inspect"
+path = "src/bin/d2save_status_inspect.rs"
+
+[[bin]]
+name = "dump_character"
+path = "src/bin/dump_character.rs"
+
+[[bin]]
 name = "d2save_verify"
 path = "src/bin/verify/d2save_verify.rs"
 
@@ -147,3 +155,7 @@ path = "src/bin/verify/d2item_alpha_scavenger.rs"
 [[bin]]
 name = "d2item_oracle_mapper"
 path = "src/bin/verify/d2item_oracle_mapper.rs"
+
+[[bin]]
+name = "d2item_forensic_scan"
+path = "src/bin/verify/d2item_forensic_scan.rs"

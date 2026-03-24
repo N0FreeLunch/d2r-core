@@ -5,7 +5,8 @@ A library for reading and writing Diablo II: Resurrected save files.
 ## Compatibility & Status
 
 - **Target Version**: D2R **Version 3.0+** (`Reign of the Demonologist` DLC, Internal **0x69**)
-- **State**: Core parsing is stable for the 3.0+ expansion spec. Full data-integrated formatting is in progress.
+- **Retro-Archaeology**: Support for **Alpha v105 (0.05)** save files and forensic bitstream reconstruction.
+- **State**: Core parsing is stable for 3.0+ and Alpha v105. Data-integrated formatting is ongoing.
 
 
 ## License
@@ -59,6 +60,7 @@ The following CLI tools are provided for inspecting and verifying save data. Lab
 - `dump_flags`: Dumps internal status flags. **(Core)**
 - `d2save_status_inspect`: Inspects character status (Level, Attributes, Skills). **(Core/Data Mixed)**
 - `d2save_status_diff`: Diffs character status between two saves. **(Core/Data Mixed)**
+- `dump_character`: Comprehensive dump of character status and item maps. **(Core/Data Mixed)**
 
 ### Surgical & Archaeological Tools (Bit-Level)
 
@@ -71,4 +73,15 @@ The following tools are designed for deep bitstream analysis and "archaeological
 - **`d2item_bit_search`**: Searches for specific bit patterns/values in the bitstream.
 - **`d2item_brute_len`**: Identifies property list boundaries by scanning for terminators.
 - **`d2item_chunk_verify`**: Aggressively verifies item chunk integrity and roundtrip safety.
+- **`d2item_oracle_mapper`**: (The Oracle) Performs structural alignment mapping to infer property bit-widths.
+- **`d2item_forensic_scan`**: Scans for JM markers and validates Alpha v105 structural anchors.
+- **`d2item_v5_peek`**: Specialized forensic viewer for Alpha v105 (0.05) item headers and properties.
+- **`d2item_alpha_scavenger`**: Scavenges unknown bitstreams for potential Alpha item patterns.
+- **`d2item_bit_align`**: Aligns bitstreams to byte boundaries using multiple strategies.
+- **`d2item_structural_fuzzer`**: Fuzzes bitstreams to identify structural dependencies between fields.
+
+### Experimental Utilities & Examples
+
+- **`v105_unlocker`**: (Example) Unlocks all quests/waypoints for Alpha v105 save files.
+- **`v105_quest_semantic_check`**: (Example) Validates quest state consistency for Alpha v105.
 

@@ -143,3 +143,7 @@ path = "src/bin/verify/d2item_bit_align.rs"
 [[bin]]
 name = "d2item_alpha_scavenger"
 path = "src/bin/verify/d2item_alpha_scavenger.rs"
+
+[[bin]]
+name = "d2item_oracle_mapper"
+path = "src/bin/verify/d2item_oracle_mapper.rs"

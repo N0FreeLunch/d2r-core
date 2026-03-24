@@ -2235,7 +2235,7 @@ pub fn peek_code_minimal(
     Some(code)
 }
 
-fn peek_item_header_at(
+pub fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,

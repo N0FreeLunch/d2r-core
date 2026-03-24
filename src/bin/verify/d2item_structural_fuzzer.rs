@@ -1,0 +1,123 @@
+use std::fs;
+use std::io::{self, Cursor};
+use bitstream_io::{BitRead, BitReader, LittleEndian};
+
+/// Bitstream Structural Fuzzer & Analyzer for D2R Alpha v105
+/// Rank bit-width candidates based on terminator alignment.
+fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 2 || args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("Usage: d2item_structural_fuzzer <save_path> [options]");
+        println!("Options:");
+        println!("  --start-bit <n>      Start bit offset (default: 0)");
+        println!("  --width-range <n..m> Bit width range to sweep (default: 10..25)");
+        println!("  --max-props <n>      Maximum properties to read per width (default: 64)");
+        return Ok(());
+    }
+
+    let path = &args[1];
+    let mut start_bit: u64 = 0;
+    let mut width_range_start = 10;
+    let mut width_range_end = 25;
+    let mut max_props = 64;
+
+    let mut i = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--start-bit" => {
+                if i + 1 < args.len() {
+                    start_bit = args[i+1].parse().expect("Invalid start-bit");
+                    i += 2;
+                } else {
+                    panic!("Missing value for --start-bit");
+                }
+            }
+            "--width-range" => {
+                if i + 1 < args.len() {
+                    let range: Vec<&str> = args[i+1].split("..").collect();
+                    if range.len() == 2 {
+                        width_range_start = range[0].parse().expect("Invalid range start");
+                        width_range_end = range[1].parse().expect("Invalid range end");
+                    } else {
+                        panic!("Invalid range format (expected n..m)");
+                    }
+                    i += 2;
+                } else {
+                    panic!("Missing value for --width-range");
+                }
+            }
+            "--max-props" => {
+                if i + 1 < args.len() {
+                    max_props = args[i+1].parse().expect("Invalid max-props");
+                    i += 2;
+                } else {
+                    panic!("Missing value for --max-props");
+                }
+            }
+            _ => {
+                println!("Warning: Unknown option: {}", args[i]);
+                i += 1;
+            }
+        }
+    }
+
+    let bytes = fs::read(path)?;
+    println!("[StructuralFuzzer] File: {}", path);
+    println!("  Start Bit: {}", start_bit);
+    println!("  Width Range: {}..{}", width_range_start, width_range_end);
+    println!("  Max Props: {}", max_props);
+
+    let mut best_width = 0;
+    let mut best_score = -1;
+
+    println!("\nSweeping widths...");
+    for width in width_range_start..=width_range_end {
+        let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
+        if let Err(e) = reader.skip(start_bit as u32) {
+            println!("  Width {:2}: Skip failed: {}", width, e);
+            continue;
+        }
+
+        let mut found_terminator = false;
+        let mut props_read = 0;
+
+        for p in 0..max_props {
+            let current_pos = start_bit + (p as u64 * width as u64);
+            let stat_id = match reader.read_var::<u16>(9) {
+                Ok(id) => id,
+                Err(_) => break,
+            };
+
+            if stat_id == 0x1FF {
+                found_terminator = true;
+                props_read = p;
+                println!("    Found 0x1FF at bit {} (prop {})", current_pos, p);
+                break;
+            }
+
+            // Skip the rest of the property (Value)
+            if width < 9 {
+                break;
+            }
+            if let Err(_) = reader.read_var::<u64>((width - 9) as u32) {
+                break;
+            }
+        }
+
+        if found_terminator {
+            println!("  Width {:2}: FOUND Terminator after {} props", width, props_read);
+            if props_read as i32 > best_score {
+                best_score = props_read as i32;
+                best_width = width;
+            }
+        }
+    }
+
+    if best_width > 0 {
+        println!("\nBest Fit Width: {}", best_width);
+    } else {
+        println!("\nNo valid width found with a terminator.");
+    }
+
+    Ok(())
+}

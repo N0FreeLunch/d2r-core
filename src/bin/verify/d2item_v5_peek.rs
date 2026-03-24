@@ -22,11 +22,7 @@ fn main() -> io::Result<()> {
 
     println!("[V5Peek] File: {} | Offset: {}", path, start_bit);
     
-    // Header Decoding (72 bits total before Gap)
-    let m1 = reader.read::<8, u8>().unwrap_or(0);
-    let m2 = reader.read::<8, u8>().unwrap_or(0);
-    println!("Marker: {}{}", m1 as char, m2 as char);
-    
+    // Header Decoding (Direct flags at offset)
     let flags = reader.read::<32, u32>().unwrap_or(0);
     println!("Flags: {:#010x}", flags);
     

@@ -36,10 +36,11 @@ fn main() {
 
         println!("  [OK]    Magic: 0x{:08X}", save.header.magic);
         println!(
-            "  [INFO]  Character: '{}' / {} / level {}",
+            "  [INFO]  Character: '{}' / {} / level {} / version 0x{:04X}",
             save.header.char_name,
             class_name(save.header.char_class),
-            save.header.char_level
+            save.header.char_level,
+            save.header.version
         );
 
         let header_size = save.header.file_size as usize;

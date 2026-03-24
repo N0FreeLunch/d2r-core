@@ -88,11 +88,11 @@ fn main() -> io::Result<()> {
 
                     anchors.push(record);
                     bit_cursor += header_bits;
-                    bit_cursor = (bit_cursor + 7) & !7;
+                    // skip alignment
                     continue;
                 }
             }
-            bit_cursor += 8;
+            bit_cursor += 1;
         }
     }
 

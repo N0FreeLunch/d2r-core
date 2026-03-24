@@ -823,7 +823,10 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
-        if version == 5 || version == 4 || version == 1 {
+        if version == 5 || version == 1 {
+            emitter.write_bits(prop.stat_id, 9)?;
+            emitter.write_bits(prop.raw_value as u32, 1)?; // 9-bit ID + 1-bit Value = 10-bit symmetry
+        } else if version == 4 {
             emitter.write_bits(prop.stat_id, 9)?;
             emitter.write_bits(prop.raw_value as u32, 8)?;
         } else {
@@ -847,7 +850,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     }
     emitter.write_bits(terminator, id_bits)?;
     if version == 5 || version == 1 {
-        emitter.write_bits(0, 8)?;
+        emitter.write_bits(0, 1)?; // 9-bit Terminator (0x1FF) + 1-bit 0 = 10-bit terminator
     }
     Ok(())
 }
@@ -1526,7 +1529,7 @@ impl Item {
 
         while bit_pos < section_bits {
             item_trace!("  [SectionLoop] bit_pos={}, items.len()={}, top_level={}", bit_pos, items.len(), top_level_count);
-            let mut start = if is_alpha { align_to_byte(bit_pos) } else { bit_pos };
+            let mut start = bit_pos;
             if let Some(next_start) = find_next_item_match(section_bytes, start, huffman, is_alpha) {
                 if next_start != start {
                     item_trace!("  [Section] Found next item at bit {} (skipped {} bits).", next_start, next_start - start);
@@ -1552,11 +1555,6 @@ impl Item {
             
             item_trace!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
             let mut end = start + consumed_bits;
-            
-            // Alpha v105 alignment sync
-            if is_alpha {
-                end = align_to_byte(end);
-            }
             
             // Alpha Resync: If we find a new plausible item header starting BEFORE the current item's reported end,
             // it means the current item probably "swallowed" the next one (e.g., due to a missing terminator).
@@ -2101,7 +2099,21 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
         let trimmed = code.trim();
         // Skip empty codes or common junk
         if trimmed.is_empty() || trimmed.len() < 3 { return false; }
-        return item_template(trimmed).is_some();
+        
+        let template = item_template(trimmed);
+        if template.is_none() { return false; }
+        
+        // Strict Alpha constraints
+        if version > 5 { return false; } 
+        if mode > 6 { return false; }
+        
+        // Context-aware plausibility: Scrolls and Potions must be compact in Alpha.
+        if (trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3") {
+            let is_compact = (flags & (1 << 21)) != 0;
+            if !is_compact { return false; }
+        }
+
+        return true;
     }
 
     if (version == 4) && !trimmed_code.is_empty() {
@@ -2308,7 +2320,7 @@ fn find_next_item_match(
     huffman: &HuffmanTree,
     alpha_mode: bool,
 ) -> Option<u64> {
-    let mut probe = if alpha_mode { align_to_byte(start_bit) } else { start_bit };
+    let mut probe = start_bit;
     let section_bits = (section_bytes.len() * 8) as u64;
 
     while probe < section_bits {
@@ -2321,7 +2333,7 @@ fn find_next_item_match(
                 return Some(probe);
             }
         }
-        probe += if alpha_mode { 8 } else { 1 };
+        probe += 1;
     }
     None
 }

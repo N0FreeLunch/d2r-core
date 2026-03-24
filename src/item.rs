@@ -2021,12 +2021,13 @@ mod tests {
             .expect("items should parse");
 
         assert_eq!(items.len(), 16);
-        // Verified recovery via d2item_chunk_verify diagnostic tool:
-        // Indices 0-4 are misc (hp1, y uw), 5-14 are scrolls (tsc), 15 is buckler (8 sw).
-        assert_eq!(items[0].code, "hp1 ");
-        assert_eq!(items[5].code, "tsc ");
-        assert_eq!(items[14].code, "tsc ");
-        assert_eq!(items[15].code, "8 sw");
+        // Verified recovery via d2item_oracle_mapper (Golden Master):
+        // Indices 0-3 misc (hp1), 4-13 scrolls (tsc), 14 javelin (jav), 15 scepter (wsp).
+        assert_eq!(items[0].code.trim(), "hp1");
+        assert_eq!(items[4].code.trim(), "tsc");
+        assert_eq!(items[13].code.trim(), "tsc");
+        assert_eq!(items[14].code.trim(), "jav");
+        assert_eq!(items[15].code.trim(), "wsp");
     }
 }
 
@@ -2199,22 +2200,22 @@ fn find_next_socket_child(
     huffman: &HuffmanTree,
     alpha_mode: bool,
 ) -> Option<(Item, u64)> {
-    let mut probe = align_to_byte(start_bit);
+    let mut probe = if alpha_mode { start_bit } else { align_to_byte(start_bit) };
     let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
 
     while probe < max_probe {
         let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek_item_header_at(section_bytes, probe, huffman, alpha_mode)
         else {
-            probe += 8;
+            probe += if alpha_mode { 1 } else { 8 };
             continue;
         };
         if !is_plausible_item_header(mode, location, &code, flags, version, alpha_mode) {
-            probe += 8;
+            probe += if alpha_mode { 1 } else { 8 };
             continue;
         }
 
         let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, 0, alpha_mode) else {
-            probe += 8;
+            probe += if alpha_mode { 1 } else { 8 };
             continue;
         };
 
@@ -2348,11 +2349,11 @@ fn recover_property_reader<R: BitRead>(
     let section_bits = (section_bytes.len() * 8) as u64;
     let section_pos = item_start_bit + recorder.recorded_bits.len() as u64;
 
-    let mut probe = crate::domain::vo::align_to_byte(section_pos);
+    let mut probe = section_pos; // Alpha v105 is bit-granular for property recovery
     while probe < section_bits {
         let Some((mode, location, probe_code, probe_flags, probe_version, _is_compact, _header_bits)) = peek_item_header_at(section_bytes, probe, huffman, true)
         else {
-            probe += 8;
+            probe += 1;
             continue;
         };
 

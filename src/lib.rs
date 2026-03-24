@@ -128,4 +128,46 @@ mod tests {
         // Magic level case: ilvl=50, qlvl=30, magic_lvl=10 -> temp=50, alvl=50+10=60
         assert_eq!(calc_alvl(50, 30, 10), 60);
     }
+    #[test]
+    fn test_authority_properties_match_fuzzer_truth() {
+        let items = load_player_items("tests/fixtures/savegames/original/amazon_authority_runeword.d2s");
+        let truth_json = fs::read_to_string(repo_path("tests/fixtures/savegames/original/amazon_authority_runeword_truth.json"))
+            .expect("truth file should exist");
+        
+        let truth: serde_json::Value = serde_json::from_str(&truth_json).expect("truth should be valid JSON");
+        
+        // Find the xrs item (Authority base)
+        for (idx, item) in items.iter().enumerate() {
+            println!("Item[{}]: code='{}', props={}, is_rw={}", idx, item.code, item.properties.len(), item.is_runeword);
+        }
+        let xrs = items.iter().find(|it| it.code.trim() == "xrs" && it.is_runeword).expect("xrs runeword item should be present");
+        println!("Selected XRS properties: {}", xrs.properties.len());
+        
+        let truth_props = truth["properties"].as_array().expect("properties should be array");
+        
+        fn map_alpha_id(id: u32) -> u32 {
+            match id {
+                26 => 31,
+                312 => 72,
+                207 => 73,
+                380 => 194,
+                256 => 127,
+                496 => 99,
+                499 => 16,
+                289 => 9,
+                _ => id,
+            }
+        }
+
+        for (i, p_truth) in truth_props.iter().enumerate() {
+            let raw_id = p_truth["stat_id"].as_u64().unwrap() as u32;
+            let expected_id = map_alpha_id(raw_id);
+            let expected_val = p_truth["value"].as_u64().unwrap() as i32;
+            
+            let actual_prop = &xrs.properties[i];
+            
+            assert_eq!(actual_prop.stat_id, expected_id, "Stat ID mismatch at property index {}", i);
+            assert_eq!(actual_prop.raw_value, expected_val, "Value mismatch at index {}", i);
+        }
+    }
 }

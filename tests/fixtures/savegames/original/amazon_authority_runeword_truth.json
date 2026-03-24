@@ -1,0 +1,61 @@
+{
+  "file": "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
+  "start_bit": 7873,
+  "best_width": 17,
+  "properties": [
+    {
+      "index": 0,
+      "bit_offset": 7873,
+      "stat_id": 133,
+      "value": 13
+    },
+    {
+      "index": 1,
+      "bit_offset": 7890,
+      "stat_id": 281,
+      "value": 12
+    },
+    {
+      "index": 2,
+      "bit_offset": 7907,
+      "stat_id": 499,
+      "value": 31
+    },
+    {
+      "index": 3,
+      "bit_offset": 7924,
+      "stat_id": 385,
+      "value": 131
+    },
+    {
+      "index": 4,
+      "bit_offset": 7941,
+      "stat_id": 199,
+      "value": 202
+    },
+    {
+      "index": 5,
+      "bit_offset": 7958,
+      "stat_id": 101,
+      "value": 246
+    },
+    {
+      "index": 6,
+      "bit_offset": 7975,
+      "stat_id": 60,
+      "value": 83
+    },
+    {
+      "index": 7,
+      "bit_offset": 7992,
+      "stat_id": 292,
+      "value": 41
+    },
+    {
+      "index": 8,
+      "bit_offset": 8009,
+      "stat_id": 387,
+      "value": 4
+    }
+  ]
+}

@@ -136,3 +136,6 @@ path = "src/bin/verify/d2item_v5_peek.rs"
 [[bin]]
 name = "d2item_bit_align"
 path = "src/bin/verify/d2item_bit_align.rs"
+[[bin]]
+name = "d2item_forensic_scan"
+path = "src/bin/verify/d2item_forensic_scan.rs"

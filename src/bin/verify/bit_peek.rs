@@ -34,9 +34,10 @@ fn main() {
     let mut reader = IoBitReader::endian(Cursor::new(&bytes[jm_pos + 4..]), LittleEndian);
     let mut recorder = BitRecorder::new(&mut reader);
 
+    let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
     for i in 0..count {
         let bit_start = (jm_pos + 4) * 8 + recorder.total_read as usize;
-        match Item::from_reader_with_context(&mut recorder, &huffman, Some((&bytes, ((jm_pos+4)*8) as u64)), false) {
+        match Item::from_reader_with_context(&mut recorder, &huffman, Some((&bytes, ((jm_pos+4)*8) as u64)), is_alpha) {
             Ok(item) => {
                 println!(
                     "Item {}: '{}' (start_bit={}, len={} bits)",

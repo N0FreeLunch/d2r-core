@@ -1,41 +1,61 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use std::env;
 use std::fs;
-use std::io::Cursor;
+use std::io::{self, Cursor};
+use bitstream_io::{BitRead, BitReader, LittleEndian};
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+/// Enhanced Bit Peeker for Alpha v105 Items
+/// Promoted from experimental forensic scripts.
+/// Decodes item headers and structural gaps at the bit-level.
+fn main() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
     if args.len() < 3 {
-        eprintln!("Usage: d2item_v5_peek <file> <offset_bits> <count>");
-        return;
+        println!("Usage: d2item_v5_peek <save_path> <start_bit> [dump_len]");
+        return Ok(());
     }
+
     let path = &args[1];
-    let offset = args[2].parse::<u64>().expect("invalid offset");
-    let count = args[3].parse::<u32>().expect("invalid count");
-    let bytes = fs::read(path).expect("failed to read file");
+    let start_bit: u64 = args[2].parse().unwrap();
+    let dump_len: u32 = if args.len() > 3 { args[3].parse().unwrap() } else { 128 };
 
-    let mut reader = IoBitReader::endian(Cursor::new(&bytes), LittleEndian);
-    reader.skip(offset as u32).expect("failed to skip");
+    let bytes = fs::read(path)?;
+    let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
+    let _ = reader.skip(start_bit as u32);
 
-    println!("Bit Dump at offset {}:", offset);
-    println!("Index | Bit | Pos | Octet View");
-    println!("------|-----|-----|-----------");
-    for i in 0..count {
-        let bit = reader.read_bit().expect("failed to read bit");
-        let current_bit = offset + i as u64;
-        let bit_in_octet = i % 8;
-        
-        if i % 8 == 0 {
-            print!("{:>5} | ", i);
-        }
-        
-        print!("{}", if bit { "1" } else { "0" });
-
-        if i % 8 == 7 {
-            println!(" | {:>3} | bits {}-{}", current_bit, current_bit - 7, current_bit);
-        } else if i % 4 == 3 {
-            print!(" ");
-        }
+    println!("[V5Peek] File: {} | Offset: {}", path, start_bit);
+    
+    // Header Decoding (72 bits total before Gap)
+    let m1 = reader.read::<8, u8>().unwrap_or(0);
+    let m2 = reader.read::<8, u8>().unwrap_or(0);
+    println!("Marker: {}{}", m1 as char, m2 as char);
+    
+    let flags = reader.read::<32, u32>().unwrap_or(0);
+    println!("Flags: {:#010x}", flags);
+    
+    let ver = reader.read_var::<u8>(3).unwrap_or(0);
+    let mode = reader.read_var::<u8>(3).unwrap_or(0);
+    let loc = reader.read_var::<u8>(4).unwrap_or(0);
+    println!("Ver: {}, Mode: {}, Loc: {}", ver, mode, loc);
+    
+    let x = reader.read_var::<u8>(4).unwrap_or(0);
+    let y = reader.read_var::<u8>(4).unwrap_or(0);
+    println!("X: {}, Y: {}", x, y);
+    
+    let page = reader.read_var::<u8>(3).unwrap_or(0);
+    let hint = reader.read_var::<u8>(3).unwrap_or(0);
+    println!("Page: {}, SocketHint: {}", page, hint);
+    
+    if ver == 5 || ver == 1 || ver == 0 {
+        let gap = reader.read::<8, u8>().unwrap_or(255);
+        println!("Alpha Gap (8bit): {:#04x}", gap);
+    }
+    
+    println!("--- Raw Bit Dump ({} bits starts from bit {}) ---", dump_len, start_bit + 72 + 8);
+    for i in 0..dump_len {
+        let b = reader.read_bit().unwrap_or(false);
+        print!("{}", if b { "1" } else { "0" });
+        if (i + 1) % 8 == 0 { print!(" "); }
+        if (i + 1) % 32 == 0 { println!(); }
     }
     println!();
+
+    Ok(())
 }

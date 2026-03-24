@@ -180,7 +180,7 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
         let mut value = 0u64;
         for i in 0..n {
             if self.read_bit()? {
-                value |= 1 << i;
+                value |= 1u64 << i;
             }
         }
         Ok(value)

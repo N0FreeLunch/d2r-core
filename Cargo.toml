@@ -159,3 +159,11 @@ path = "src/bin/verify/d2item_oracle_mapper.rs"
 [[bin]]
 name = "d2item_forensic_scan"
 path = "src/bin/verify/d2item_forensic_scan.rs"
+
+[[bin]]
+name = "d2item_bit_diff"
+path = "src/bin/verify/d2item_bit_diff.rs"
+
+[[bin]]
+name = "d2item_msa_analyser"
+path = "src/bin/verify/d2item_msa_analyser.rs"

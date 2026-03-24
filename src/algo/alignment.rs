@@ -12,6 +12,65 @@ pub struct AlignmentResult {
     pub gap_indices: Vec<usize>,
 }
 
+pub struct MsaResult {
+    pub rows: Vec<Vec<Option<bool>>>,
+}
+
+impl MsaResult {
+    pub fn consensus(&self) -> Vec<Option<bool>> {
+        if self.rows.is_empty() { return Vec::new(); }
+        let len = self.rows[0].len();
+        let mut consensus = Vec::with_capacity(len);
+        for i in 0..len {
+            let mut true_count = 0;
+            let mut false_count = 0;
+            let mut gap_count = 0;
+            for row in &self.rows {
+                match row[i] {
+                    Some(true) => true_count += 1,
+                    Some(false) => false_count += 1,
+                    None => gap_count += 1,
+                }
+            }
+            if gap_count > self.rows.len() / 2 {
+                consensus.push(None);
+            } else if true_count > false_count {
+                consensus.push(Some(true));
+            } else if false_count > true_count {
+                consensus.push(Some(false));
+            } else {
+                consensus.push(None); // Tied or all same
+            }
+        }
+        consensus
+    }
+
+    pub fn pretty_print(&self) -> String {
+        let mut output = String::new();
+        for (idx, row) in self.rows.iter().enumerate() {
+            output.push_str(&format!("ROW {}: ", idx));
+            for bit in row {
+                match bit {
+                    Some(true) => output.push('1'),
+                    Some(false) => output.push('0'),
+                    None => output.push('-'),
+                }
+            }
+            output.push('\n');
+        }
+        
+        output.push_str("CONS : ");
+        for bit in self.consensus() {
+            match bit {
+                Some(true) => output.push('1'),
+                Some(false) => output.push('0'),
+                None => output.push('.'),
+            }
+        }
+        output
+    }
+}
+
 impl AlignmentResult {
     /// Returns aligned pair as two strings, gaps shown as '-'
     pub fn pretty_print(&self) -> String {
@@ -207,6 +266,73 @@ impl BitAligner {
             expected_aligned,
             gap_indices,
         }
+    }
+
+    pub fn msa(&self, sequences: &[Vec<bool>]) -> MsaResult {
+        if sequences.is_empty() { return MsaResult { rows: Vec::new() }; }
+        
+        let mut rows: Vec<Vec<Option<bool>>> = vec![
+            sequences[0].iter().map(|&b| Some(b)).collect()
+        ];
+
+        for i in 1..sequences.len() {
+            let consensus_bits: Vec<bool> = self.extract_dominant_bits(&rows);
+            let res = self.align(&consensus_bits, &sequences[i]);
+            
+            let mut new_rows = vec![Vec::new(); rows.len() + 1];
+            let mut msa_idx = 0;
+
+            for k in 0..res.actual_aligned.len() {
+                match (res.actual_aligned[k], res.expected_aligned[k]) {
+                    (Some(_), Some(b)) => {
+                        // Match/Mismatch
+                        for r in 0..rows.len() {
+                            new_rows[r].push(rows[r][msa_idx]);
+                        }
+                        new_rows[rows.len()].push(Some(b));
+                        msa_idx += 1;
+                    }
+                    (None, Some(b)) => {
+                        // Insertion in seq relative to MSA
+                        for r in 0..rows.len() {
+                            new_rows[r].push(None);
+                        }
+                        new_rows[rows.len()].push(Some(b));
+                    }
+                    (Some(_), None) => {
+                        // Gap in seq relative to MSA
+                        for r in 0..rows.len() {
+                            new_rows[r].push(rows[r][msa_idx]);
+                        }
+                        new_rows[rows.len()].push(None);
+                        msa_idx += 1;
+                    }
+                    (None, None) => unreachable!(),
+                }
+            }
+            rows = new_rows;
+        }
+
+        MsaResult { rows }
+    }
+
+    fn extract_dominant_bits(&self, rows: &[Vec<Option<bool>>]) -> Vec<bool> {
+        if rows.is_empty() { return Vec::new(); }
+        let len = rows[0].len();
+        let mut bits = Vec::with_capacity(len);
+        for i in 0..len {
+            let mut true_count = 0;
+            let mut false_count = 0;
+            for row in rows {
+                match row[i] {
+                    Some(true) => true_count += 1,
+                    Some(false) => false_count += 1,
+                    None => {}
+                }
+            }
+            bits.push(true_count >= false_count);
+        }
+        bits
     }
 }
 

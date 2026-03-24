@@ -11,7 +11,8 @@ fn test_render_buckler_from_fixture() {
     let bytes = fs::read(repo_path("tests/fixtures/savegames/original/amazon_10_scrolls.d2s"))
         .expect("fixture should exist");
     let huffman = HuffmanTree::new();
-    let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
 
     // This Buckler is item 15 in the amazon_10_scrolls fixture.
     let buckler = &items[15];
@@ -33,7 +34,8 @@ fn test_render_authority_properties() {
     let bytes = fs::read(repo_path("tests/fixtures/savegames/original/amazon_authority_runeword.d2s"))
         .expect("fixture should exist");
     let huffman = HuffmanTree::new();
-    let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
 
     let authority = items.last().expect("should have authority");
     assert_eq!(authority.code.trim(), "xrs");

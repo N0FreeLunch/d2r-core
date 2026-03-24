@@ -34,7 +34,8 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     expansion.raw_bytes[5] = 0xFF;
 
     // 3. Rebuild Save
-    let items = d2r_core::item::Item::read_player_items(&bytes, &huffman)?;
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let items = d2r_core::item::Item::read_player_items(&bytes, &huffman, version == 105)?;
     let rebuilt = rebuild_status_and_player_items(
         &bytes,
         None, // attributes

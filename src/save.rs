@@ -347,7 +347,9 @@ pub fn collect_player_slots(
     bytes: &[u8],
     huffman: &HuffmanTree,
 ) -> io::Result<Vec<(Item, ItemSlotClass)>> {
-    let items = Item::read_player_items(bytes, huffman)?;
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let alpha_mode = version == 105;
+    let items = Item::read_player_items(bytes, huffman, alpha_mode)?;
     let mut slots = Vec::new();
     for item in items {
         push_with_children(&mut slots, item);
@@ -458,7 +460,8 @@ pub fn rebuild_status_and_player_items(
     let jm0 = map.jm_positions[0];
     result.extend_from_slice(&bytes[jm0..]);
 
-    rebuild_item_section(&result, items, huffman)
+    let is_alpha = version == 105;
+    rebuild_item_section(&result, items, huffman, is_alpha)
 }
 
 pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
@@ -468,6 +471,7 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
     // gf 섹션의 level 수정 (stat_id=12, save_add=0, bit_width=7)
     attrs.set_raw(12, new_level as u32);
 
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
     // 헤더 CHAR_LEVEL_OFFSET (27번 바이트) 동기화
     let mut working = rebuild_status_and_player_items(
         bytes,
@@ -476,7 +480,7 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
         None,
         None,
         None,
-        &Item::read_player_items(bytes, huffman)?,
+        &Item::read_player_items(bytes, huffman, version == 105)?,
         huffman,
     )?;
     working[CHAR_LEVEL_OFFSET] = new_level;
@@ -988,6 +992,7 @@ pub fn rebuild_item_section(
     bytes: &[u8],
     items: &[Item],
     huffman: &HuffmanTree,
+    alpha_mode: bool,
 ) -> io::Result<Vec<u8>> {
     let jm_positions = find_jm_markers(bytes);
     if jm_positions.len() < 2 {
@@ -1002,7 +1007,7 @@ pub fn rebuild_item_section(
 
     let mut serialized_section = Vec::new();
     for item in items {
-        serialized_section.extend_from_slice(&item.to_bytes(huffman)?);
+        serialized_section.extend_from_slice(&item.to_bytes(huffman, alpha_mode)?);
     }
     if items.len() > u16::MAX as usize {
         return Err(io::Error::new(

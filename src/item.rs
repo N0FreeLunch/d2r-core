@@ -161,10 +161,19 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
         let mut value = 0u32;
         for i in 0..n {
             if self.read_bit()? {
-                value |= 1 << i;
+                if i < 32 {
+                    value |= 1 << i;
+                }
             }
         }
         Ok(value)
+    }
+
+    pub fn skip_and_record(&mut self, n: u32) -> ParsingResult<()> {
+        for _ in 0..n {
+            let _ = self.read_bit()?;
+        }
+        Ok(())
     }
 
     pub fn read_bits_u64(&mut self, n: u32) -> ParsingResult<u64> {
@@ -675,10 +684,10 @@ pub fn read_property_list<R: BitRead>(
         let bit_start = recorder.recorded_bits.len();
         let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
         let bit_end = recorder.recorded_bits.len();
-        println!("  [PropertyTrace] Property used bits [{}..{}]", bit_start, bit_end);
+        println!("  [PropertyTrace] Property used bits [{}..{}]" , bit_start , bit_end);
         match result {
             Ok(PropertyParseResult::Property(prop)) => {
-                println!("  [Property] parsed ID={}, val={}", prop.stat_id, prop.value);
+                item_trace!("  [Property] parsed ID={}, val={}" , prop.stat_id , prop.value);
                 props.push(prop)
             },
             Ok(PropertyParseResult::Terminator) => return Ok((props, true)),
@@ -854,16 +863,7 @@ impl Item {
         let x = (recorder.read_bits(4)? & 0x0F) as u8;
 
         let (y, page, socket_hint) = if version == 5 || version == 1 {
-            // Alpha v105: Dynamic header. 
-            // Y (4 bits) and Page (3 bits) only present if location is Inventory/Storage (loc 0).
-            // Socket hint (3 bits) is not present in Alpha header.
-            if loc == 0 {
-                let y = (recorder.read_bits(4)? & 0x0F) as u8;
-                let page = (recorder.read_bits(3)? & 0x07) as u8;
-                (y, page, 0)
-            } else {
-                (0, 0, 0)
-            }
+            (0, 0, 0)
         } else {
             let y = (recorder.read_bits(4)? & 0x0F) as u8;
             let page = (recorder.read_bits(3)? & 0x07) as u8;
@@ -1223,25 +1223,80 @@ impl Item {
         recorder: &mut BitRecorder<R>,
         huffman: &HuffmanTree,
         ctx: Option<(&[u8], u64)>,
+        alpha_mode: bool,
     ) -> ParsingResult<Item> {
         let root_start = recorder.recorded_bits.len();
         recorder.push_context("Item Root");
-        let (flags, version, mode, loc, x, y, page, header_socket_hint) = Self::read_item_header(recorder)?;
+        
+        // Peek/Read header info
+        let flags = recorder.read_bits(32)?;
+        let version = recorder.read_bits(3)? as u8;
+        let mode = recorder.read_bits(3)? as u8;
+        let loc = recorder.read_bits(4)? as u8;
+        let x = (recorder.read_bits(4)? & 0x0F) as u8;
+
+        let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 0);
+        let is_compact = (flags & (1 << 21)) != 0;
+        
+        let (y, page, header_socket_hint, peeked_code) = if is_alpha {
+            let (section_bytes, start_bit) = ctx.expect("Alpha v105 requires context for heuristic sync");
+            let Some((_m, _l, peek_code, _f, _v, _c, header_bits)) = peek_item_header_at(section_bytes, start_bit, huffman, alpha_mode)
+            else {
+                return Err(ParsingFailure {
+                    error: ParsingError::Generic("Alpha heuristic probe failed".to_string()),
+                    context_stack: vec!["AlphaSync".to_string()],
+                    bit_offset: start_bit,
+                });
+            };
+            
+            let skip_amount = (header_bits as i64) - (recorder.total_read as i64);
+            if skip_amount > 0 {
+                recorder.skip_and_record(skip_amount as u32)?;
+            }
+            (0, 0, 0, Some(peek_code))
+        } else {
+            let (y, page, socket_hint) = if is_compact {
+                (0, 0, 0)
+            } else {
+                let y = (recorder.read_bits(4)? & 0x0F) as u8;
+                let page = (recorder.read_bits(3)? & 0x07) as u8;
+                let socket_hint = (recorder.read_bits(3)? & 0x07) as u8;
+                (y, page, socket_hint)
+            };
+            (y, page, socket_hint, None)
+        };
+        
         let header_end = recorder.recorded_bits.len();
-        let is_ear = (flags & (1 << 16)) != 0;
+        
+        // Alpha v105: Bit 16 is NOT an ear identifier.
+        let is_ear = if is_alpha {
+            false
+        } else {
+            (flags & (1 << 16)) != 0
+        };
+        
         item_trace!("  [BitTrace] Header bits [{}..{}] ({} bits) flags=0x{:08X} is_ear={}", root_start, header_end, header_end - root_start, flags, is_ear);
 
         let is_identified = (flags & (1 << 4)) != 0;
         let is_socketed = (flags & (1 << 11)) != 0;
-        let is_ear = (flags & (1 << 16)) != 0;
         let is_compact = (flags & (1 << 21)) != 0;
         let is_ethereal = (flags & (1 << 22)) != 0;
         let is_personalized = (flags & (1 << 24)) != 0;
         let is_runeword = (flags & (1 << 26)) != 0;
 
-        let code_start = recorder.recorded_bits.len();
-        let (code, ear_class, ear_level, ear_player_name) = Self::read_item_code(recorder, is_ear, huffman, version)?;
-        let code_end = recorder.recorded_bits.len();
+        if is_alpha && loc < 4 {
+            // Alpha v105: 8-bit alignment/padding gap BEFORE item code for storage items (Loc 0-3).
+            // Forensics on Plate Mail (bit 21 set) confirm Gap exists regardless of compact-like flags.
+            let _gap = recorder.read_bits(8)?;
+        }
+
+        let code_start = recorder.total_read;
+        let (code, ear_class, ear_level, ear_player_name) = if let Some(code) = peeked_code {
+            (code, None, None, None)
+        } else {
+            Self::read_item_code(recorder, is_ear, huffman, version)?
+        };
+        let code_end = recorder.total_read;
         item_trace!("  [BitTrace] Code bits [{}..{}] ({} bits)", code_start, code_end, code_end - code_start);
 
         if is_ear {
@@ -1444,24 +1499,27 @@ impl Item {
         crate::engine::validation::lookup_spec(self)
     }
 
-    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree) -> ParsingResult<Self> {
+    pub fn from_reader<R: BitRead>(reader: &mut R, huffman: &HuffmanTree, alpha_mode: bool) -> ParsingResult<Self> {
         let mut recorder = BitRecorder::new(reader);
-        Self::from_reader_with_context(&mut recorder, huffman, None)
+        Self::from_reader_with_context(&mut recorder, huffman, None, alpha_mode)
     }
 
-    pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree) -> ParsingResult<Self> {
+    pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree, alpha_mode: bool) -> ParsingResult<Self> {
         let mut reader = IoBitReader::endian(io::Cursor::new(bytes), LittleEndian);
-        Self::from_reader(&mut reader, huffman)
+        let mut recorder = BitRecorder::new(&mut reader);
+        Self::from_reader_with_context(&mut recorder, huffman, Some((bytes, 0)), alpha_mode)
     }
 
     pub fn read_section(
         section_bytes: &[u8],
         top_level_count: u16,
         huffman: &HuffmanTree,
+        alpha_mode: bool,
     ) -> ParsingResult<Vec<Item>> {
         let section_bits = (section_bytes.len() * 8) as u64;
         let mut items: Vec<Item> = Vec::with_capacity(top_level_count as usize);
         let mut bit_pos = 0u64;
+        let mut is_alpha = alpha_mode;
         if section_bytes.len() >= 4 {
             println!("[DEBUG] Section bytes[0..4]: {:02X} {:02X} {:02X} {:02X}", section_bytes[0], section_bytes[1], section_bytes[2], section_bytes[3]);
         }
@@ -1469,7 +1527,7 @@ impl Item {
         while bit_pos < section_bits {
             item_trace!("  [SectionLoop] bit_pos={}, items.len()={}, top_level={}", bit_pos, items.len(), top_level_count);
             let mut start = bit_pos;
-            if let Some(next_start) = find_next_item_match(section_bytes, start, huffman) {
+            if let Some(next_start) = find_next_item_match(section_bytes, start, huffman, is_alpha) {
                 if next_start != start {
                     item_trace!("  [Section] Found next item at bit {} (skipped {} bits).", next_start, next_start - start);
                 }
@@ -1478,7 +1536,7 @@ impl Item {
                 break;
             }
 
-            let parse_result = parse_item_at(section_bytes, start, huffman, items.len());
+            let parse_result = parse_item_at(section_bytes, start, huffman, items.len(), is_alpha);
             let (item, consumed_bits) = match parse_result {
                 Ok(res) => res,
                 Err(e) => {
@@ -1488,8 +1546,17 @@ impl Item {
                 }
             };
             
+            if item.version == 5 || item.version == 1 {
+                is_alpha = true;
+            }
+            
             item_trace!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
             let mut end = start + consumed_bits;
+            
+            // Alpha v105 alignment sync
+            if is_alpha {
+                end = align_to_byte(end);
+            }
             
             // Alpha Resync: If we find a new plausible item header starting BEFORE the current item's reported end,
             // it means the current item probably "swallowed" the next one (e.g., due to a missing terminator).
@@ -1499,7 +1566,7 @@ impl Item {
                (consumed_bits > 128 || !item.properties_complete) {
                 
                 let min_lookahead = start + 48; // A header is at least 46 bits
-                if let Some(next_match) = find_next_item_match(section_bytes, min_lookahead, huffman) {
+                if let Some(next_match) = find_next_item_match(section_bytes, min_lookahead, huffman, alpha_mode) {
                     if next_match < end {
                         item_trace!("  [Alpha] Lookahead found next item at {} (swallowed by suspicious current item at {}). Trimming {} bits to {}.", next_match, start, consumed_bits, next_match - start);
                         end = next_match;
@@ -1535,7 +1602,7 @@ impl Item {
                     if parent.is_socketed || parent.is_runeword || is_last_top_level {
                         let rescue_limit = socket_rescue_limit(parent);
                         if let Some((rescued_children, rescued_end)) =
-                            scan_socket_children(section_bytes, bit_pos, huffman, rescue_limit)
+                            scan_socket_children(section_bytes, bit_pos, huffman, rescue_limit, alpha_mode)
                         {
                             parent.socketed_items.extend(rescued_children);
                             bit_pos = rescued_end;
@@ -1626,7 +1693,7 @@ impl Item {
         }
     }
 
-    pub fn read_player_items(bytes: &[u8], huffman: &HuffmanTree) -> ParsingResult<Vec<Item>> {
+    pub fn read_player_items(bytes: &[u8], huffman: &HuffmanTree, alpha_mode: bool) -> ParsingResult<Vec<Item>> {
         let jm_pos = (0..bytes.len().saturating_sub(1))
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
             .ok_or_else(|| ParsingFailure {
@@ -1639,7 +1706,7 @@ impl Item {
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
             .unwrap_or(bytes.len());
 
-        Item::read_section(&bytes[jm_pos + 4..next_jm], top_level_count, huffman)
+        Item::read_section(&bytes[jm_pos + 4..next_jm], top_level_count, huffman, alpha_mode)
     }
 
     pub fn scan_items(bytes: &[u8], huffman: &HuffmanTree) -> Vec<(usize, String)> {
@@ -1679,6 +1746,7 @@ impl Item {
         &self,
         emitter: &mut BitEmitter,
         huffman: &HuffmanTree,
+        alpha_mode: bool,
     ) -> io::Result<()> {
         emitter.write_bits(self.flags, 32)?;
         emitter.write_bits(self.version as u32, 3)?;
@@ -1686,7 +1754,7 @@ impl Item {
         emitter.write_bits(self.location as u32, 4)?;
         emitter.write_bits(self.x as u32, 4)?;
 
-        if self.version == 5 {
+        if alpha_mode {
             // Alpha v105: Dynamic header (y and page only if loc == 0)
             if self.location == 0 {
                 emitter.write_bits(self.y as u32, 4)?;
@@ -1710,18 +1778,18 @@ impl Item {
             return Ok(());
         }
 
-        let skip_code = self.version == 5 && self.is_runeword;
+        let skip_code = alpha_mode && self.is_runeword;
+        if alpha_mode && !self.is_compact {
+            // Alpha v105: 8-bit alignment gap BEFORE code for non-compact items.
+            emitter.write_bits(0, 8)?;
+        }
+
         if !skip_code {
             let encoded_code = huffman.encode(&self.code)?;
             emitter.extend_bits(encoded_code)?;
         }
 
-        if self.version == 5 {
-            // Alpha v105: 8-bit alignment gap after code, present when item is in inventory/equipped.
-            if self.location == 0 || self.location == 1 {
-                emitter.write_bits(0, 8)?;
-            }
-        } else {
+        if !alpha_mode {
             emitter.write_bit(self.has_multiple_graphics)?;
             if self.has_multiple_graphics {
                 emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
@@ -1735,12 +1803,12 @@ impl Item {
         Ok(())
     }
 
-    fn write_extended_stats(&self, emitter: &mut BitEmitter) -> io::Result<()> {
+    fn write_extended_stats(&self, emitter: &mut BitEmitter, alpha_mode: bool) -> io::Result<()> {
         if self.is_ear || self.is_compact {
             return Ok(());
         }
 
-        if self.version == 5 {
+        if alpha_mode {
             // Alpha v105 (v5): 16-bit base header
             emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
             let quality = self.quality.unwrap_or(ItemQuality::Normal);
@@ -1851,6 +1919,7 @@ impl Item {
         &self,
         emitter: &mut BitEmitter,
         huffman: &HuffmanTree,
+        alpha_mode: bool,
     ) -> io::Result<()> {
         if self.is_ear {
             return Ok(());
@@ -1858,7 +1927,7 @@ impl Item {
 
         write_property_list(emitter, &self.properties, self.version, false)?;
 
-        if self.properties_complete || self.version == 5 {
+        if self.properties_complete || alpha_mode {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
                     write_property_list(emitter, set_props, self.version, false)?;
@@ -1867,7 +1936,7 @@ impl Item {
                 }
             }
             if self.is_runeword {
-                if self.version == 5 {
+                if alpha_mode {
                     // Alpha v105: 93-bit spacer confirmed between List 1 and List 2 (fixture-verified, 0054).
                     // TODO: Verify if this spacer exists even when runeword_attributes (List 2) is empty.
                     // Current fixture (Authority) suggests it triggers for all v5 runewords.
@@ -1889,20 +1958,20 @@ impl Item {
 
         for child in &self.socketed_items {
             emitter.byte_align()?;
-            child.write_recursive(emitter, huffman)?;
+            child.write_recursive(emitter, huffman, alpha_mode)?;
         }
 
         Ok(())
     }
 
-    fn write_recursive(&self, emitter: &mut BitEmitter, huffman: &HuffmanTree) -> io::Result<()> {
-        self.write_header_block(emitter, huffman)?;
-        self.write_extended_stats(emitter)?;
-        self.write_property_groups(emitter, huffman)?;
+    fn write_recursive(&self, emitter: &mut BitEmitter, huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<()> {
+        self.write_header_block(emitter, huffman, alpha_mode)?;
+        self.write_extended_stats(emitter, alpha_mode)?;
+        self.write_property_groups(emitter, huffman, alpha_mode)?;
         Ok(())
     }
 
-    pub fn to_bytes(&self, huffman: &HuffmanTree) -> io::Result<Vec<u8>> {
+    pub fn to_bytes(&self, huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
         // If we have cached bits and no modification occurred (bits is not empty), use them.
         // However, Mutation clears the bits cache, so this will only trigger if unmodified.
         if !self.bits.is_empty() {
@@ -1916,7 +1985,7 @@ impl Item {
         
         // Re-encoding from scratch
         let mut emitter = BitEmitter::new();
-        self.write_recursive(&mut emitter, huffman)?;
+        self.write_recursive(&mut emitter, huffman, alpha_mode)?;
         emitter.byte_align()?;
         Ok(emitter.into_bytes())
     }
@@ -1949,12 +2018,17 @@ mod tests {
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
             .unwrap_or(bytes.len());
 
-        // Expect 16 items after fixing 1-bit probe and non-byte alignment.
-        let items = Item::read_section(&bytes[jm_pos + 4..next_jm], 16, &huffman)
+        // Expect 16 items for Alpha v105 with bit-precision alignment.
+        let items = Item::read_section(&bytes[jm_pos + 4..next_jm], 16, &huffman, true)
             .expect("items should parse");
 
         assert_eq!(items.len(), 16);
-        assert_eq!(items[14].code, "ww l");
+        // Verified recovery via d2item_chunk_verify diagnostic tool:
+        // Indices 0-4 are misc (hp1, y uw), 5-14 are scrolls (tsc), 15 is buckler (8 sw).
+        assert_eq!(items[0].code, "hp1 ");
+        assert_eq!(items[5].code, "tsc ");
+        assert_eq!(items[14].code, "tsc ");
+        assert_eq!(items[15].code, "8 sw");
     }
 }
 
@@ -1968,6 +2042,7 @@ fn parse_item_at(
     start_bit: u64,
     huffman: &HuffmanTree,
     index: usize,
+    alpha_mode: bool,
 ) -> ParsingResult<(Item, u64)> {
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
     reader.skip(start_bit as u32).map_err(|e| ParsingFailure {
@@ -1978,7 +2053,7 @@ fn parse_item_at(
     let mut recorder = BitRecorder::new(&mut reader);
     recorder.push_context(&format!("Item[{}]", index));
     let item =
-        Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)))?;
+        Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)), alpha_mode)?;
     let consumed_bits = recorder.total_read;
     item_trace!("  [ParseAt] Parsed item '{}' at bit {}. Consumed {} bits.", item.code, start_bit, consumed_bits);
     Ok((item, consumed_bits))
@@ -1996,13 +2071,19 @@ fn socket_rescue_limit(parent: &Item) -> usize {
     }
 }
 
-fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8) -> bool {
+fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
+    if item_template(code.trim()).is_some() {
+        return true;
+    }
+    
+    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4 || version == 0);
+
     if mode > 6 || location > 15 {
         return false;
     }
     
-    // Flags validation: bits 27-31 are unused in modern D2.
-    if version != 4 && version != 5 && version != 1 && (flags & 0xF8000000) != 0 {
+    // Modern D2 flags validation: bits 27-31 are unused.
+    if !is_alpha && version != 4 && (flags & 0xF8000000) != 0 {
         return false;
     }
 
@@ -2015,16 +2096,10 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, vers
         return code != "    " && code.trim().chars().count() > 0;
     }
 
-    // Version 1/5 (Alpha v105/Beta) stricter check
-    if version == 5 || version == 1 {
-        // Mode 0-6 are valid (Socketed is 6).
-        if mode > 6 { return false; }
-        // Code must be plausible: 4 chars, mostly alphanumeric or space.
-        let mut chars = trimmed_code.chars();
-        if !chars.all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '\'') {
-            return false;
-        }
-        return true;
+    // Version 1/5 (Alpha v105/Beta) strict check: must be a known template...
+    // UNLESS it's an equipped item (loc >= 4) which we want to prioritize for synchronization.
+    if is_alpha {
+        return item_template(code).is_some();
     }
 
     if (version == 4) && !trimmed_code.is_empty() {
@@ -2071,6 +2146,7 @@ fn scan_socket_children(
     start_bit: u64,
     huffman: &HuffmanTree,
     max_children: usize,
+    alpha_mode: bool,
 ) -> Option<(Vec<Item>, u64)> {
     // When the parent property list terminates too early, real socket children still
     // exist in the raw section bytes. We scan forward in a narrow byte-aligned window
@@ -2086,7 +2162,7 @@ fn scan_socket_children(
 
     while children.len() < max_children {
         item_trace!("  [Sockets] Searching for child {} at bit {}", children.len(), search_start);
-        let Some((child, child_end)) = find_next_socket_child(section_bytes, search_start, huffman)
+        let Some((child, child_end)) = find_next_socket_child(section_bytes, search_start, huffman, alpha_mode)
         else {
             break;
         };
@@ -2107,22 +2183,23 @@ fn find_next_socket_child(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
+    alpha_mode: bool,
 ) -> Option<(Item, u64)> {
     let mut probe = align_to_byte(start_bit);
     let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
 
     while probe < max_probe {
-        let Some((mode, location, code, flags, version, _is_compact)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek_item_header_at(section_bytes, probe, huffman, alpha_mode)
         else {
             probe += 8;
             continue;
         };
-        if !is_plausible_item_header(mode, location, &code, flags, version) {
+        if !is_plausible_item_header(mode, location, &code, flags, version, alpha_mode) {
             probe += 8;
             continue;
         }
 
-        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, 0) else {
+        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, 0, alpha_mode) else {
             probe += 8;
             continue;
         };
@@ -2160,7 +2237,8 @@ fn peek_item_header_at(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
-) -> Option<(u8, u8, String, u32, u8, bool)> {
+    alpha_mode: bool,
+) -> Option<(u8, u8, String, u32, u8, bool, u64)> {
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
     if let Err(_) = reader.skip(start_bit as u32) {
         return None;
@@ -2171,59 +2249,77 @@ fn peek_item_header_at(
     let mode = recorder.read_bits(3).ok()? as u8;
     let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
+    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4 || version == 0);
+    let is_compact = (flags & (1 << 21)) != 0;
+
+    let mut best_result = None;
     
-    if version == 5 {
-        if location == 0 {
-            let _y = recorder.read_bits(4).ok()?;
-            let _page = recorder.read_bits(3).ok()?;
+    if is_alpha {
+        // Alpha v105 Heuristic: Search for a valid Huffman code near the expected header range.
+        // Forensic evidence: Plate Mail ends at +58, Buckler at +33.
+        // We probe 1-bit granularity within [32..128] bit range to catch high-entropy Large Shield.
+        for offset in 32..=128 {
+            let mut h_reader = IoBitReader::<_, LittleEndian>::new(Cursor::new(section_bytes));
+            if h_reader.skip((start_bit + offset) as u32).is_err() {
+                continue;
+            }
+            let mut h_recorder = BitRecorder::new(&mut h_reader);
+            
+            // Apply 8-bit Gap if item is in storage (Loc 0-3).
+            if location < 4 {
+                let _ = h_recorder.read_bits(8).ok()?;
+            }
+            
+            let mut code = String::new();
+            let mut found_invalid = false;
+            for _ in 0..4 {
+                if let Ok(ch) = huffman.decode_recorded(&mut h_recorder) {
+                    code.push(ch);
+                } else {
+                    found_invalid = true;
+                    break;
+                }
+            }
+            
+            if !found_invalid && is_plausible_item_header(mode, location, &code, flags, version, true) {
+                best_result = Some((mode, location, code, flags, version, is_compact, (offset as u64) + h_recorder.total_read));
+                break;
+            }
         }
-    } else {
-        let _y = recorder.read_bits(4).ok()?;
-        let _page = recorder.read_bits(3).ok()?;
-        let _page = recorder.read_bits(3).ok()?;
-        let _socket_hint = recorder.read_bits(3).ok()?;
     }
 
+    if let Some(res) = best_result {
+        return Some(res);
+    }
+    
     let mut code = String::new();
     for _ in 0..4 {
         code.push(huffman.decode_recorded(&mut recorder).ok()?);
     }
 
-    let is_compact = if version == 5 {
-        (flags & (1 << 21)) != 0
-    } else {
-        (flags & 0x00000008) != 0
-    };
-
-    Some((mode, location, code, flags, version, is_compact))
+    Some((mode, location, code, flags, version, is_compact, recorder.total_read))
 }
 
 fn find_next_item_match(
     section_bytes: &[u8],
     start_bit: u64,
     huffman: &HuffmanTree,
+    alpha_mode: bool,
 ) -> Option<u64> {
     let mut probe = start_bit;
     let section_bits = (section_bytes.len() * 8) as u64;
 
     while probe < section_bits {
-        let peek = peek_item_header_at(section_bytes, probe, huffman);
-        if let Some((mode, location, code, flags, version, _is_compact)) = peek.clone() {
-            let plausible = is_plausible_item_header(mode, location, &code, flags, version);
-             println!("  [Probe] bit={}, flags=0x{:08X}, ver={}, mode={}, loc={}, code='{}', plausible={}", 
+        let peek = peek_item_header_at(section_bytes, probe, huffman, alpha_mode);
+        if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek.clone() {
+            let plausible = is_plausible_item_header(mode, location, &code, flags, version, alpha_mode);
+
+             item_trace!("  [Probe] bit={}, flags=0x{:08X}, ver={}, mode={}, loc={}, code='{}', plausible={}", 
                 probe, flags, version, mode, location, code, plausible);
-                    // Alpha Resync: Only jump if it's a KNOWN item code.
-                    if item_template(&code).is_some() {
-                        return Some(probe);
-                    }
-                    
-                    // Fallback to full parse for unknown codes (less certain)
-                    if let Ok((_item, _consumed)) = parse_item_at(section_bytes, probe, huffman, 0) {
-                        // For resync, we want to be very sure.
-                        if item_template(&_item.code).is_some() {
-                            return Some(probe);
-                        }
-                    }
+
+            if plausible {
+                return Some(probe);
+            }
         }
         probe += 1;
     }
@@ -2242,13 +2338,13 @@ fn recover_property_reader<R: BitRead>(
 
     let mut probe = crate::domain::vo::align_to_byte(section_pos);
     while probe < section_bits {
-        let Some((mode, location, probe_code, probe_flags, probe_version, _is_compact)) = peek_item_header_at(section_bytes, probe, huffman)
+        let Some((mode, location, probe_code, probe_flags, probe_version, _is_compact, _header_bits)) = peek_item_header_at(section_bytes, probe, huffman, true)
         else {
             probe += 8;
             continue;
         };
 
-        if is_plausible_item_header(mode, location, &probe_code, probe_flags, probe_version) {
+        if is_plausible_item_header(mode, location, &probe_code, probe_flags, probe_version, true) {
             let skip = if probe > section_pos { probe - section_pos } else { 0 };
             
             item_trace!(

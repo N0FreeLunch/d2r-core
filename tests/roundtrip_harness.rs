@@ -22,11 +22,13 @@ mod roundtrip_tests {
         let huffman = HuffmanTree::new();
         
         // 1. Read all items from the save
-        let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
         
         for item in &items {
             // 2. Re-serialize each item
-            let reserialized = item.to_bytes(&huffman).expect("should re-serialize");
+            let alpha_mode = version == 105;
+            let reserialized = item.to_bytes(&huffman, alpha_mode).expect("should re-serialize");
             
             // 3. Compare bits if the item wasn't recovered/modified during parse
             // Note: If the item was 'recovered' due to bit-mismatch, the roundtrip
@@ -44,7 +46,7 @@ mod roundtrip_tests {
                     
                     // We don't have the original raw segment here easily, 
                     // but we can parse the reserialized bytes back and compare properties.
-                    let item_back = Item::from_bytes(&reserialized, &huffman).expect("should parse back");
+                    let item_back = Item::from_bytes(&reserialized, &huffman, alpha_mode).expect("should parse back");
                     assert_eq!(item.code, item_back.code);
                     assert_eq!(item.properties.len(), item_back.properties.len());
                     for (p1, p2) in item.properties.iter().zip(item_back.properties.iter()) {
@@ -68,7 +70,8 @@ mod roundtrip_tests {
         // Use Trace to see what's happening
         unsafe { std::env::set_var("D2R_ITEM_TRACE", "1"); }
 
-        let mut items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let mut items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
         
         // The Authority item was previously misidentified as "w ha", but it's "xrs " (Cuirass)
         let authority = items.iter_mut().find(|item| item.code.trim() == "xrs").expect("Authority item (xrs) not found");
@@ -90,10 +93,11 @@ mod roundtrip_tests {
         assert!(authority.set_property_value(target_stat_id, new_val), "Failed to set property {}", target_stat_id);
         
         // Re-serialize and verify
-        let reserialized = authority.to_bytes(&huffman).expect("should re-serialize modified item");
+        let alpha_mode = version == 105;
+        let reserialized = authority.to_bytes(&huffman, alpha_mode).expect("should re-serialize modified item");
         
         // Parse back and verify new value
-        let modified_item = Item::from_bytes(&reserialized, &huffman).expect("should parse back modified bits");
+        let modified_item = Item::from_bytes(&reserialized, &huffman, alpha_mode).expect("should parse back modified bits");
         
         let mut all_stats = modified_item.properties.clone();
         for list in &modified_item.set_attributes {
@@ -112,15 +116,16 @@ mod roundtrip_tests {
         let huffman = HuffmanTree::new();
 
         // 1. Read all items - Expecting 16 items (via rescue strategy)
-        let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
         assert_eq!(items.len(), 16, "Should have recovered all 16 items from 10-scrolls fixture");
 
         for item in &items {
             // 2. Re-serialize
-            let reserialized = item.to_bytes(&huffman).expect("should re-serialize");
+            let reserialized = item.to_bytes(&huffman, true).expect("should re-serialize");
 
             // 3. Parse back and verify basic identity
-            let item_back = Item::from_bytes(&reserialized, &huffman).expect("should parse back");
+            let item_back = Item::from_bytes(&reserialized, &huffman, true).expect("should parse back");
             assert_eq!(item.code, item_back.code, "Code mismatch for {}", item.code);
             assert_eq!(item.version, item_back.version, "Version mismatch for {}", item.code);
             assert_eq!(item.properties.len(), item_back.properties.len(), "Properties length mismatch for {}", item.code);
@@ -152,7 +157,8 @@ mod roundtrip_tests {
             let attributes = AttributeSection::parse(&bytes, &map)?;
             let skills = parse_skill_section(&bytes, &map)?;
             let quests = parse_quest_section(&bytes, &map)?;
-            let items = Item::read_player_items(&bytes, &huffman)?;
+            let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+            let items = Item::read_player_items(&bytes, &huffman, version == 105)?;
             
             // 2. Rebuild the entire save
             let rebuilt = rebuild_status_and_player_items(

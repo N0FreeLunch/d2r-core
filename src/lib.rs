@@ -41,7 +41,8 @@ mod tests {
     fn load_player_items(relative: &str) -> Vec<Item> {
         let bytes = fs::read(repo_path(relative)).expect("fixture should be readable");
         let huffman = HuffmanTree::new();
-        Item::read_player_items(&bytes, &huffman).expect("item parse should succeed")
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        Item::read_player_items(&bytes, &huffman, version == 105).expect("item parse should succeed")
     }
 
     #[test]

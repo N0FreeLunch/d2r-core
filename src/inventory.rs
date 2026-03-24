@@ -142,7 +142,8 @@ impl InventoryGrid {
             (0..bytes.len().saturating_sub(1)).find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M');
 
         if jm_pos.is_some() {
-            if let Ok(items) = Item::read_player_items(bytes, huffman) {
+            let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+            if let Ok(items) = Item::read_player_items(bytes, huffman, version == 105) {
                 for item in items {
                     if item.location == 0 {
                         grid.occupy(

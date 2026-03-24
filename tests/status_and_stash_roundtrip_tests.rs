@@ -27,7 +27,8 @@ fn status_and_stash_roundtrip_fixtures() -> io::Result<()> {
         let attributes = AttributeSection::parse(&bytes, &map)?;
         let skills = parse_skill_section(&bytes, &map)?;
         let quests = parse_quest_section(&bytes, &map)?;
-        let items = Item::read_player_items(&bytes, &huffman)?;
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let items = Item::read_player_items(&bytes, &huffman, version == 105)?;
         let rebuilt = rebuild_status_and_player_items(
             &bytes,
             Some(&attributes),
@@ -65,7 +66,8 @@ fn test_level_and_header_sync() -> io::Result<()> {
     data[3] = 5;
     let skills_updated = d2r_core::save::SkillSection::from_slice(&data)?;
     
-    let items = Item::read_player_items(&patched, &huffman)?;
+    let version = u32::from_le_bytes(patched[4..8].try_into().unwrap_or([0; 4]));
+    let items = Item::read_player_items(&patched, &huffman, version == 105)?;
     let final_rebuilt = rebuild_status_and_player_items(
         &patched,
         Some(&attributes),
@@ -96,7 +98,8 @@ fn test_variable_length_rebuild() -> io::Result<()> {
     // This is not in the special character stats list, so it tests the fallback/dynamic path.
     attrs.set_raw(16, 42); 
     
-    let items = Item::read_player_items(&bytes, &huffman)?;
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let items = Item::read_player_items(&bytes, &huffman, version == 105)?;
     let rebuilt = rebuild_status_and_player_items(
         &bytes,
         Some(&attrs),

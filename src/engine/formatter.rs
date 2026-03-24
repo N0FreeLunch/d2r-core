@@ -614,7 +614,8 @@ mod tests {
         ))
         .expect("fixture should exist");
         let huffman = HuffmanTree::new();
-        let items = Item::read_player_items(&bytes, &huffman).expect("items should parse");
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
 
         let buckler = &items[15];
         let formatted_en = format_item(&buckler, "en", 0, 99);

@@ -17,13 +17,15 @@ fn write_rebuilt(path: &Path, bytes: &[u8]) -> io::Result<()> {
 fn read_items(path: &Path) -> io::Result<Vec<Item>> {
     let bytes = fs::read(path)?;
     let huffman = HuffmanTree::new();
-    Ok(Item::read_player_items(&bytes, &huffman)?)
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    Ok(Item::read_player_items(&bytes, &huffman, version == 105)?)
 }
 
 fn rebuild_and_write(base_path: &Path, items: &[Item], output_path: &Path) -> io::Result<Vec<u8>> {
     let base_bytes = fs::read(base_path)?;
     let huffman = HuffmanTree::new();
-    let rebuilt = rebuild_item_section(&base_bytes, items, &huffman)?;
+    let version = u32::from_le_bytes(base_bytes[4..8].try_into().unwrap_or([0; 4]));
+    let rebuilt = rebuild_item_section(&base_bytes, items, &huffman, version == 105)?;
     write_rebuilt(output_path, &rebuilt)?;
     Ok(rebuilt)
 }

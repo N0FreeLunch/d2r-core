@@ -244,7 +244,8 @@ fn main() -> io::Result<()> {
                 }
             }
 
-            let result = Item::read_section(section_data, count_val, &huffman);
+            let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+            let result = Item::read_section(section_data, count_val, &huffman, version == 105);
             match result {
                 Ok(sect_items) => all_items.extend(sect_items),
                 Err(err) => {

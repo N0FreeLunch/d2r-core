@@ -182,7 +182,8 @@ fn main() {
     let bytes = fs::read(&args[1]).unwrap();
     let huffman = HuffmanTree::new();
 
-    if let Ok(items) = Item::read_player_items(&bytes, &huffman) {
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    if let Ok(items) = Item::read_player_items(&bytes, &huffman, version == 105) {
         println!(
             "Library parse recovered {} top-level items from player section",
             items.len()
@@ -228,7 +229,7 @@ fn main() {
         }
         let bit_start = (jm_pos + 4) * 8 + pos as usize;
 
-        match Item::from_reader(&mut reader, &huffman) {
+        match Item::from_reader(&mut reader, &huffman, version == 105) {
             Ok(item) => {
                 let pos_end = reader.position_in_bits().unwrap_or(0);
                 let bit_end = (jm_pos + 4) * 8 + pos_end as usize;

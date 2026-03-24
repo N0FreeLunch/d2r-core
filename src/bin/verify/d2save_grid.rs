@@ -17,6 +17,7 @@ fn main() {
         process::exit(1);
     });
 
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
     let huffman = HuffmanTree::new();
     let grid = InventoryGrid::from_save_bytes(&bytes, &huffman);
 
@@ -39,7 +40,7 @@ fn main() {
 
         for i in 0..item_count {
             let _ = bitstream_io::BitRead::byte_align(&mut reader);
-            if let Ok(item) = d2r_core::item::Item::from_reader(&mut reader, &huffman) {
+            if let Ok(item) = d2r_core::item::Item::from_reader(&mut reader, &huffman, version == 105) {
                 let (w, h) = d2r_core::inventory::get_item_size(&item.code);
                 println!(
                     "  [{:>2}] {:<4} | Size: {}x{} | Pos: ({}, {}) | Loc: {}",

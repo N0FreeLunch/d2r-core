@@ -21,7 +21,7 @@ impl ItemGateway {
         
         // Use the reinforced Item::read_single_item (Total Function approach)
         // to prevent panics and return structured errors.
-        Item::from_bytes(&bytes, &huffman).map_err(Into::into)
+        Item::from_bytes(&bytes, &huffman, false).map_err(Into::into)
     }
 
     /// Verifies if the imported item can be placed in the current inventory.

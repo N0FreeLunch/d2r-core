@@ -36,7 +36,7 @@ fn main() {
 
     for i in 0..count {
         let bit_start = (jm_pos + 4) * 8 + recorder.total_read as usize;
-        match Item::from_reader_with_context(&mut recorder, &huffman, Some((&bytes, ((jm_pos+4)*8) as u64))) {
+        match Item::from_reader_with_context(&mut recorder, &huffman, Some((&bytes, ((jm_pos+4)*8) as u64)), false) {
             Ok(item) => {
                 println!(
                     "Item {}: '{}' (start_bit={}, len={} bits)",

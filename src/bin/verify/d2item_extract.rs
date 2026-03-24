@@ -55,7 +55,8 @@ fn main() {
     }
 
     let huffman = HuffmanTree::new();
-    let items = Item::read_player_items(&bytes, &huffman).unwrap_or_else(|e| {
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    let items = Item::read_player_items(&bytes, &huffman, version == 105).unwrap_or_else(|e| {
         eprintln!("[ERROR] Failed to parse item section: {}", e);
         process::exit(1);
     });

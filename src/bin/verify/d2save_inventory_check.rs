@@ -22,6 +22,7 @@ fn main() {
 
     println!("=== Inventory Integrity Check: {} ===", path);
 
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
     let huffman = HuffmanTree::new();
 
     // Find all JM markers
@@ -49,7 +50,7 @@ fn main() {
     let mut items = Vec::new();
     for _ in 0..item_count {
         let _ = bitstream_io::BitRead::byte_align(&mut reader);
-        if let Ok(item) = Item::from_reader(&mut reader, &huffman) {
+        if let Ok(item) = Item::from_reader(&mut reader, &huffman, version == 105) {
             items.push(item);
         } else {
             break;

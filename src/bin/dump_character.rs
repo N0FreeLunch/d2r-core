@@ -43,7 +43,8 @@ fn main() {
         }
     }
 
-    if let Ok(items) = Item::read_player_items(&bytes, &huffman) {
+    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+    if let Ok(items) = Item::read_player_items(&bytes, &huffman, version == 105) {
         println!("Player Items: {}", items.len());
         for (i, item) in items.iter().enumerate() {
             println!(

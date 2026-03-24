@@ -54,11 +54,11 @@ fn main() -> io::Result<()> {
     // Strategy A: Re-serialize and re-parse to get "Expected Bits"
     let mut expected_item = item.clone();
     expected_item.bits.clear(); // Force re-encoding
-    let expected_encoded_bytes = expected_item.to_bytes(&huffman)?;
+    let expected_encoded_bytes = expected_item.to_bytes(&huffman, expected_item.version == 105)?;
     
     let mut reader = BitReader::endian(Cursor::new(&expected_encoded_bytes), LittleEndian);
     let mut recorder = BitRecorder::new(&mut reader);
-    let _ = Item::from_reader_with_context(&mut recorder, &huffman, None).ok();
+    let _ = Item::from_reader_with_context(&mut recorder, &huffman, None, false).ok();
     let expected: Vec<bool> = recorder.recorded_bits.iter().map(|rb| rb.bit).collect();
 
     let aligner = BitAligner::new(2, -1, -3, -1);
@@ -112,7 +112,7 @@ fn scan_at_offset(bytes: &[u8], huffman: &HuffmanTree, collection: &mut Vec<Item
         if b_off > 0 { let _ = reader.skip(b_off).ok(); }
         
         let mut recorder = BitRecorder::new(&mut reader);
-        match Item::from_reader_with_context(&mut recorder, huffman, None) {
+        match Item::from_reader_with_context(&mut recorder, huffman, None, false) {
             Ok(item) => {
                 let consumed = reader.position_in_bits().unwrap_or(0);
                 if consumed >= 30 {

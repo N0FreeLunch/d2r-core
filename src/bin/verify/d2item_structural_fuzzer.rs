@@ -1,6 +1,23 @@
 use std::fs;
 use std::io::{self, Cursor};
 use bitstream_io::{BitRead, BitReader, LittleEndian};
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct PropertyEntry {
+    index: usize,
+    bit_offset: u64,
+    stat_id: u16,
+    value: u64,
+}
+
+#[derive(Serialize)]
+struct FuzzerReport {
+    file: String,
+    start_bit: u64,
+    best_width: u32,
+    properties: Vec<PropertyEntry>,
+}
 
 /// Bitstream Structural Fuzzer & Analyzer for D2R Alpha v105
 /// Rank bit-width candidates based on terminator alignment.
@@ -10,14 +27,17 @@ fn main() -> io::Result<()> {
         println!("Usage: d2item_structural_fuzzer <save_path> [options]");
         println!("Options:");
         println!("  --start-bit <n>      Start bit offset (default: 0)");
+        println!("  --brute              Brute-force scan for best start-bit within 1000 bits");
         println!("  --width-range <n..m> Bit width range to sweep (default: 10..25)");
         println!("  --max-props <n>      Maximum properties to read per width (default: 64)");
+        println!("  --json               Output result as JSON");
         return Ok(());
     }
 
     let path = &args[1];
     let mut start_bit: u64 = 0;
     let mut brute_mode = false;
+    let mut show_json = false;
     let mut width_range_start = 10;
     let mut width_range_end = 25;
     let mut max_props = 64;
@@ -35,6 +55,10 @@ fn main() -> io::Result<()> {
             }
             "--brute" => {
                 brute_mode = true;
+                i += 1;
+            }
+            "--json" => {
+                show_json = true;
                 i += 1;
             }
             "--width-range" => {
@@ -125,36 +149,63 @@ fn main() -> io::Result<()> {
     start_bit = best_start; // Use best start for reporting
 
     if best_width > 0 {
-        println!("\nBest Fit Width: {}", best_width);
-        println!("------------------------------------------------------------------");
-        println!("| Index | Bit Offset | Stat ID (Hex/Dec) | Raw Value (Hex/Dec)   |");
-        println!("------------------------------------------------------------------");
-
-        let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
-        if let Err(_) = reader.skip(start_bit as u32) {
-            println!("Error re-reading best fit width.");
-        } else {
+        if show_json {
+            let mut report = FuzzerReport {
+                file: path.clone(),
+                start_bit,
+                best_width,
+                properties: Vec::new(),
+            };
+            let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
+            let _ = reader.skip(start_bit as u32);
             for p in 0..max_props {
                 let current_pos = start_bit + (p as u64 * best_width as u64);
                 let stat_id = match reader.read_var::<u16>(9) {
                     Ok(id) => id,
                     Err(_) => break,
                 };
+                if stat_id == 0x1FF { break; }
+                let value_bits = (best_width - 9) as u32;
+                let value = reader.read_var::<u64>(value_bits).unwrap_or(0);
+                report.properties.push(PropertyEntry {
+                    index: p,
+                    bit_offset: current_pos,
+                    stat_id,
+                    value,
+                });
+            }
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            println!("\nBest Fit Width: {}", best_width);
+            println!("------------------------------------------------------------------");
+            println!("| Index | Bit Offset | Stat ID (Hex/Dec) | Raw Value (Hex/Dec)   |");
+            println!("------------------------------------------------------------------");
+            let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
+            if let Err(_) = reader.skip(start_bit as u32) {
+                println!("Error re-reading best fit width.");
+            } else {
+                for p in 0..max_props {
+                    let current_pos = start_bit + (p as u64 * best_width as u64);
+                    let stat_id = match reader.read_var::<u16>(9) {
+                        Ok(id) => id,
+                        Err(_) => break,
+                    };
 
-                if stat_id == 0x1FF {
-                    println!("| {:5} | {:10} | [ TERMINATOR ]    |                       |", p, current_pos);
-                    // Decide if we want to break or continue to see what's after
-                    // For now, let's continue for a few more to see spacers
-                } else {
-                    let value_bits = (best_width - 9) as u32;
-                    let value = reader.read_var::<u64>(value_bits).unwrap_or(0);
-                    
-                    println!("| {:5} | {:10} | {:#05x} ({:4})    | {:#010x} ({:10}) |", 
-                        p, current_pos, stat_id, stat_id, value, value);
+                    if stat_id == 0x1FF {
+                        println!("| {:5} | {:10} | [ TERMINATOR ]    |                       |", p, current_pos);
+                        // Decide if we want to break or continue to see what's after
+                        // For now, let's continue for a few more to see spacers
+                    } else {
+                        let value_bits = (best_width - 9) as u32;
+                        let value = reader.read_var::<u64>(value_bits).unwrap_or(0);
+                        
+                        println!("| {:5} | {:10} | {:#05x} ({:4})    | {:#010x} ({:10}) |", 
+                            p, current_pos, stat_id, stat_id, value, value);
+                    }
                 }
             }
+            println!("------------------------------------------------------------------");
         }
-        println!("------------------------------------------------------------------");
     } else {
         println!("\nNo valid width found with a terminator.");
     }

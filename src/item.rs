@@ -712,9 +712,9 @@ fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResul
 }
 
 fn read_alpha_stat_value<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<u32> {
-    // Alpha v105: unified bit-width of 8 for all properties.
-    // Verified by global bitstream map and physical item anchors.
-    recorder.read_bits(8)
+    // Alpha v105: unified bit-width of 10 for all properties (9-bit ID + 1-bit Value).
+    // Verified by brute structural scanning of Potion and Runeword fixtures.
+    recorder.read_bits(1)
 }
 
 fn is_alpha_terminator(stat_id: u32) -> bool {
@@ -736,8 +736,8 @@ pub fn parse_single_property<R: BitRead>(
         let stat_id = read_alpha_stat_id(recorder)?;
         recorder.push_context(&format!("Stat {}", stat_id));
         if is_alpha_terminator(stat_id) {
-            // Terminator consumes 17 bits total (9 ID + 8 Dummy 0x00).
-            let _ = recorder.read_bits(8)?;
+            // Terminator consumes 10 bits total (9 ID + 1 Dummy 0x0).
+            let _ = recorder.read_bits(1)?;
             return Ok(PropertyParseResult::Terminator);
         }
 
@@ -1526,7 +1526,7 @@ impl Item {
 
         while bit_pos < section_bits {
             item_trace!("  [SectionLoop] bit_pos={}, items.len()={}, top_level={}", bit_pos, items.len(), top_level_count);
-            let mut start = bit_pos;
+            let mut start = if is_alpha { align_to_byte(bit_pos) } else { bit_pos };
             if let Some(next_start) = find_next_item_match(section_bytes, start, huffman, is_alpha) {
                 if next_start != start {
                     item_trace!("  [Section] Found next item at bit {} (skipped {} bits).", next_start, next_start - start);
@@ -2071,7 +2071,7 @@ fn socket_rescue_limit(parent: &Item) -> usize {
     }
 }
 
-fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
+pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
     if item_template(code.trim()).is_some() {
         return true;
     }
@@ -2097,9 +2097,11 @@ fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, vers
     }
 
     // Version 1/5 (Alpha v105/Beta) strict check: must be a known template...
-    // UNLESS it's an equipped item (loc >= 4) which we want to prioritize for synchronization.
     if is_alpha {
-        return item_template(code).is_some();
+        let trimmed = code.trim();
+        // Skip empty codes or common junk
+        if trimmed.is_empty() || trimmed.len() < 3 { return false; }
+        return item_template(trimmed).is_some();
     }
 
     if (version == 4) && !trimmed_code.is_empty() {
@@ -2306,22 +2308,20 @@ fn find_next_item_match(
     huffman: &HuffmanTree,
     alpha_mode: bool,
 ) -> Option<u64> {
-    let mut probe = start_bit;
+    let mut probe = if alpha_mode { align_to_byte(start_bit) } else { start_bit };
     let section_bits = (section_bytes.len() * 8) as u64;
 
     while probe < section_bits {
         let peek = peek_item_header_at(section_bytes, probe, huffman, alpha_mode);
-        if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek.clone() {
+        if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek {
             let plausible = is_plausible_item_header(mode, location, &code, flags, version, alpha_mode);
 
-             item_trace!("  [Probe] bit={}, flags=0x{:08X}, ver={}, mode={}, loc={}, code='{}', plausible={}", 
-                probe, flags, version, mode, location, code, plausible);
-
             if plausible {
+                item_trace!("  [Probe] FOUND at bit={}, code='{}'", probe, code);
                 return Some(probe);
             }
         }
-        probe += 1;
+        probe += if alpha_mode { 8 } else { 1 };
     }
     None
 }

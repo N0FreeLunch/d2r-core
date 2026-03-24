@@ -66,19 +66,19 @@ The following CLI tools are provided for inspecting and verifying save data. Lab
 
 The following tools are designed for deep bitstream analysis and "archaeological" reconstruction of unknown or corrupted item data. **(Core)**
 
-- **`d2item_bit_scan`**: Scans the bitstream for valid item codes using a sliding window.
-- **`d2item_bit_width_probe`**: Probes the optimal bit-width (9, 10, or 11) for property IDs.
-- **`d2item_bit_peek`**: Peeks at the item header and raw bits at a specific offset.
-- **`d2item_bit_dump`**: Dumps bit-level data in a visual matrix (9/10/11 bit rows).
-- **`d2item_bit_search`**: Searches for specific bit patterns/values in the bitstream.
-- **`d2item_brute_len`**: Identifies property list boundaries by scanning for terminators.
-- **`d2item_chunk_verify`**: Aggressively verifies item chunk integrity and roundtrip safety.
-- **`d2item_oracle_mapper`**: (The Oracle) Performs structural alignment mapping to infer property bit-widths.
-- **`d2item_forensic_scan`**: Scans for JM markers and validates Alpha v105 structural anchors.
-- **`d2item_v5_peek`**: Specialized forensic viewer for Alpha v105 (0.05) item headers and properties.
-- **`d2item_alpha_scavenger`**: Scavenges unknown bitstreams for potential Alpha item patterns.
-- **`d2item_bit_align`**: Aligns bitstreams to byte boundaries using multiple strategies.
-- **`d2item_structural_fuzzer`**: Fuzzes bitstreams to identify structural dependencies between fields.
+- **`d2item_bit_diff`**: Visual pairwise alignment of two items. Uses dynamic programming to find gaps/desyncs. **(Core)**
+- **`d2item_msa_analyser`**: Multiple Sequence Alignment. Finds common bit-patterns across multiple items. **(Core)**
+- **`d2item_oracle_mapper`**: (The Oracle) Performs structural alignment mapping to infer property bit-widths. **(Core)**
+- **`d2item_forensic_scan`**: Scans for JM markers and validates Alpha v105 structural anchors. **(Core)**
+- **`d2item_v5_peek`**: Specialized forensic viewer for Alpha v105 (0.05) item headers and properties. **(Core)**
+- **`d2item_alpha_scavenger`**: Scavenges unknown bitstreams for potential Alpha item patterns. **(Core)**
+- **`d2item_bit_align`**: Aligns bitstreams to byte boundaries using multiple strategies. **(Core)**
+- **`d2item_structural_fuzzer`**: Fuzzes bitstreams to identify structural dependencies between fields. **(Core)**
+- **`d2item_chunk_verify`**: Aggressively verifies item chunk integrity and roundtrip safety. **(Core)**
+- **`d2item_brute_len`**: Identifies property list boundaries by scanning for terminators. **(Core)**
+- **`d2item_bit_peek`**: Peeks at the item header and raw bits at a specific offset. **(Core)**
+- **`d2item_bit_width_probe`**: Probes the optimal bit-width (9, 10, or 11) for property IDs. **(Core)**
+- **`d2item_bit_scan`**: Scans the bitstream for valid item codes using a sliding window. **(Core)**
 
 ### Experimental Utilities & Examples
 

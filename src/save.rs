@@ -388,10 +388,9 @@ pub fn rebuild_status_and_player_items(
     // Update QUESTS if present (Alpha v105)
     if version == 105 {
         if let Some(qs) = quests {
-            let offset = 415; // 0x19F: Real Quest Anchor
+            let offset = 0x193; // Quest Section (Woo!)
             let slice = qs.as_slice();
-            let max_len = 833 - offset;
-            let len = slice.len().min(max_len);
+            let len = slice.len().min(701 - offset); // End before WS starts at 701
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
@@ -401,23 +400,21 @@ pub fn rebuild_status_and_player_items(
     // Update WAYPOINTS if present (Alpha v105)
     if version == 105 {
         if let Some(wps) = waypoints {
-            let offset = 0x193; // Marker "Woo!"
+            let offset = 0x2BD; // Waypoint Section (WS)
             let slice = wps.as_slice();
-            let max_len = 415 - offset; // data ends before 0x19F
-            let len = slice.len().min(max_len);
+            let len = slice.len().min(782 - offset); // End before NPC starts at 782
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
     }
 
-    // Update EXPANSION if present (Alpha v105)
+    // Update NPC Section if present (Alpha v105)
     if version == 105 {
-        if let Some(ex) = expansion {
-            let offset = 0x2BD;
-            let slice = ex.as_slice();
-            let max_len = 833 - offset; // up to header end
-            let len = slice.len().min(max_len);
+        if let Some(npc) = expansion {
+            let offset = 0x30E; // NPC Section
+            let slice = npc.as_slice();
+            let len = slice.len().min(833 - offset); // Up to header end (Stats start at 833)
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
@@ -568,11 +565,13 @@ impl WaypointSection {
         }
     }
 
-    pub fn is_activated_by_name(&self, name: &str) -> bool {
+    pub fn is_activated_by_name(&self, name: &str, difficulty: u8) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
             let act_idx = (entry.act - 1) as usize;
             let bit_in_act = entry.index as usize;
-            let global_bit_idx = (8 * 8) + (act_idx * 16) + bit_in_act;
+            // Diff stride is 24 bytes (192 bits). Base offset for WPs in each diff is 2 bytes after diff block start.
+            let diff_offset_bits = (difficulty as usize) * 24 * 8;
+            let global_bit_idx = (8 * 8) + diff_offset_bits + (2 * 8) + (act_idx * 16) + bit_in_act;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {
@@ -582,11 +581,12 @@ impl WaypointSection {
         false
     }
 
-    pub fn set_activated_by_name(&mut self, name: &str, active: bool) -> bool {
+    pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
             let act_idx = (entry.act - 1) as usize;
             let bit_in_act = entry.index as usize;
-            let global_bit_idx = (8 * 8) + (act_idx * 16) + bit_in_act;
+            let diff_offset_bits = (difficulty as usize) * 24 * 8;
+            let global_bit_idx = (8 * 8) + diff_offset_bits + (2 * 8) + (act_idx * 16) + bit_in_act;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             self.set_activated(byte_idx, bit_in_byte, active);
@@ -676,7 +676,7 @@ impl QuestSection {
 
     pub fn is_v105_completed_by_name(&self, name: &str) -> bool {
         if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 415; // 0x19F relative
+            let offset = entry.v105_offset - 403; // 0x193 relative
             if offset < self.raw_bytes.len() {
                 let val = self.raw_bytes[offset];
                 // In v105, 0x01 is the completion bit (bit 0)
@@ -688,7 +688,7 @@ impl QuestSection {
 
     pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
         if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 415; // 0x19F relative
+            let offset = entry.v105_offset - 403; // 0x193 relative
             if offset + 1 < self.raw_bytes.len() {
                 if completed {
                     // Set Byte 0 bit 0 (Completed)
@@ -703,6 +703,22 @@ impl QuestSection {
             }
         }
         false
+    }
+
+    /// Unlocks the Durance of Hate gate (Act 3) by setting semantic bits discovered in forensics.
+    pub fn unlock_durance_gate(&mut self) {
+        // 1. Set "Khalim's Will" Quest Completed Bits
+        self.set_v105_completed_by_name("Khalim's Will", true);
+        
+        // 2. Set "Sacred Authority" / Gate Flag in the Quest Section Header (approx byte 8)
+        if self.raw_bytes.len() > 8 {
+            self.raw_bytes[8] |= 0x01; // Gate Flag
+        }
+        
+        // 3. Set Environment State (approx 12th byte / before first quest)
+        if self.raw_bytes.len() > 11 {
+            self.raw_bytes[11] |= 0x80; // Orb Destroyed / Environment Trigger
+        }
     }
 }
 
@@ -871,25 +887,28 @@ impl Save {
             }
             .min(bytes.len())]
                 .to_vec(),
-            quests: if version == 105 && bytes.len() >= 415 + 120 {
-                // Read from quest anchor (415) to end of header (833)
-                // NM block is 120 bytes, Hell block follows.
-                let end = 833.min(bytes.len());
-                Some(QuestSection::from_slice(&bytes[415..end]))
+            quests: if version == 105 && bytes.len() >= 0x193 + 12 {
+                // Quest Section (Woo!) starts at 0x193 (403).
+                // It ends before Waypoints at 0x2BD (701).
+                let end = 0x2BD.min(bytes.len());
+                Some(QuestSection::from_slice(&bytes[0x193..end]))
             } else {
                 None
             },
-            waypoints: if version == 105 && bytes.len() >= 0x193 + 12 {
-                // 8 bytes marker + 4 bytes data
-                let end = 415.min(bytes.len());
-                Some(WaypointSection::from_slice(&bytes[0x193..end]))
+            waypoints: if version == 105 && bytes.len() >= 0x2BD + 2 {
+                // Waypoint Section (WS) starts at 0x2BD (701).
+                // It spans 24 bytes per difficulty (72 bytes total).
+                // NPC section starts at 0x30E (782).
+                let end = 0x30E.min(bytes.len());
+                Some(WaypointSection::from_slice(&bytes[0x2BD..end]))
             } else {
                 None
             },
-            expansion: if version == 105 && bytes.len() >= 0x2BD + 80 {
-                // Read from expansion start (0x2BD) to header end (833)
+            expansion: if version == 105 && bytes.len() >= 0x30E + 2 {
+                // NPC Section starts at 0x30E (782).
+                // It ends at header end (833).
                 let end = 833.min(bytes.len());
-                Some(ExpansionSection::from_slice(&bytes[0x2BD..end]))
+                Some(ExpansionSection::from_slice(&bytes[0x30E..end]))
             } else {
                 None
             },
@@ -905,9 +924,9 @@ impl Header {
 
         // Update QUESTS if present (Alpha v105)
         if let Some(ref qs) = self.quests {
-            let offset = 415;
+            let offset = 0x193;
             let slice = qs.as_slice();
-            let max_len = 833 - offset;
+            let max_len = 0x2BD - offset;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);
@@ -916,18 +935,18 @@ impl Header {
 
         // Update WAYPOINTS if present (Alpha v105)
         if let Some(ref wps) = self.waypoints {
-            let offset = 0x193;
+            let offset = 0x2BD;
             let slice = wps.as_slice();
-            let max_len = 0x2BD - offset;
+            let max_len = 0x30E - offset;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
         }
 
-        // Update EXPANSION if present (Alpha v105)
+        // Update EXPANSION (NPC) if present (Alpha v105)
         if let Some(ref ex) = self.expansion {
-            let offset = 0x2BD;
+            let offset = 0x30E;
             let slice = ex.as_slice();
             let max_len = 833 - offset;
             let len = slice.len().min(max_len);

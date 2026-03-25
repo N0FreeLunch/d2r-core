@@ -26,35 +26,27 @@ fn main() {
     }
 
     // 1. Quests
-    println!("Unlocking all quests for all difficulties...");
+    println!("Unlocking all quests and Act 3 Durance gate...");
     if let Some(ref mut quests) = save.header.quests {
         for quest in V105_QUESTS.iter() {
             quests.set_v105_completed_by_name(quest.name, true);
         }
+        // Semantic Goal: Unlock Act 3 Portal
+        quests.unlock_durance_gate();
     } else {
         println!("  (No Quest section found in header)");
     }
 
-    // 2. Waypoints (Normal)
-    println!("Unlocking all Normal waypoints...");
+    // 2. Waypoints (All Difficulties)
+    println!("Unlocking all waypoints (Normal, NM, Hell)...");
     if let Some(ref mut wp) = save.header.waypoints {
-        for entry in WAYPOINTS.iter() {
-            wp.set_activated_by_name(entry.name, true);
-        }
-    } else {
-        println!("  (No Normal Waypoint section found in header)");
-    }
-
-    // 3. Waypoints (Nightmare/Hell)
-    println!("Unlocking all NM/Hell waypoints...");
-    if let Some(ref mut expansion) = save.header.expansion {
-        for diff in 1..=2 {
+        for diff in 0..=2 {
             for entry in WAYPOINTS.iter() {
-                expansion.set_activated_by_name(entry.name, diff, true);
+                wp.set_activated_by_name(entry.name, diff, true);
             }
         }
     } else {
-        println!("  (No Expansion section found in header)");
+        println!("  (No Waypoint section found in header)");
     }
 
     println!("Writing unlocked save to: {}", output_path);

@@ -152,13 +152,11 @@ fn main() -> io::Result<()> {
     }
     println!();
 
-    // Waypoints at fixed offsets
-    let woo_offset: usize = 0x193; // Normal
-    let ws_offset: usize = 0x2BD;  // NM/Hell
     
     // === Character Progression (Alpha v105 Engine) ===
     if let Ok(save) = d2r_core::save::Save::from_bytes(&bytes) {
         println!("=== Character Progression (Alpha v105) ===");
+        let version = save.header.version;
         
         // Quests
         println!("Completed Quests:");
@@ -181,10 +179,14 @@ fn main() -> io::Result<()> {
         for diff in 0..3 {
             let mut diff_wps = Vec::new();
             for wp in d2r_core::data::waypoints::WAYPOINTS {
-                let activated = match diff {
-                    0 => save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name)).unwrap_or(false),
-                    1 | 2 => save.header.expansion.as_ref().map(|e| e.is_activated_by_name(diff as u8, wp.name)).unwrap_or(false),
-                    _ => false,
+                let activated = if version == 105 {
+                    save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name, diff as u8)).unwrap_or(false)
+                } else {
+                    match diff {
+                        0 => save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name, 0)).unwrap_or(false),
+                        1 | 2 => save.header.expansion.as_ref().map(|e| e.is_activated_by_name(diff as u8, wp.name)).unwrap_or(false),
+                        _ => false,
+                    }
                 };
                 if activated {
                     let name_clean = wp.name.replace(&format!("Act {} - ", wp.act), "");

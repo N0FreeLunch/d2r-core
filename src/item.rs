@@ -2109,7 +2109,7 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
         if mode > 6 { return false; }
         
         // Context-aware plausibility: Scrolls and Potions must be compact in Alpha.
-        if (trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3") {
+        if trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3" {
             let is_compact = (flags & (1 << 21)) != 0;
             if !is_compact { return false; }
         }
@@ -2480,13 +2480,13 @@ mod v5_fuzz_tests {
             let mut recorder = BitRecorder::new(&mut reader);
             
             let flags = match recorder.read_bits(32) { Ok(v) => v, _ => continue };
-            let version = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
+            let _version = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
             // if version != 5 { continue; }
             
-            let mode = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
-            if mode > 7 { continue; }
+            let _mode = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
+            if _mode > 7 { continue; }
             
-            let loc = match recorder.read_bits(4) { Ok(v) => v, _ => continue };
+            let _loc = match recorder.read_bits(4) { Ok(v) => v, _ => continue };
             let _x = match recorder.read_bits(4) { Ok(v) => v, _ => continue };
             
             let mut code = String::new();

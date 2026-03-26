@@ -173,6 +173,8 @@ pub struct AttributeSection {
 
 impl AttributeSection {
     pub fn parse(bytes: &[u8], map: &SaveSectionMap) -> io::Result<Self> {
+        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        let is_alpha = version == 105 || version == 0x69; // 105 is dec, 0x69 is hex
         let payload_range = gf_payload_range(map);
         let mut reader = BitReader::endian(
             Cursor::new(&bytes[payload_range.start..payload_range.end]),
@@ -201,7 +203,7 @@ impl AttributeSection {
                 } else {
                     0
                 };
-                let save_bits = char_stat_save_bits(stat_id);
+                let save_bits = char_stat_save_bits(stat_id, is_alpha);
                 let remaining = total_bits.saturating_sub(reader.position_in_bits()?);
                 if (save_bits as u64) > remaining {
                     break;
@@ -265,7 +267,7 @@ impl AttributeSection {
                 }
                 continue;
             }
-            let bits = char_stat_save_bits(entry.stat_id);
+            let bits = char_stat_save_bits(entry.stat_id, is_alpha);
             if bits == 0 {
                 continue;
             }
@@ -302,15 +304,7 @@ impl AttributeSection {
             .iter()
             .find(|entry| entry.stat_id == stat_id)
             .and_then(|entry| {
-                // Prioritize character bits/add for these specific IDs
-                let save_add = if is_alpha {
-                    0
-                } else {
-                    match entry.stat_id {
-                        0 | 1 | 2 | 3 => 32, // Strength, Energy, Dexterity, Vitality usually have +32 in stat_costs
-                        _ => stat_cost(entry.stat_id).map(|c| c.save_add).unwrap_or(0),
-                    }
-                };
+                let save_add = char_stat_save_add(stat_id, is_alpha);
                 Some(entry.raw_value as i32 - save_add)
             })
     }
@@ -327,8 +321,8 @@ pub fn char_stat_save_add(stat_id: u32, is_alpha: bool) -> i32 {
     }
 }
 
-fn char_stat_save_bits(stat_id: u32) -> u32 {
-    match stat_id {
+fn char_stat_save_bits(stat_id: u32, is_alpha: bool) -> u32 {
+    let bits = match stat_id {
         0 | 1 | 2 | 3 | 4 => 10,
         5 => 8,
         6 | 7 | 8 | 9 | 10 | 11 => 21,
@@ -340,6 +334,13 @@ fn char_stat_save_bits(stat_id: u32) -> u32 {
             // This is for DLC/expansion stats that might appear.
             stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
         }
+    };
+
+    if is_alpha {
+        // Special Alpha overrides could go here if reality-check fails
+        bits
+    } else {
+        bits
     }
 }
 

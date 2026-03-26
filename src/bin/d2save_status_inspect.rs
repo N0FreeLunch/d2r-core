@@ -48,7 +48,7 @@ fn main() {
                         stat_id,
                         c.name,
                         val,
-                        val - c.save_add
+                        val as i32 - d2r_core::save::char_stat_save_add(stat_id, true)
                     );
                 }
                 None => {

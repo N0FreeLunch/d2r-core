@@ -30,7 +30,7 @@ fn test_attribute_write_roundtrip_empty() -> io::Result<()> {
     let map = map_core_sections(&bytes)?;
     let section = AttributeSection::parse(&bytes, &map)?;
 
-    let serialized = section.to_bytes()?;
+    let serialized = section.to_bytes(false)?;
     let original = &bytes[map.gf_pos..map.if_pos];
     assert_eq!(serialized, original);
     Ok(())
@@ -42,7 +42,7 @@ fn test_attribute_write_roundtrip_progression() -> io::Result<()> {
     let map = map_core_sections(&bytes)?;
     let section = AttributeSection::parse(&bytes, &map)?;
 
-    let serialized = section.to_bytes()?;
+    let serialized = section.to_bytes(false)?;
     let original = &bytes[map.gf_pos..map.if_pos];
     assert_eq!(serialized, original);
     Ok(())

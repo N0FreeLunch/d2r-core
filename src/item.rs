@@ -684,7 +684,6 @@ pub fn read_property_list<R: BitRead>(
         let bit_start = recorder.recorded_bits.len();
         let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
         let bit_end = recorder.recorded_bits.len();
-        println!("  [PropertyTrace] Property used bits [{}..{}]" , bit_start , bit_end);
         match result {
             Ok(PropertyParseResult::Property(prop)) => {
                 item_trace!("  [Property] parsed ID={}, val={}" , prop.stat_id , prop.value);
@@ -711,11 +710,6 @@ fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResul
     recorder.read_bits(9)
 }
 
-fn read_alpha_stat_value<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<u32> {
-    // Alpha v105: unified bit-width of 10 for all properties (9-bit ID + 1-bit Value).
-    // Verified by brute structural scanning of Potion and Runeword fixtures.
-    recorder.read_bits(1)
-}
 
 fn is_alpha_terminator(stat_id: u32) -> bool {
     stat_id == 0x1FF
@@ -749,16 +743,25 @@ pub fn parse_single_property<R: BitRead>(
             _ => (stat_id, ""),
         };
 
-        let stat_name = if !alpha_map.1.is_empty() {
-             alpha_map.1.to_string()
+        let (effective_stat_id, stat_name) = if !alpha_map.1.is_empty() {
+             (alpha_map.0, alpha_map.1.to_string())
         } else {
-             format!("alpha_stat_{}", stat_id)
+             (stat_id, format!("alpha_stat_{}", stat_id))
         };
 
-        let val = read_alpha_stat_value(recorder)?;
+        let save_bits = crate::data::stat_costs::STAT_COSTS.iter()
+            .find(|s| s.id == effective_stat_id)
+            .map(|s| s.save_bits as u32)
+            .unwrap_or(0);
+
+        let val = if save_bits > 0 {
+            recorder.read_bits(save_bits)?
+        } else {
+            0
+        };
 
         return Ok(PropertyParseResult::Property(ItemProperty {
-            stat_id: alpha_map.0,
+            stat_id: effective_stat_id,
             name: stat_name,
             param: 0,
             raw_value: val as i32,
@@ -947,7 +950,7 @@ impl Item {
         let trimmed_code = code.trim();
         let template = item_template(code);
 
-        if version == 5 {
+        if version == 5 || version == 1 {
             // Alpha v105 (v5): 16-bit base header (matches writer at L1563)
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
@@ -1013,7 +1016,7 @@ impl Item {
                 low_high_graphic_bits = Some(recorder.read_bits(3)? as u8);
             }
             ItemQuality::Magic => {
-                if version == 5 {
+                if version == 5 || version == 1 {
                     magic_prefix = Some(recorder.read_bits(7)? as u16);
                     magic_suffix = Some(recorder.read_bits(7)? as u16);
                 } else {
@@ -1074,7 +1077,7 @@ impl Item {
             (armor_like_unknown, armor_like_unknown, false)
         };
 
-        if version == 5 {
+        if version == 5 || version == 1 {
             // In Alpha v105 v5, Stats like Defense/Durability are skipped in the header block.
             // They are part of the property lists.
             return Ok((
@@ -1362,7 +1365,7 @@ impl Item {
         if version == 5 {
             item_trace!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
         }
-        let stats = if !is_compact {
+        let stats = if !is_compact || is_alpha {
             Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version)?
         } else {
             (
@@ -1417,7 +1420,7 @@ impl Item {
         let sockets = stats.23;
         let set_list_count = stats.24;
 
-        let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact {
+        let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact || is_alpha {
             Self::read_item_stats(
                 recorder,
                 &code,
@@ -1777,7 +1780,7 @@ impl Item {
         }
 
         let skip_code = alpha_mode && self.is_runeword;
-        if alpha_mode && !self.is_compact {
+        if alpha_mode && self.location < 4 {
             // Alpha v105: 8-bit alignment gap BEFORE code for non-compact items.
             emitter.write_bits(0, 8)?;
         }

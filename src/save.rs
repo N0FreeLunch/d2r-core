@@ -235,11 +235,11 @@ impl AttributeSection {
         Ok(AttributeSection { entries, raw_bytes })
     }
 
-    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
-        self.to_bytes_from_entries()
+    pub fn to_bytes(&self, is_alpha: bool) -> io::Result<Vec<u8>> {
+        self.to_bytes_from_entries(is_alpha)
     }
 
-    pub fn to_bytes_from_entries(&self) -> io::Result<Vec<u8>> {
+    pub fn to_bytes_from_entries(&self, is_alpha: bool) -> io::Result<Vec<u8>> {
         let mut buf = Vec::new();
         let mut writer = BitWriter::endian(&mut buf, LittleEndian);
 
@@ -248,12 +248,22 @@ impl AttributeSection {
         write_bits_dynamic(&mut writer, 8, b'f' as u32)?;
 
         for entry in &self.entries {
+            // Alpha v5 Research Mode: Guards disabled for fuzzing.
+            if is_alpha && entry.stat_id >= 512 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("Alpha v105: ID {} exceeds 9-bit space.", entry.stat_id)
+                ));
+            }
+
             if let Some(ref bits) = entry.opaque_bits {
+                // Alpha v5 Research Mode: Width guards disabled.
+                
                 write_bits_dynamic(&mut writer, 9, entry.stat_id)?;
                 for &bit in bits {
                     writer.write_bit(bit)?;
                 }
-                return Ok(buf); // Opaque block is the end for now
+                continue;
             }
             let bits = char_stat_save_bits(entry.stat_id);
             if bits == 0 {
@@ -287,18 +297,33 @@ impl AttributeSection {
         self.set_raw(stat_id, (logical_value + save_add) as u32);
     }
 
-    pub fn actual_value(&self, stat_id: u32) -> Option<i32> {
+    pub fn actual_value(&self, stat_id: u32, is_alpha: bool) -> Option<i32> {
         self.entries
             .iter()
             .find(|entry| entry.stat_id == stat_id)
             .and_then(|entry| {
                 // Prioritize character bits/add for these specific IDs
-                let save_add = match entry.stat_id {
-                    0 | 1 | 2 | 3 => 32, // Strength, Energy, Dexterity, Vitality usually have +32 in stat_costs
-                    _ => stat_cost(entry.stat_id).map(|c| c.save_add).unwrap_or(0),
+                let save_add = if is_alpha {
+                    0
+                } else {
+                    match entry.stat_id {
+                        0 | 1 | 2 | 3 => 32, // Strength, Energy, Dexterity, Vitality usually have +32 in stat_costs
+                        _ => stat_cost(entry.stat_id).map(|c| c.save_add).unwrap_or(0),
+                    }
                 };
                 Some(entry.raw_value as i32 - save_add)
             })
+    }
+}
+
+pub fn char_stat_save_add(stat_id: u32, is_alpha: bool) -> i32 {
+    if is_alpha {
+        0
+    } else {
+        match stat_id {
+            0 | 1 | 2 | 3 => 32, // Strength, Energy, Dexterity, Vitality usually have +32 in stat_costs
+            _ => stat_cost(stat_id).map(|c| c.save_add).unwrap_or(0),
+        }
     }
 }
 
@@ -423,9 +448,10 @@ pub fn rebuild_status_and_player_items(
     
     result.extend_from_slice(&header_bytes);
 
+    let is_alpha = version == 105;
     // 2. GF Section
     if let Some(attr) = attributes {
-        result.extend_from_slice(&attr.to_bytes()?);
+        result.extend_from_slice(&attr.to_bytes(is_alpha)?);
     } else {
         result.extend_from_slice(&bytes[map.gf_pos..map.if_pos]);
     }
@@ -1044,11 +1070,14 @@ pub fn rebuild_item_section(
         let missing_start = section_start + serialized_len_before_padding;
         serialized_section.extend_from_slice(&bytes[missing_start..jm2]);
     }
+    // Research Hack: Allow serialized section to differ from original.
+    /*
     if serialized_section != original_section {
         let mut fallback = bytes.to_vec();
         finalize_save_bytes(&mut fallback)?;
         return Ok(fallback);
     }
+    */
     let final_section_len = serialized_section.len();
     let mut rebuilt =
         Vec::with_capacity(bytes.len() - original_section_len + final_section_len);

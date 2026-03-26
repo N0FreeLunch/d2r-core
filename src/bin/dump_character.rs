@@ -48,7 +48,7 @@ fn main() {
         println!("Player Items: {}", items.len());
         for (i, item) in items.iter().enumerate() {
             println!(
-                "  [{:>2}] code={} mode={} loc={} x={} y={} page={} sockets={}",
+                "  [{:>2}] code={} mode={} loc={} x={} y={} page={} sockets={} flags=0x{:08X} ver={}",
                 i,
                 item.code,
                 item.mode,
@@ -56,7 +56,9 @@ fn main() {
                 item.x,
                 item.y,
                 item.page,
-                item.socketed_items.len()
+                item.socketed_items.len(),
+                item.flags,
+                item.version
             );
             for (si, child) in item.socketed_items.iter().enumerate() {
                 println!("     Socket {}: code={}", si, child.code);

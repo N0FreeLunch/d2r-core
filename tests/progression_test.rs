@@ -25,8 +25,8 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     let mut quests = save.header.quests.clone().expect("v105 should have quests");
     let mut expansion = save.header.expansion.clone().expect("v105 should have expansion");
 
-    // Check Initial Waypoint (e.g. byte 10 is 0)
-    assert_eq!(wps.raw_bytes[10], 0x00);
+    // Check Initial Waypoint (e.g. byte 10 is 1 for Act 1 Town)
+    assert_eq!(wps.raw_bytes[10], 0x01);
 
     // 2. Perform Mutations
     wps.raw_bytes[10] = 0x55;
@@ -49,12 +49,12 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
 
     // 4. Verify rebuilt save matches expectations
     // Check offsets (v105 fixed offsets)
-    // Quests: 0x19F
-    assert_eq!(rebuilt[0x19F], 0xAA);
-    // Waypoints: 0x193 + 10 = 0x19D
-    assert_eq!(rebuilt[0x19D], 0x55);
-    // Expansion: 0x2BD + 5 = 0x2C2
-    assert_eq!(rebuilt[0x2C2], 0xFF);
+    // Quests: 0x193 + 0 = 0x193
+    assert_eq!(rebuilt[0x193], 0xAA);
+    // Waypoints: 0x2BD + 10 = 0x2C7 (Normal Data Start)
+    assert_eq!(rebuilt[0x2C7], 0x55);
+    // Expansion: 0x30E + 5 = 0x313 (NPC Section Start)
+    assert_eq!(rebuilt[0x313], 0xFF);
 
     // 5. Verify roundtrip parsing
     let save_back = Save::from_bytes(&rebuilt)?;
@@ -71,25 +71,26 @@ fn test_alpha_v105_waypoint_name_mapping() -> std::io::Result<()> {
     let mut wps = WaypointSection::from_slice(&[0u8; 80]);
     let mut ex = ExpansionSection::from_slice(&[0u8; 80]);
 
-    // Act 1 Town (Index 0 in Act 1 Block)
-    wps.set_activated_by_name("Act 1 - Town", true);
+    // Act 1 Town (Index 0 in Act 1 Block, ws_bit 0)
+    // Normal (difficulty 0): 10 bytes after marker start
+    wps.set_activated_by_name("Act 1 - Town", 0, true);
+    // Nightmare (difficulty 1): 34 bytes after marker start
     ex.set_activated_by_name("Act 1 - Town", 1, true);
 
-    // Expected in WaypointSection (Woo!): byte 8 (offset 0), bit 0
-    assert_eq!(wps.raw_bytes[8], 0x01);
-    // Expected in ExpansionSection (WS): byte 10 (offset 0), bit 0
-    assert_eq!(ex.raw_bytes[10], 0x01);
+    // Expected in WaypointSection (Normal): byte 10, bit 0
+    assert_eq!(wps.raw_bytes[10], 0x01);
+    // Expected in ExpansionSection (Nightmare): byte 34, bit 0
+    assert_eq!(ex.raw_bytes[34], 0x01);
 
-    // Act 2 Town (Index 0 in Act 2 Block, so bit 16 overall)
-    wps.set_activated_by_name("Act 2 - Town", true);
+    // Act 2 Town (Index 0 in Act 2 Block, ws_bit 9)
+    wps.set_activated_by_name("Act 2 - Town", 0, true);
     ex.set_activated_by_name("Act 2 - Town", 1, true);
 
-    // Act 2 starts at 2 bytes (16 bits) after Act 1
-    // In WaypointSection: byte 10 (offset 2), bit 0
-    // (Wait: 8*8 + 16 = 80 bits = byte 10, bit 0)
-    assert_eq!(wps.raw_bytes[10], 0x01);
-    // In ExpansionSection: byte 12 (offset 2), bit 0
-    assert_eq!(ex.raw_bytes[12], 0x01);
+    // Act 2 starts immediately after Act 1 (9 bits)
+    // In WaypointSection (Normal): bit 80 + 9 = 89 => byte 11, bit 1
+    assert_eq!(wps.raw_bytes[11], 0x02);
+    // In ExpansionSection (Nightmare): bit 272 + 9 = 281 => byte 35, bit 1
+    assert_eq!(ex.raw_bytes[35], 0x02);
 
     Ok(())
 }

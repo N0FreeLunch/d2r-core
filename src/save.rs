@@ -594,11 +594,12 @@ impl WaypointSection {
 
     pub fn is_activated_by_name(&self, name: &str, difficulty: u8) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = (entry.act - 1) as usize;
-            let bit_in_act = entry.index as usize;
-            // Diff stride is 24 bytes (192 bits). Base offset for WPs in each diff is 2 bytes after diff block start.
-            let diff_offset_bits = (difficulty as usize) * 24 * 8;
-            let global_bit_idx = (8 * 8) + diff_offset_bits + (2 * 8) + (act_idx * 16) + bit_in_act;
+            // WS Section Layout:
+            // 0..8: "WS" Header
+            // 8..32: Normal (8..10: 02 01, 10..32: Data)
+            // 32..56: Nightmare (32..34: 02 01, 34..56: Data)
+            // 56..80: Hell (56..58: 02 01, 58..80: Data)
+            let global_bit_idx = (8 * 8) + (difficulty as usize * 24 * 8) + (2 * 8) + entry.ws_bit as usize;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {
@@ -610,10 +611,7 @@ impl WaypointSection {
 
     pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = (entry.act - 1) as usize;
-            let bit_in_act = entry.index as usize;
-            let diff_offset_bits = (difficulty as usize) * 24 * 8;
-            let global_bit_idx = (8 * 8) + diff_offset_bits + (2 * 8) + (act_idx * 16) + bit_in_act;
+            let global_bit_idx = (8 * 8) + (difficulty as usize * 24 * 8) + (2 * 8) + entry.ws_bit as usize;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             self.set_activated(byte_idx, bit_in_byte, active);
@@ -641,14 +639,9 @@ impl ExpansionSection {
 
     pub fn is_activated_by_name(&self, difficulty: u8, name: &str) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = (entry.act - 1) as usize;
-            let bit_in_act = entry.index as usize;
-            let diff_offset = match difficulty {
-                1 => 10, // Nightmare
-                2 => 14, // Hell
-                _ => return false,
-            };
-            let global_bit_idx = (diff_offset * 8) + (act_idx * 16) + bit_in_act;
+            // ExpansionSection implementation for waypoints (fallback/legacy)
+            // It assumes raw_bytes starts at 'WS' marker (0x2BD) or follows standard WS mapping.
+            let global_bit_idx = (difficulty as usize * 24 * 8) + (10 * 8) + entry.ws_bit as usize;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {
@@ -660,16 +653,7 @@ impl ExpansionSection {
 
     pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
         if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let act_idx = (entry.act - 1) as usize;
-            let bit_in_act = entry.index as usize;
-            // Alpha v105 Nightmare/Hell (WS section)
-            // Marker "WS" at 0x2BD, NM data at 0x2C7 (10 bytes after)
-            let diff_offset = match difficulty {
-                1 => 10, // Nightmare
-                2 => 14, // Hell
-                _ => return false,
-            };
-            let global_bit_idx = (diff_offset * 8) + (act_idx * 16) + bit_in_act;
+            let global_bit_idx = (difficulty as usize * 24 * 8) + (10 * 8) + entry.ws_bit as usize;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             if byte_idx < self.raw_bytes.len() {

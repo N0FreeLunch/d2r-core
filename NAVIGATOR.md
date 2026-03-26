@@ -53,6 +53,8 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 - **D2R/DLC Aware**: We prioritize D2R/DLC support over classic LoD logic.
 - **External Data Boundary**: Extracted tables are maintained in `d2r-data/` (root link to sibling repo). In `d2r-core`, only `src/data/mod.rs` should bridge into that data.
 - **Environment First**: All paths MUST be retrieved via `tests/common.rs` or environment variables (Source of Truth: `.env`). Do not hardcode relative paths like `../../d2r-data`.
+- **PowerShell Minimization & Rust-First for Data**: For persistent data processing or high-volume extraction (`0088`), Rust-based integrated tools MUST be prioritized over PowerShell loops to ensure path integrity (`0087`) and token efficiency.
+
 
 ## 3. Git-Aware Context Recovery
 When you need to know **why** a specific byte offset or bit width was chosen:
@@ -81,7 +83,8 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 6.  **Locate Patterns**: Search `src/` for similar implementation patterns.
 7.  **Verify**: Identify and run the matching `src/bin/verify/` tool.
 8.  **Escalate Correctly**: If the task is `3+ files` or deep logic, refresh the task spec and route to a stronger model.
-9.  **Check Data Boundary**: If requested changes involve extracted game tables/assets, route that scope to `d2r-data` planning and keep `d2r-core` edits limited to gateway/integration behavior.
+9. **Check Data Boundary**: If requested changes involve extracted game tables/assets, route that scope to `d2r-data` planning and prioritize building/using integrated Rust tools (`d2data-forge`) over manual PowerShell loops.
+
 
 ## 6. Verification Tool Catalog
 
@@ -97,7 +100,9 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 | **`d2save_status_inspect`**| Status | **New**: Dumps attribute/skill bit-fields and logical values. |
 | **`dump_character`** | Save | **Comprehensive**: Dumps full character status, skills, and item map. |
 | **`d2item_chunk_verify`**| Save | **New**: Dumps specific header sections (Woo!, WS) and items for v105. |
+| **`d2item_oracle_mapper`**| Save | **New**: Automated structural alignment mapper for bit-width inference. |
 | `v105_unlocker` | Save | **Example**: Unlocks all progression bits for Alpha v105 save files. |
+| **`d2data-forge`** | Data | **Planned**: Unified high-performance Rust extractor & codegen (0088). |
 
 | `d2save_inventory_check`| Logic | Verifies inventory grid integrity (no overlaps, valid coordinates). |
 

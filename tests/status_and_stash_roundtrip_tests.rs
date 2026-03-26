@@ -56,7 +56,7 @@ fn test_level_and_header_sync() -> io::Result<()> {
     let attributes = AttributeSection::parse(&patched, &map)?;
     
     assert_eq!(patched[d2r_core::save::CHAR_LEVEL_OFFSET], 99, "Header level should be 99");
-    assert_eq!(attributes.actual_value(12), Some(99), "GF level should be 99");
+    assert_eq!(attributes.actual_value(12, true), Some(99), "GF level should be 99");
     
     // Skill patch test
     let mut skills = d2r_core::save::parse_skill_section(&patched, &map)?;

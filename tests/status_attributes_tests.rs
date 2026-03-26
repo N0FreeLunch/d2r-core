@@ -16,11 +16,11 @@ fn test_attribute_parse_progression_values() -> io::Result<()> {
     let map = map_core_sections(&bytes)?;
     let section = AttributeSection::parse(&bytes, &map)?;
 
-    assert_eq!(section.actual_value(12), Some(2), "Level should be 2");
-    assert_eq!(section.actual_value(13), Some(1170), "Experience should be 1170");
+    assert_eq!(section.actual_value(12, true), Some(2), "Level should be 2");
+    assert_eq!(section.actual_value(13, true), Some(1170), "Experience should be 1170");
     // ID 3: Vitality (base 20 + 5 invested = 25 total). actual_value = 25-32 = -7
-    assert_eq!(section.actual_value(3), Some(-7), "Vitality check failed");
-    assert_eq!(section.actual_value(15), Some(8061), "Stash Gold check failed");
+    assert_eq!(section.actual_value(3, true), Some(-7), "Vitality check failed");
+    assert_eq!(section.actual_value(15, true), Some(8061), "Stash Gold check failed");
     Ok(())
 }
 

@@ -1065,7 +1065,7 @@ pub fn rebuild_item_section(
 
     let section_start = jm1 + 4;
     let original_section_len = jm2 - section_start;
-    let original_section = &bytes[section_start..jm2];
+    let _original_section = &bytes[section_start..jm2];
     let serialized_len_before_padding = serialized_section.len();
     if serialized_len_before_padding < original_section_len {
         let missing_start = section_start + serialized_len_before_padding;

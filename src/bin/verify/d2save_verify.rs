@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::process;
+use std::io::Cursor;
+use bitstream_io::{BitReader, LittleEndian};
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 
@@ -33,6 +35,42 @@ fn main() {
                 continue;
             }
         };
+
+        // Item round-trip symmetry check
+        let huffman = d2r_core::item::HuffmanTree::new();
+        let alpha_mode = save.header.version == 105;
+        let items = match d2r_core::item::Item::read_player_items(&bytes, &huffman, alpha_mode) {
+            Ok(items) => items,
+            Err(err) => {
+                println!("  [FAIL]  Item parse: {}", err);
+                all_ok = false;
+                println!();
+                continue;
+            }
+        };
+
+        let mut all_items_symmetric = true;
+        for item in &items {
+            let item_bits = match item.to_bytes(&huffman, alpha_mode) {
+                Ok(b) => b,
+                Err(e) => {
+                    println!("  [FAIL]  Item to_bytes ({}): {}", item.code, e);
+                    all_items_symmetric = false;
+                    continue;
+                }
+            };
+            // Try to parse back
+            if let Err(e) = d2r_core::item::Item::from_bytes(&item_bits, &huffman, alpha_mode) {
+                println!("  [FAIL]  Item round-trip parse failure ({}): {}", item.code, e);
+                all_items_symmetric = false;
+            }
+        }
+
+        if all_items_symmetric {
+            println!("  [OK]    Item round-trip symmetry confirmed ({} items).", items.len());
+        } else {
+            all_ok = false;
+        }
 
         println!("  [OK]    Magic: 0x{:08X}", save.header.magic);
         println!(

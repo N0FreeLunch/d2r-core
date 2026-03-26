@@ -655,17 +655,29 @@ fn stat_save_bits(stat_id: u32) -> Option<u32> {
         .map(|stat| stat.save_bits as u32)
 }
 
-fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<String> {
-    let mut name = String::new();
-    loop {
-        let ch = recorder.read_bits(7)? as u8;
-        if ch == 0 {
-            break;
-        }
-        name.push(ch as char);
-    }
-    Ok(name)
+#[derive(Debug, Clone, Copy)]
+pub struct AlphaStatMap {
+    pub raw_id: u32,
+    pub effective_id: u32,
+    pub name: &'static str,
 }
+
+pub const ALPHA_STAT_MAPS: &[AlphaStatMap] = &[
+    AlphaStatMap { raw_id: 256, effective_id: 127, name: "item_allskills" },
+    AlphaStatMap { raw_id: 496, effective_id: 99,  name: "item_fastergethitrate" },
+    AlphaStatMap { raw_id: 499, effective_id: 16,  name: "item_enandefense_percent" },
+    AlphaStatMap { raw_id: 289, effective_id: 9,   name: "maxmana" },
+];
+
+pub fn lookup_alpha_map_by_raw(raw_id: u32) -> Option<&'static AlphaStatMap> {
+    ALPHA_STAT_MAPS.iter().find(|m| m.raw_id == raw_id)
+}
+
+pub fn lookup_alpha_map_by_effective(effective_id: u32) -> Option<&'static AlphaStatMap> {
+    ALPHA_STAT_MAPS.iter().find(|m| m.effective_id == effective_id)
+}
+
+pub type PropertyReaderContext<'a> = Option<(&'a [u8], u64)>;
 
 pub fn read_property_list<R: BitRead>(
     recorder: &mut BitRecorder<R>,
@@ -678,12 +690,11 @@ pub fn read_property_list<R: BitRead>(
     recorder.push_context("Property List");
     let mut props = Vec::new();
 
+    let is_alpha = version == 5 || version == 1;
+
     if version == 5 { item_trace!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
     loop {
-        let _bit_pos = recorder.recorded_bits.len();
-        let bit_start = recorder.recorded_bits.len();
         let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
-        let bit_end = recorder.recorded_bits.len();
         match result {
             Ok(PropertyParseResult::Property(prop)) => {
                 item_trace!("  [Property] parsed ID={}, val={}" , prop.stat_id , prop.value);
@@ -735,16 +746,8 @@ pub fn parse_single_property<R: BitRead>(
             return Ok(PropertyParseResult::Terminator);
         }
 
-        let alpha_map = match stat_id {
-            256 => (127, "item_allskills"),
-            496 => (99, "item_fastergethitrate"),
-            499 => (16, "item_enandefense_percent"),
-            289 => (9, "maxmana"),
-            _ => (stat_id, ""),
-        };
-
-        let (effective_stat_id, stat_name) = if !alpha_map.1.is_empty() {
-             (alpha_map.0, alpha_map.1.to_string())
+        let (effective_stat_id, stat_name) = if let Some(m) = lookup_alpha_map_by_raw(stat_id) {
+             (m.effective_id, m.name.to_string())
         } else {
              (stat_id, format!("alpha_stat_{}", stat_id))
         };
@@ -827,8 +830,28 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
 
     for prop in props {
         if version == 5 || version == 1 {
-            emitter.write_bits(prop.stat_id, 9)?;
-            emitter.write_bits(prop.raw_value as u32, 1)?; // 9-bit ID + 1-bit Value = 10-bit symmetry
+            let (raw_id, save_bits) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) {
+                let bits = crate::data::stat_costs::STAT_COSTS.iter()
+                    .find(|s| s.id == m.effective_id)
+                    .map(|s| s.save_bits as u32)
+                    .unwrap_or(0);
+                (m.raw_id, bits)
+            } else {
+                let bits = crate::data::stat_costs::STAT_COSTS.iter()
+                    .find(|s| s.id == prop.stat_id)
+                    .map(|s| s.save_bits as u32)
+                    .unwrap_or(0);
+                (prop.stat_id, bits)
+            };
+
+            emitter.write_bits(raw_id, 9)?;
+            if save_bits > 0 {
+                emitter.write_bits(prop.raw_value as u32, save_bits)?;
+            } else {
+                // FALLBACK: Alpha often has 1-bit flags for unknown/unused bits.
+                // If save_bits is 0 but we have a property, write 1 bit.
+                emitter.write_bits(prop.raw_value as u32, 1)?;
+            }
         } else if version == 4 {
             emitter.write_bits(prop.stat_id, 9)?;
             emitter.write_bits(prop.raw_value as u32, 8)?;
@@ -1584,7 +1607,6 @@ impl Item {
                     bit_offset: start,
                 });
             }
-            // println!("  [Section] After Item {}, next bit_pos={}, section_bits={}", items.len(), bit_pos, section_bits);
 
             if item.mode == 6 || item.location == 6 {
                 if let Some(parent) = items.last_mut() {
@@ -2267,49 +2289,9 @@ pub fn peek_item_header_at(
     let mode = recorder.read_bits(3).ok()? as u8;
     let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
-    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4 || version == 0);
+    let _is_alpha = alpha_mode && (version == 5 || version == 1);
     let is_compact = (flags & (1 << 21)) != 0;
 
-    let mut best_result = None;
-    
-    if is_alpha {
-        // Alpha v105 Heuristic: Search for a valid Huffman code near the expected header range.
-        // Forensic evidence: Plate Mail ends at +58, Buckler at +33.
-        // We probe 1-bit granularity within [32..128] bit range to catch high-entropy Large Shield.
-        for offset in 32..=128 {
-            let mut h_reader = IoBitReader::<_, LittleEndian>::new(Cursor::new(section_bytes));
-            if h_reader.skip((start_bit + offset) as u32).is_err() {
-                continue;
-            }
-            let mut h_recorder = BitRecorder::new(&mut h_reader);
-            
-            // Apply 8-bit Gap if item is in storage (Loc 0-3).
-            if location < 4 {
-                let _ = h_recorder.read_bits(8).ok()?;
-            }
-            
-            let mut code = String::new();
-            let mut found_invalid = false;
-            for _ in 0..4 {
-                if let Ok(ch) = huffman.decode_recorded(&mut h_recorder) {
-                    code.push(ch);
-                } else {
-                    found_invalid = true;
-                    break;
-                }
-            }
-            
-            if !found_invalid && is_plausible_item_header(mode, location, &code, flags, version, true) {
-                best_result = Some((mode, location, code, flags, version, is_compact, (offset as u64) + h_recorder.total_read));
-                break;
-            }
-        }
-    }
-
-    if let Some(res) = best_result {
-        return Some(res);
-    }
-    
     let mut code = String::new();
     for _ in 0..4 {
         code.push(huffman.decode_recorded(&mut recorder).ok()?);
@@ -2506,3 +2488,15 @@ mod v5_fuzz_tests {
     }
 }
 
+
+fn read_player_name<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<String> {
+    let mut name = String::new();
+    loop {
+        let ch = recorder.read_bits(7)? as u8;
+        if ch == 0 {
+            break;
+        }
+        name.push(ch as char);
+    }
+    Ok(name)
+}

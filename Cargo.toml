@@ -167,3 +167,11 @@ path = "src/bin/verify/d2item_bit_diff.rs"
 [[bin]]
 name = "d2item_msa_analyser"
 path = "src/bin/verify/d2item_msa_analyser.rs"
+
+[[bin]]
+name = "d2gf_oracle"
+path = "src/bin/verify/d2gf_oracle.rs"
+
+[[bin]]
+name = "d2gf_bit_diff"
+path = "src/bin/verify/d2gf_bit_diff.rs"

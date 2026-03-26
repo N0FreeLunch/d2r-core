@@ -1,6 +1,5 @@
 use bitstream_io::{BitRead, BitReader, LittleEndian};
-use d2r_core::data::stat_costs::STAT_COSTS;
-use d2r_core::save::Save;
+use d2r_core::save::{Save, SaveSectionMap, map_core_sections, AttributeSection};
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -25,53 +24,50 @@ fn main() {
     );
     println!("File Size:    {}", save.header.file_size);
 
-    // Find gf marker (Attributes)
-    if let Some(gf_pos) = (0..bytes.len() - 2).find(|&i| bytes[i] == b'g' && bytes[i + 1] == b'f') {
-        println!("\n--- Attributes (gf section at {}) ---", gf_pos);
-        let mut reader = BitReader::endian(Cursor::new(&bytes[gf_pos + 2..]), LittleEndian);
-        loop {
-            let stat_id = reader.read::<9, u32>().unwrap_or(0x1FF);
-            if stat_id == 0x1FF {
-                println!("Terminator 0x1FF found");
-                break;
-            }
+    let map = match map_core_sections(&bytes) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("Failed to map sections: {}", e);
+            return;
+        }
+    };
 
-            let cost = STAT_COSTS.iter().find(|s| s.id == stat_id);
-            match cost {
-                Some(c) => {
-                    let mut val = 0i32;
-                    if c.save_bits > 0 {
-                        val = reader.read_var::<u32>(c.save_bits as u32).unwrap_or(0) as i32;
-                    }
-                    println!(
-                        "  StatID {:>3} {:<20}: Raw={} Actual={}",
-                        stat_id,
-                        c.name,
-                        val,
-                        val as i32 - d2r_core::save::char_stat_save_add(stat_id, true)
-                    );
-                }
-                None => {
-                    println!("  Unknown StatID {} - Parsing broken", stat_id);
-                    break;
+    // Attributes (gf section)
+    println!("\n--- Attributes (gf section at {}) ---", map.gf_pos);
+    match AttributeSection::parse(&bytes, &map) {
+        Ok(attrs) => {
+            let is_alpha = save.header.version == 105;
+            for entry in &attrs.entries {
+                let name = d2r_core::data::stat_costs::STAT_COSTS.iter()
+                    .find(|s| s.id == entry.stat_id)
+                    .map(|s| s.name.as_ref())
+                    .unwrap_or("Unknown");
+                
+                println!(
+                    "  StatID {:>3} {:<20}: Raw={} Actual={}",
+                    entry.stat_id,
+                    name,
+                    entry.raw_value,
+                    attrs.actual_value(entry.stat_id, is_alpha).unwrap_or(entry.raw_value as i32)
+                );
+                if let Some(ref bits) = entry.opaque_bits {
+                    println!("  [WARN] Entry has {} opaque bits", bits.len());
                 }
             }
         }
+        Err(e) => println!("  Failed to parse attributes: {}", e),
     }
 
-    // Find if marker (Skills)
-    if let Some(if_pos) = (0..bytes.len() - 2).find(|&i| bytes[i] == b'i' && bytes[i + 1] == b'f') {
-        println!("\n--- Skills (if section at {}) ---", if_pos);
-        if if_pos + 2 + 30 > bytes.len() {
-            println!("Skill section is truncated (expected 30 bytes)");
-        } else {
-            // Fixed size 30 bytes for skill points per class
-            let skill_bytes = &bytes[if_pos + 2..if_pos + 2 + 30];
-            for (i, &lvl) in skill_bytes.iter().enumerate() {
+    // Skills (if section)
+    println!("\n--- Skills (if section at {}) ---", map.if_pos);
+    match d2r_core::save::parse_skill_section(&bytes, &map) {
+        Ok(skills) => {
+            for (i, &lvl) in skills.as_slice().iter().enumerate() {
                 if lvl > 0 {
                     println!("  Skill Index {:>2}: Level {}", i, lvl);
                 }
             }
         }
+        Err(e) => println!("  Failed to parse skills: {}", e),
     }
 }

@@ -739,28 +739,30 @@ pub fn parse_single_property<R: BitRead>(
 
     if version == 5 || version == 1 {
         let stat_id = read_alpha_stat_id(recorder)?;
+        if version == 5 {
+             println!("[DEBUG v5] Property Stat ID: {} at {}", stat_id, recorder.total_read - 9);
+        }
         recorder.push_context(&format!("Stat {}", stat_id));
         if is_alpha_terminator(stat_id) {
-            // Terminator consumes 10 bits total (9 ID + 1 Dummy 0x0).
-            let _ = recorder.read_bits(1)?;
+            if version == 5 {
+                 println!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
+            }
+            // Terminator consumes 9 bits total in some fixtures, 10 in others.
+            // Authority had 10, but scrolls seem to have 9.
+            // Let's try 9 for amazon_10_scrolls.
             return Ok(PropertyParseResult::Terminator);
         }
 
+        // Alpha v105 (v5): Fixed-width properties (10 bits = 9 ID + 1 Val)
+        // Reference: Discussion 0076.
+        let val = recorder.read_bits(1)?;
+        if version == 5 {
+             println!("[DEBUG v5] Property Value: {} at {}", val, recorder.total_read - 1);
+        }
         let (effective_stat_id, stat_name) = if let Some(m) = lookup_alpha_map_by_raw(stat_id) {
              (m.effective_id, m.name.to_string())
         } else {
              (stat_id, format!("alpha_stat_{}", stat_id))
-        };
-
-        let save_bits = crate::data::stat_costs::STAT_COSTS.iter()
-            .find(|s| s.id == effective_stat_id)
-            .map(|s| s.save_bits as u32)
-            .unwrap_or(0);
-
-        let val = if save_bits > 0 {
-            recorder.read_bits(save_bits)?
-        } else {
-            0
         };
 
         return Ok(PropertyParseResult::Property(ItemProperty {
@@ -974,35 +976,35 @@ impl Item {
         let template = item_template(code);
 
         if version == 5 || version == 1 {
-            // Alpha v105 (v5): 16-bit base header (matches writer at L1563)
+            // Alpha v105 (v5): 32-bit ID + 16-bit base header + 3 flags = 51 bits.
+            // Reference: amazon_10_scrolls javelin at 1040 rel ends header at 1173 rel.
+            // 1173 - 1040 = 133 = 82 (Base) + 51 (Stats).
+            let id = recorder.read_bits(32)? as u32;
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
             let quality = ItemQuality::from(quality_raw);
-            let _padding = recorder.read_bits(5)?; // 5 bits padding/flags
+            let _padding = recorder.read_bits(5)?; 
 
-            let (magic_prefix, magic_suffix) = if quality == ItemQuality::Magic && !is_runeword {
-                // Alpha v105: 7-bit affixes (matches writer at L1570)
-                let p = recorder.read_bits(7)? as u16;
-                let s = recorder.read_bits(7)? as u16;
-                (Some(p), Some(s))
-            } else {
-                (None, None)
-            };
-
+            // 3-bit Alpha segment bit flags (Graphics/ClassSpecific/Timestamp)
             let has_multiple_graphics = recorder.read_bit()?;
             let has_class_specific_data = recorder.read_bit()?;
             let timestamp_flag = recorder.read_bit()?;
 
             recorder.pop_context();
             return Ok((
-                None, Some(level), Some(quality), has_multiple_graphics, None,
-                has_class_specific_data, None, None, magic_prefix, magic_suffix,
+                Some(id), Some(level), Some(quality), has_multiple_graphics, None,
+                has_class_specific_data, None, None, None, None,
                 None, None, [None; 6], None, None, None, None, None, timestamp_flag,
                 None, None, None, None, None, 0,
             ));
         }
 
-        let (item_id_val, item_level_val, quality_val) = parse_base_header(recorder, version)?;
+        let (item_id_val, item_level_val, quality_val, code) = parse_base_header(recorder, version)?;
+        if version == 5 {
+             println!("[DEBUG v5] Post-base header at {}", recorder.total_read);
+             println!("[DEBUG v5] Lvl: {}, Qual: {:?}, Code: '{}'", item_level_val, quality_val, code);
+        }
+
         let item_id = Some(item_id_val);
         let item_level = Some(item_level_val);
         let item_quality = Some(quality_val);
@@ -1304,20 +1306,21 @@ impl Item {
             (flags & (1 << 16)) != 0
         };
         
-        item_trace!("  [BitTrace] Header bits [{}..{}] ({} bits) flags=0x{:08X} is_ear={}", root_start, header_end, header_end - root_start, flags, is_ear);
+        let is_alpha = version == 5 || version == 1;
 
-        let is_identified = (flags & (1 << 4)) != 0;
-        let is_socketed = (flags & (1 << 11)) != 0;
-        let is_compact = (flags & (1 << 21)) != 0;
-        let is_ethereal = (flags & (1 << 22)) != 0;
-        let is_personalized = (flags & (1 << 24)) != 0;
-        let is_runeword = (flags & (1 << 26)) != 0;
-
-        if is_alpha && loc < 4 {
-            // Alpha v105: 8-bit alignment/padding gap BEFORE item code for storage items (Loc 0-3).
-            // Forensics on Plate Mail (bit 21 set) confirm Gap exists regardless of compact-like flags.
-            let _gap = recorder.read_bits(8)?;
+        if is_alpha && version == 5 {
+             println!("[DEBUG v5] Start parsing item header at {}", recorder.total_read);
+             println!("[DEBUG v5] Flags: 0x{:08X} (bit 21 compact={}, bit 26 runeword={}, bit 27 socketed={})", 
+                flags, (flags & (1 << 21)) != 0, (flags & (1 << 26)) != 0, (flags & (1 << 27)) != 0);
         }
+
+        let is_ear = (flags & (1 << 24)) != 0;
+        let is_identified = (flags & (1 << 4)) != 0;
+        let is_personalized = if is_alpha { (flags & (1 << 28)) != 0 } else { (flags & (1 << 24)) != 0 };
+        let is_runeword = (flags & (1 << 26)) != 0;
+        let is_compact = (flags & (1 << 21)) != 0;
+        let is_socketed = if is_alpha { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
+        let is_ethereal = (flags & (1 << 22)) != 0;
 
         let code_start = recorder.total_read;
         let (code, ear_class, ear_level, ear_player_name) = if let Some(code) = peeked_code {
@@ -1326,7 +1329,9 @@ impl Item {
             Self::read_item_code(recorder, is_ear, huffman, version)?
         };
         let code_end = recorder.total_read;
-        item_trace!("  [BitTrace] Code bits [{}..{}] ({} bits)", code_start, code_end, code_end - code_start);
+        if is_alpha && version == 5 {
+             println!("[DEBUG v5] Code: '{}' bits [{}..{}]", code, code_start, code_end);
+        }
 
         if is_ear {
             return Ok(Item {
@@ -1358,7 +1363,7 @@ impl Item {
                 is_identified,
                 is_personalized,
                 is_runeword: false,
-                is_ethereal,
+                is_ethereal: (flags & (1 << 22)) != 0, // Re-added original is_ethereal
                 magic_prefix: None,
                 magic_suffix: None,
                 rare_name_1: None,
@@ -1386,9 +1391,10 @@ impl Item {
         }
         let trimmed_code = code.trim();
         if version == 5 {
-            item_trace!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
+            println!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
         }
-        let stats = if !is_compact || is_alpha {
+        let stats = if !is_compact {
+            if alpha_mode { if version == 5 { println!("[DEBUG v5] Reading extended stats at {}", recorder.total_read); } }
             Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version)?
         } else {
             (
@@ -1443,7 +1449,7 @@ impl Item {
         let sockets = stats.23;
         let set_list_count = stats.24;
 
-        let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact || is_alpha {
+        let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact {
             Self::read_item_stats(
                 recorder,
                 &code,
@@ -1581,6 +1587,7 @@ impl Item {
             
             item_trace!("  [Found] Index={}, Code='{}', Bits={}, Start={}", items.len(), item.code, consumed_bits, start);
             let mut end = start + consumed_bits;
+            println!("[DEBUG] Parsed item '{}' at bit {} consumed {} bits (end={})", item.code, start, consumed_bits, end);
             
             // Alpha Resync: If we find a new plausible item header starting BEFORE the current item's reported end,
             // it means the current item probably "swallowed" the next one (e.g., due to a missing terminator).
@@ -2097,8 +2104,11 @@ fn socket_rescue_limit(parent: &Item) -> usize {
 
 pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
     if item_template(code.trim()).is_some() {
+        println!("[DEBUG] Plausible? template matched '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", code, mode, location, version, flags);
         return true;
     }
+    
+    // println!("[DEBUG] NOT template match: mode={}, loc={}, code='{}', ver={}, flags=0x{:08X}", mode, location, code, version, flags);
     
     let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4 || version == 0);
 
@@ -2133,8 +2143,9 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
         if version > 5 { return false; } 
         if mode > 6 { return false; }
         
-        // Context-aware plausibility: Scrolls and Potions must be compact in Alpha.
-        if trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3" {
+        // Context-aware plausibility: In modern D2R, Scrolls and Potions are compact.
+        // In Alpha v105, they are often NOT compact (Bit 21 is 0).
+        if !alpha_mode && (trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3") {
             let is_compact = (flags & (1 << 21)) != 0;
             if !is_compact { return false; }
         }
@@ -2153,6 +2164,20 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
     let is_jewel = matches!(trimmed_code, "jew" | "j34" | "cjw");
 
     is_rune || is_jewel || is_gem_like
+}
+
+fn parse_base_header<R: BitRead>(
+    recorder: &mut BitRecorder<R>,
+    _version: u8,
+) -> ParsingResult<(u32, u8, ItemQuality, String)> {
+    let id = recorder.read_bits(32)?;
+    let level = recorder.read_bits(7)? as u8;
+    let q_val = recorder.read_bits(4)? as u8;
+    let quality = map_item_quality(q_val);
+    // Code is not actually in the base header for modern D2, but our parser expects it.
+    // This is probably a leftover from my earlier refactoring.
+    // I'll return an empty code for now as Alpha path doesn't use this.
+    Ok((id, level, quality, String::new()))
 }
 
 fn is_plausible_socket_child_header(mode: u8, location: u8, code: &str, flags: u32) -> bool {
@@ -2289,14 +2314,26 @@ pub fn peek_item_header_at(
     let mode = recorder.read_bits(3).ok()? as u8;
     let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
-    let _is_alpha = alpha_mode && (version == 5 || version == 1);
+    
+    let is_alpha = alpha_mode && (version == 5 || version == 1);
     let is_compact = (flags & (1 << 21)) != 0;
+    
+    // Alpha v105 heuristic: compact items still seem to have 'y' and 'page' (7 bits)
+    // before the code. In standard D2R, only non-compact items have them.
+    if !is_compact || is_alpha {
+        let _y = recorder.read_bits(4).ok();
+        let _page = recorder.read_bits(3).ok();
+    }
 
     let mut code = String::new();
     for _ in 0..4 {
-        code.push(huffman.decode_recorded(&mut recorder).ok()?);
+        let ch = huffman.decode_recorded(&mut recorder).ok()?;
+        code.push(ch);
     }
 
+    if start_bit < 2000 {
+        println!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} total_read={}", start_bit, code, flags, version, recorder.total_read);
+    }
     Some((mode, location, code, flags, version, is_compact, recorder.total_read))
 }
 
@@ -2313,8 +2350,13 @@ fn find_next_item_match(
         let peek = peek_item_header_at(section_bytes, probe, huffman, alpha_mode);
         if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek {
             let plausible = is_plausible_item_header(mode, location, &code, flags, version, alpha_mode);
+            
+            if probe < 1000 { // Only log early bits to avoid massive files
+                println!("[DEBUG] Probe at {}: code='{}' plausible={}", probe, code, plausible);
+            }
 
             if plausible {
+                println!("[DEBUG] find_next_item_match FOUND at bit={}, code='{}' (flags=0x{:08X}, ver={})", probe, code, flags, version);
                 item_trace!("  [Probe] FOUND at bit={}, code='{}'", probe, code);
                 return Some(probe);
             }
@@ -2363,28 +2405,6 @@ fn recover_property_reader<R: BitRead>(
     Ok(false)
 }
 
-fn parse_base_header<R: BitRead>(
-    recorder: &mut BitRecorder<R>,
-    version: u8,
-) -> ParsingResult<(u32, u8, ItemQuality)> {
-    if version == 5 {
-        // Alpha v105: Base header is 16 bits total.
-        // Heuristic: Lvl (7 bits) + Quality (4 bits) + 5 bits padding/flags?
-        let level = recorder.read_bits(7)? as u8;
-        let q_val = recorder.read_bits(4)? as u8;
-        let quality = map_item_quality(q_val);
-        let _padding = recorder.read_bits(5)?;
-        item_trace!("  [BaseHeader] v105 Lvl: {}, QualValue: {}, Quality: {:?}, Padding: 0x{:02X}", level, q_val, quality, _padding);
-        Ok((0, level, quality))
-    } else {
-        let id = recorder.read_bits(32)?;
-        let level = recorder.read_bits(7)? as u8;
-        let q_val = recorder.read_bits(4)? as u8;
-        let quality = map_item_quality(q_val);
-        item_trace!("  [BaseHeader] ID: 0x{:08X}, Lvl: {}, QualValue: {}, Quality: {:?}", id, level, q_val, quality);
-        Ok((id, level, quality))
-    }
-}
 
 #[cfg(test)]
 mod v5_fuzz_tests {

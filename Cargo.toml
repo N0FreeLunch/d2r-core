@@ -169,6 +169,10 @@ name = "d2item_msa_analyser"
 path = "src/bin/verify/d2item_msa_analyser.rs"
 
 [[bin]]
+name = "probe_jav"
+path = "src/bin/verify/probe_jav.rs"
+
+[[bin]]
 name = "d2gf_oracle"
 path = "src/bin/verify/d2gf_oracle.rs"
 

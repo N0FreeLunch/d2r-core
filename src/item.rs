@@ -894,7 +894,9 @@ impl Item {
         let x = (recorder.read_bits(4)? & 0x0F) as u8;
 
         let (y, page, socket_hint) = if version == 5 || version == 1 {
-            (0, 0, 0)
+            let y = (recorder.read_bits(4)? & 0x0F) as u8;
+            let page = (recorder.read_bits(3)? & 0x07) as u8;
+            (y, page, 0)
         } else {
             let y = (recorder.read_bits(4)? & 0x0F) as u8;
             let page = (recorder.read_bits(3)? & 0x07) as u8;
@@ -974,59 +976,50 @@ impl Item {
         recorder.push_context("Extended Stats");
         let trimmed_code = code.trim();
         let template = item_template(code);
+        let is_alpha = version == 5 || version == 1;
 
-        if version == 5 || version == 1 {
-            // Alpha v105 (v5): 32-bit ID + 16-bit base header + 3 flags = 51 bits.
-            // Reference: amazon_10_scrolls javelin at 1040 rel ends header at 1173 rel.
-            // 1173 - 1040 = 133 = 82 (Base) + 51 (Stats).
-            let id = recorder.read_bits(32)? as u32;
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if version == 5 || version == 1 {
+            // Alpha v105 (v5/v1) does not appear to store the 32-bit ID here.
+            // Heuristic confirmed by d2item_oracle_mapper showing 19 bits overhead (7+4+5+3).
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
             let quality = ItemQuality::from(quality_raw);
             let _padding = recorder.read_bits(5)?; 
-
-            // 3-bit Alpha segment bit flags (Graphics/ClassSpecific/Timestamp)
+            
             let has_multiple_graphics = recorder.read_bit()?;
             let has_class_specific_data = recorder.read_bit()?;
             let timestamp_flag = recorder.read_bit()?;
+            
+            (Some(0u32), Some(level), Some(quality), has_multiple_graphics, has_class_specific_data, timestamp_flag)
+        } else {
+            let (id, level, quality, _code) = parse_base_header(recorder, version)?;
+            (Some(id), Some(level), Some(quality), false, false, false)
+        };
 
-            recorder.pop_context();
-            return Ok((
-                Some(id), Some(level), Some(quality), has_multiple_graphics, None,
-                has_class_specific_data, None, None, None, None,
-                None, None, [None; 6], None, None, None, None, None, timestamp_flag,
-                None, None, None, None, None, 0,
-            ));
-        }
-
-        let (item_id_val, item_level_val, quality_val, code) = parse_base_header(recorder, version)?;
         if version == 5 {
              println!("[DEBUG v5] Post-base header at {}", recorder.total_read);
-             println!("[DEBUG v5] Lvl: {}, Qual: {:?}, Code: '{}'", item_level_val, quality_val, code);
+             println!("[DEBUG v5] Lvl: {:?}, Qual: {:?}, Code: '{}'", item_level, item_quality, trimmed_code);
         }
 
-        let item_id = Some(item_id_val);
-        let item_level = Some(item_level_val);
-        let item_quality = Some(quality_val);
         item_trace!(
             "  [Stats] ID: {:?}, Lvl: {:?}, Quality: {:?}",
             item_id,
             item_level,
-            quality_val
+            item_quality
         );
 
-        let has_multiple_graphics = recorder.read_bits(1)? != 0;
-        let multi_graphics_bits = if has_multiple_graphics {
+        let multi_graphics_bits = if !is_alpha && has_multiple_graphics {
             Some(recorder.read_bits(3)? as u8)
         } else {
             None
         };
-        let has_class_specific_data = recorder.read_bits(1)? != 0;
-        let class_specific_bits = if has_class_specific_data {
+        let class_specific_bits = if !is_alpha && has_class_specific_data {
             Some(recorder.read_bits(11)? as u16)
         } else {
             None
         };
+        
+        let quality_val = item_quality.unwrap_or(ItemQuality::Normal);
 
         let mut low_high_graphic_bits = None;
         let mut magic_prefix = None;

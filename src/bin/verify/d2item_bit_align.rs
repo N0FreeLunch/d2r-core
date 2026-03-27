@@ -2,10 +2,11 @@ use d2r_core::item::{HuffmanTree, Item, BitRecorder};
 use d2r_core::algo::alignment::BitAligner;
 use bitstream_io::{BitRead, BitReader, LittleEndian};
 use serde::Serialize;
+use d2r_core::report::Report;
 use std::env;
 use std::fs;
 use std::io::{self, Cursor};
-use std::path::PathBuf;
+use std::path::Path;
 
 #[derive(Serialize, Clone, Debug)]
 struct ScanEntry {
@@ -17,10 +18,8 @@ struct ScanEntry {
 
 #[derive(Serialize, Debug)]
 struct BitAlignReport {
-    file: String,
     item_index: usize,
     code: String,
-    scan_results: Vec<ScanEntry>,
     actual_bits: usize,
     expected_bits: usize,
     similarity_pct: f64,
@@ -106,11 +105,9 @@ fn main() -> io::Result<()> {
     let aligner = BitAligner::new(2, -1, -3, -1);
     let result = aligner.align(&actual, &expected);
 
-    let report = BitAlignReport {
-        file: PathBuf::from(save_path).file_name().unwrap_or_default().to_string_lossy().to_string(),
+    let detail = BitAlignReport {
         item_index,
         code: item.code.trim().to_string(),
-        scan_results,
         actual_bits: actual.len(),
         expected_bits: expected.len(),
         similarity_pct: result.similarity_pct(),
@@ -123,19 +120,32 @@ fn main() -> io::Result<()> {
     };
 
     if is_json {
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        let report = Report::new(save_path, scan_results);
+        let json_report = serde_json::json!({
+            "file": report.metadata.file,
+            "item_index": detail.item_index,
+            "code": detail.code,
+            "scan_results": report.scan_results,
+            "actual_bits": detail.actual_bits,
+            "expected_bits": detail.expected_bits,
+            "similarity_pct": detail.similarity_pct,
+            "gap_count": detail.gap_count,
+            "visualization": detail.visualization
+        });
+        println!("{}", serde_json::to_string_pretty(&json_report).unwrap());
     } else {
+        let metadata = d2r_core::report::ReportMetadata::from_path(save_path);
         println!("[d2item_bit_align] Save: {} | Item #{} ({})", 
-            report.file,
-            report.item_index,
-            report.code
+            metadata.file,
+            detail.item_index,
+            detail.code
         );
-        println!("  Actual  bits : {}", report.actual_bits);
-        println!("  Expected bits: {}", report.expected_bits);
-        println!("  Similarity   : {:.2}%", report.similarity_pct);
-        println!("  Gap count    : {}", report.gap_count);
+        println!("  Actual  bits : {}", detail.actual_bits);
+        println!("  Expected bits: {}", detail.expected_bits);
+        println!("  Similarity   : {:.2}%", detail.similarity_pct);
+        println!("  Gap count    : {}", detail.gap_count);
         
-        if let Some(viz) = &report.visualization {
+        if let Some(viz) = &detail.visualization {
             println!("\nAlignment Visualization:");
             println!("{}", viz);
         } else {

@@ -5,7 +5,7 @@ use serde::Serialize;
 use d2r_core::item::{HuffmanTree, is_plausible_item_header, peek_item_header_at};
 use d2r_core::save::find_jm_markers;
 
-use std::path::Path;
+use d2r_core::report::Report;
 
 #[derive(Serialize, Debug, Clone)]
 struct ScanAnchor {
@@ -19,12 +19,6 @@ struct ScanAnchor {
     best_width: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     score: Option<i32>,
-}
-
-#[derive(Serialize)]
-struct OracleReport {
-    file: String,
-    scan_results: Vec<ScanAnchor>,
 }
 
 fn main() -> io::Result<()> {
@@ -100,11 +94,7 @@ fn main() -> io::Result<()> {
 
     if list_anchors || auto_map {
         if show_json {
-            let filename = Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
-            let report = OracleReport {
-                file: filename,
-                scan_results: scan_results.clone(),
-            };
+            let report = Report::new(path, scan_results.clone());
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else {
             println!("| Anchor Bit | Code | Flags      | Ver | Mode | Loc | Width | Score |");

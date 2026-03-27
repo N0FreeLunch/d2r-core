@@ -21,6 +21,7 @@ pub mod item;
 pub mod save;
 pub mod spec;
 pub mod algo;
+pub mod report;
 
 #[cfg(test)]
 mod tests {

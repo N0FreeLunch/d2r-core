@@ -100,6 +100,7 @@ pub struct BitRecorder<'a, R: BitRead> {
     pub recorded_bits: Vec<RecordedBit>,
     pub total_read: u64,
     pub context_stack: Vec<String>,
+    pub alpha_quality: Option<ItemQuality>,
 }
 
 impl<'a, R: BitRead> BitRecorder<'a, R> {
@@ -109,6 +110,7 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
             recorded_bits: Vec::new(),
             total_read: 0,
             context_stack: Vec::new(),
+            alpha_quality: None,
         }
     }
 
@@ -740,37 +742,40 @@ pub fn parse_single_property<R: BitRead>(
     if version == 5 || version == 1 {
         let stat_id = read_alpha_stat_id(recorder)?;
         if version == 5 {
-             println!("[DEBUG v5] Property Stat ID: {} at {}", stat_id, recorder.total_read - 9);
+             println!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.total_read - 9);
         }
         recorder.push_context(&format!("Stat {}", stat_id));
         if is_alpha_terminator(stat_id) {
             if version == 5 {
                  println!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
             }
-            // Terminator consumes 9 bits total in some fixtures, 10 in others.
-            // Authority had 10, but scrolls seem to have 9.
-            // Let's try 9 for amazon_10_scrolls.
             return Ok(PropertyParseResult::Terminator);
         }
 
-        // Alpha v105 (v5): Fixed-width properties (10 bits = 9 ID + 1 Val)
-        // Reference: Discussion 0076.
-        let val = recorder.read_bits(1)?;
-        if version == 5 {
-             println!("[DEBUG v5] Property Value: {} at {}", val, recorder.total_read - 1);
-        }
-        let (effective_stat_id, stat_name) = if let Some(m) = lookup_alpha_map_by_raw(stat_id) {
-             (m.effective_id, m.name.to_string())
+        let (effective_stat_id, stat_name, save_add) = if let Some(m) = lookup_alpha_map_by_raw(stat_id) {
+             let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == m.effective_id);
+             (m.effective_id, m.name.to_string(), cost.map(|c| c.save_add).unwrap_or(0))
         } else {
-             (stat_id, format!("alpha_stat_{}", stat_id))
+             let cost = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id);
+             (stat_id, cost.map(|c| c.name.to_string()).unwrap_or_else(|| format!("alpha_stat_{}", stat_id)), cost.map(|c| c.save_add).unwrap_or(0))
         };
+
+        // Alpha v105 Quality-dependent property widths:
+        // Normal items use 9 bits (ID only).
+        // Others (Magic/Rare/Unique) use 10 bits (9 ID + 1 Val).
+        let val_bits = if recorder.alpha_quality == Some(ItemQuality::Normal) { 0 } else { 1 };
+        let val = if val_bits > 0 { recorder.read_bits(val_bits)? } else { 0 };
+        
+        if version == 5 {
+             println!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.total_read - val_bits as u64, 9 + val_bits);
+        }
 
         return Ok(PropertyParseResult::Property(ItemProperty {
             stat_id: effective_stat_id,
             name: stat_name,
             param: 0,
             raw_value: val as i32,
-            value: val as i32, // Alpha properties generally don't use save_add
+            value: (val as i32).wrapping_sub(save_add),
         }));
     }
 
@@ -979,8 +984,7 @@ impl Item {
         let is_alpha = version == 5 || version == 1;
 
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if version == 5 || version == 1 {
-            // Alpha v105 (v5/v1) does not appear to store the 32-bit ID here.
-            // Heuristic confirmed by d2item_oracle_mapper showing 19 bits overhead (7+4+5+3).
+            // Alpha v105 items in the inventory skip 32-bit ID.
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
             let quality = ItemQuality::from(quality_raw);
@@ -990,6 +994,8 @@ impl Item {
             let has_class_specific_data = recorder.read_bit()?;
             let timestamp_flag = recorder.read_bit()?;
             
+            println!("[DEBUG v5] Lvl={}, Qual={:?}, multi_gfx={}, class_data={}, timestamp={}", level, quality, has_multiple_graphics, has_class_specific_data, timestamp_flag);
+            
             (Some(0u32), Some(level), Some(quality), has_multiple_graphics, has_class_specific_data, timestamp_flag)
         } else {
             let (id, level, quality, _code) = parse_base_header(recorder, version)?;
@@ -997,7 +1003,7 @@ impl Item {
         };
 
         if version == 5 {
-             println!("[DEBUG v5] Post-base header at {}", recorder.total_read);
+             println!("[DEBUG v5] Post-base header at bit {}", recorder.total_read);
              println!("[DEBUG v5] Lvl: {:?}, Qual: {:?}, Code: '{}'", item_level, item_quality, trimmed_code);
         }
 
@@ -1008,16 +1014,24 @@ impl Item {
             item_quality
         );
 
-        let multi_graphics_bits = if !is_alpha && has_multiple_graphics {
-            Some(recorder.read_bits(3)? as u8)
+        let mut multi_graphics_bits = None;
+        let mut class_specific_bits = None;
+
+        if is_alpha {
+            if has_multiple_graphics {
+                multi_graphics_bits = Some(recorder.read_bits(3)? as u8);
+            }
+            if has_class_specific_data {
+                class_specific_bits = Some(recorder.read_bits(3)? as u16);
+            }
         } else {
-            None
-        };
-        let class_specific_bits = if !is_alpha && has_class_specific_data {
-            Some(recorder.read_bits(11)? as u16)
-        } else {
-            None
-        };
+            if has_multiple_graphics {
+                multi_graphics_bits = Some(recorder.read_bits(3)? as u8);
+            }
+            if has_class_specific_data {
+                class_specific_bits = Some(recorder.read_bits(11)? as u16);
+            }
+        }
         
         let quality_val = item_quality.unwrap_or(ItemQuality::Normal);
 
@@ -1029,14 +1043,22 @@ impl Item {
         let mut rare_affixes = [None; 6];
         let mut unique_id = None;
 
+        if version == 5 || version == 1 {
+            // Already handled in unified block above.
+        }
+
         match quality_val {
             ItemQuality::Low | ItemQuality::High => {
                 low_high_graphic_bits = Some(recorder.read_bits(3)? as u8);
             }
             ItemQuality::Magic => {
                 if version == 5 || version == 1 {
-                    magic_prefix = Some(recorder.read_bits(7)? as u16);
-                    magic_suffix = Some(recorder.read_bits(7)? as u16);
+                    // Alpha v105 Magic items have 7-bit prefix/suffix.
+                    let pre = recorder.read_bits(7)? as u16;
+                    let suf = recorder.read_bits(7)? as u16;
+                    println!("[DEBUG v5] Magic Prefix: {} at {}, Suffix: {} at {}", pre, recorder.total_read - 14, suf, recorder.total_read - 7);
+                    magic_prefix = Some(pre);
+                    magic_suffix = Some(suf);
                 } else {
                     magic_prefix = Some(recorder.read_bits(11)? as u16);
                     magic_suffix = Some(recorder.read_bits(11)? as u16);
@@ -1399,6 +1421,7 @@ impl Item {
         let item_id = stats.0;
         let item_level = stats.1;
         let item_quality = stats.2;
+        recorder.alpha_quality = item_quality;
         let mut is_runeword = is_runeword;
         if version == 5 && is_runeword {
             // Alpha v105: Only Normal (Quality 2) items can be runewords.
@@ -1545,6 +1568,7 @@ impl Item {
         alpha_mode: bool,
     ) -> ParsingResult<Vec<Item>> {
         let section_bits = (section_bytes.len() * 8) as u64;
+        println!("[DEBUG] read_section count={}, is_alpha={}", top_level_count, alpha_mode);
         let mut items: Vec<Item> = Vec::with_capacity(top_level_count as usize);
         let mut bit_pos = 0u64;
         let mut is_alpha = alpha_mode;
@@ -1619,6 +1643,7 @@ impl Item {
                     });
                 }
             } else {
+                println!("[DEBUG] Pushing item[{}] code='{}'", items.len(), item.code);
                 items.push(item);
                 let is_last_top_level = items.len() == top_level_count as usize;
                 if let Some(parent) = items.last_mut() {
@@ -2324,7 +2349,7 @@ pub fn peek_item_header_at(
         code.push(ch);
     }
 
-    if start_bit < 2000 {
+    if (start_bit >= 8200 && start_bit <= 8800) || start_bit < 200 {
         println!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} total_read={}", start_bit, code, flags, version, recorder.total_read);
     }
     Some((mode, location, code, flags, version, is_compact, recorder.total_read))

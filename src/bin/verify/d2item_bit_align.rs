@@ -1,44 +1,86 @@
 use d2r_core::item::{HuffmanTree, Item, BitRecorder};
 use d2r_core::algo::alignment::BitAligner;
 use bitstream_io::{BitRead, BitReader, LittleEndian};
+use serde::Serialize;
 use std::env;
 use std::fs;
 use std::io::{self, Cursor};
 use std::path::PathBuf;
 
+#[derive(Serialize, Clone, Debug)]
+struct ScanEntry {
+    code: String,
+    bit_offset: u64,
+    len: u64,
+    is_error: bool,
+}
+
+#[derive(Serialize, Debug)]
+struct BitAlignReport {
+    file: String,
+    item_index: usize,
+    code: String,
+    scan_results: Vec<ScanEntry>,
+    actual_bits: usize,
+    expected_bits: usize,
+    similarity_pct: f64,
+    gap_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    visualization: Option<String>,
+}
+
 fn main() -> io::Result<()> {
     let _ = dotenvy::dotenv();
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
-        println!("CLI Usage: cargo run --bin d2item_bit_align -- <save_file_path> <item_index> [jm_offset_hex]");
+        println!("CLI Usage: cargo run --bin d2item_bit_align -- <save_file_path> <item_index> [jm_offset_hex] [--json]");
         return Ok(());
     }
 
+    let is_json = args.contains(&"--json".to_string());
     let save_path = &args[1];
     let item_index: usize = args[2].parse().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid item index"))?;
-    let jm_offset_override = if args.len() >= 4 {
-        Some(usize::from_str_radix(args[3].trim_start_matches("0x"), 16).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid hex offset"))?)
-    } else {
-        None
-    };
+    
+    let mut jm_offset_override = None;
+    if args.len() >= 4 {
+        // If the 4th arg is not --json, treat it as offset.
+        // If it is --json, then we only have 3 positional args.
+        if args[3] != "--json" {
+            jm_offset_override = Some(usize::from_str_radix(args[3].trim_start_matches("0x"), 16).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid hex offset"))?);
+        }
+    }
 
     let bytes = fs::read(save_path)?;
     let huffman = HuffmanTree::new();
     
+    let mut scan_results = Vec::new();
     let items = if let Some(offset) = jm_offset_override {
-        println!("[d2item_bit_align] Scanning at forced JM offset 0x{:04X}...", offset);
-        scan_at_offset(&bytes[(offset+4)..], &huffman, &mut Vec::new())
+        if !is_json {
+            println!("[d2item_bit_align] Scanning at forced JM offset 0x{:04X}...", offset);
+        }
+        scan_at_offset(&bytes[(offset+4)..], &huffman, &mut Vec::new(), &mut scan_results, is_json)
     } else {
-        println!("[d2item_bit_align] Scanning items...");
-        load_items_scanning(&bytes, &huffman)
+        if !is_json {
+            println!("[d2item_bit_align] Scanning items...");
+        }
+        load_items_scanning(&bytes, &huffman, &mut scan_results, is_json)
     };
 
     if item_index >= items.len() {
-        println!("[d2item_bit_align] Error: Item index {} out of bounds. Found {} items.", item_index, items.len());
-        if !items.is_empty() {
-            println!("Available items:");
-            for (i, it) in items.iter().enumerate() {
-                println!("  #{}: {} (ver={}, loc={}, mode={}, bits={})", i, it.code.trim(), it.version, it.location, it.mode, it.bits.len());
+        if is_json {
+            let report = serde_json::json!({
+                "error": format!("Item index {} out of bounds. Found {} items.", item_index, items.len()),
+                "found_count": items.len(),
+                "scan_results": scan_results
+            });
+            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        } else {
+            println!("[d2item_bit_align] Error: Item index {} out of bounds. Found {} items.", item_index, items.len());
+            if !items.is_empty() {
+                println!("Available items:");
+                for (i, it) in items.iter().enumerate() {
+                    println!("  #{}: {} (ver={}, loc={}, mode={}, bits={})", i, it.code.trim(), it.version, it.location, it.mode, it.bits.len());
+                }
             }
         }
         return Err(io::Error::new(io::ErrorKind::NotFound, "Item index out of range"));
@@ -64,27 +106,47 @@ fn main() -> io::Result<()> {
     let aligner = BitAligner::new(2, -1, -3, -1);
     let result = aligner.align(&actual, &expected);
 
-    println!("[d2item_bit_align] Save: {} | Item #{} ({})", 
-        PathBuf::from(save_path).file_name().unwrap_or_default().to_string_lossy(),
+    let report = BitAlignReport {
+        file: PathBuf::from(save_path).file_name().unwrap_or_default().to_string_lossy().to_string(),
         item_index,
-        item.code.trim()
-    );
-    println!("  Actual  bits : {}", actual.len());
-    println!("  Expected bits: {}", expected.len());
-    println!("  Similarity   : {:.2}%", result.similarity_pct());
-    println!("  Gap count    : {}", result.gap_indices.len());
-    
-    if result.similarity_pct() < 100.0 {
-        println!("\nAlignment Visualization:");
-        println!("{}", result.pretty_print());
+        code: item.code.trim().to_string(),
+        scan_results,
+        actual_bits: actual.len(),
+        expected_bits: expected.len(),
+        similarity_pct: result.similarity_pct(),
+        gap_count: result.gap_indices.len(),
+        visualization: if result.similarity_pct() < 100.0 {
+            Some(result.pretty_print())
+        } else {
+            None
+        },
+    };
+
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
-        println!("  Perfect match (100.00%)!");
+        println!("[d2item_bit_align] Save: {} | Item #{} ({})", 
+            report.file,
+            report.item_index,
+            report.code
+        );
+        println!("  Actual  bits : {}", report.actual_bits);
+        println!("  Expected bits: {}", report.expected_bits);
+        println!("  Similarity   : {:.2}%", report.similarity_pct);
+        println!("  Gap count    : {}", report.gap_count);
+        
+        if let Some(viz) = &report.visualization {
+            println!("\nAlignment Visualization:");
+            println!("{}", viz);
+        } else {
+            println!("  Perfect match (100.00%)!");
+        }
     }
 
     Ok(())
 }
 
-fn load_items_scanning(bytes: &[u8], huffman: &HuffmanTree) -> Vec<Item> {
+fn load_items_scanning(bytes: &[u8], huffman: &HuffmanTree, scan_results: &mut Vec<ScanEntry>, is_json: bool) -> Vec<Item> {
     let mut all_items = Vec::new();
     
     // Find JM item section
@@ -92,7 +154,7 @@ fn load_items_scanning(bytes: &[u8], huffman: &HuffmanTree) -> Vec<Item> {
     while let Some(rel_jm) = bytes[jm_pos..].windows(2).position(|w| w == b"JM") {
         let abs_jm = jm_pos + rel_jm;
         if abs_jm + 4 <= bytes.len() {
-             scan_at_offset(&bytes[(abs_jm+4)..], huffman, &mut all_items);
+             scan_at_offset(&bytes[(abs_jm+4)..], huffman, &mut all_items, scan_results, is_json);
         }
         jm_pos = abs_jm + 2;
         if !all_items.is_empty() { break; }
@@ -100,7 +162,7 @@ fn load_items_scanning(bytes: &[u8], huffman: &HuffmanTree) -> Vec<Item> {
     all_items
 }
 
-fn scan_at_offset(bytes: &[u8], huffman: &HuffmanTree, collection: &mut Vec<Item>) -> Vec<Item> {
+fn scan_at_offset(bytes: &[u8], huffman: &HuffmanTree, collection: &mut Vec<Item>, scan_results: &mut Vec<ScanEntry>, is_json: bool) -> Vec<Item> {
     let mut bit_pos = 0u64;
     let bit_limit = bytes.len() as u64 * 8;
     
@@ -117,7 +179,15 @@ fn scan_at_offset(bytes: &[u8], huffman: &HuffmanTree, collection: &mut Vec<Item
                 let consumed = reader.position_in_bits().unwrap_or(0);
                 if consumed >= 30 {
                     let version = item.version;
-                    println!("  [Scan OK]  found {} at bit offset {}, len={}", item.code.trim(), bit_pos, consumed);
+                    if !is_json {
+                        println!("  [Scan OK]  found {} at bit offset {}, len={}", item.code.trim(), bit_pos, consumed);
+                    }
+                    scan_results.push(ScanEntry {
+                        code: item.code.trim().to_string(),
+                        bit_offset: bit_pos,
+                        len: consumed,
+                        is_error: false,
+                    });
                     if version == 5 {
                         bit_pos = (bit_pos + consumed + 7) & !7;
                     } else {
@@ -135,7 +205,15 @@ fn scan_at_offset(bytes: &[u8], huffman: &HuffmanTree, collection: &mut Vec<Item
                     item.code = "ERR ".to_string();
                     item.bits = recorder.recorded_bits.clone();
                     item.version = 5; // Default for alpha analysis
-                    println!("  [Scan ERR] found {} at bit offset {}, len={}", item.code.trim(), bit_pos, consumed);
+                    if !is_json {
+                        println!("  [Scan ERR] found {} at bit offset {}, len={}", item.code.trim(), bit_pos, consumed);
+                    }
+                    scan_results.push(ScanEntry {
+                        code: item.code.trim().to_string(),
+                        bit_offset: bit_pos,
+                        len: consumed as u64,
+                        is_error: true,
+                    });
                     collection.push(item);
                     
                     // Also align to byte on error if version 5

@@ -179,3 +179,15 @@ path = "src/bin/verify/d2gf_oracle.rs"
 [[bin]]
 name = "d2gf_bit_diff"
 path = "src/bin/verify/d2gf_bit_diff.rs"
+
+[[bin]]
+name = "BitShiftScanner"
+path = "src/bin/verify/bit_shift_scanner.rs"
+
+[[bin]]
+name = "SymmetryBitDiff"
+path = "src/bin/verify/symmetry_bit_diff.rs"
+
+[[bin]]
+name = "BitNudgeExplorer"
+path = "src/bin/verify/bit_nudge_explorer.rs"

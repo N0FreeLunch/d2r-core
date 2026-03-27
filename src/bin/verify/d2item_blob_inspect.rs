@@ -319,7 +319,9 @@ fn main() -> io::Result<()> {
         println!("--- Property Lists ---");
         while reader.position_in_bits()? < (bytes.len() * 8) as u64 {
             let _ = read_property_list(&mut reader, &mut fields);
-            if reader.position_in_bits()? % 8 == 0 && reader.position_in_bits()? == (bytes.len() * 8) as u64 {
+            if reader.position_in_bits()? % 8 == 0
+                && reader.position_in_bits()? == (bytes.len() * 8) as u64
+            {
                 break;
             }
         }

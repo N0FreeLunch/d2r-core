@@ -4,11 +4,11 @@ use std::io;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
-    
+
     let mut file1_path = String::new();
     let mut file2_path = String::new();
     let mut start_offset = 415; // Default for v105 Quest anchor probe
-    let mut stride = 4;        // Default for v105 Quest stride probe
+    let mut stride = 4; // Default for v105 Quest stride probe
 
     let mut i = 1;
     while i < args.len() {
@@ -28,7 +28,9 @@ fn main() -> io::Result<()> {
             "--help" | "-h" => {
                 println!("Usage: cargo run --example diff -- [options] <file1> <file2>");
                 println!("Options:");
-                println!("  --start <N>   Absolute offset to start relative numbering (default: 415)");
+                println!(
+                    "  --start <N>   Absolute offset to start relative numbering (default: 415)"
+                );
                 println!("  --stride <N>  Grouping size for relative numbering (default: 4)");
                 return Ok(());
             }
@@ -58,7 +60,10 @@ fn main() -> io::Result<()> {
         file2_path,
         bytes2.len()
     );
-    println!("Probe Config | Start: {} (0x{:04X}), Stride: {}", start_offset, start_offset, stride);
+    println!(
+        "Probe Config | Start: {} (0x{:04X}), Stride: {}",
+        start_offset, start_offset, stride
+    );
     println!("Offset      | Hex Diff   | Binary Diff             | Rel");
     println!("------------|------------|-------------------------|----");
 
@@ -69,12 +74,20 @@ fn main() -> io::Result<()> {
         let b2 = bytes2.get(i);
 
         if b1 != b2 {
-            let hex1 = b1.map(|b| format!("{:02X}", b)).unwrap_or_else(|| "--".to_string());
-            let hex2 = b2.map(|b| format!("{:02X}", b)).unwrap_or_else(|| "--".to_string());
-            
-            let bin1 = b1.map(|b| format!("{:08b}", b)).unwrap_or_else(|| "--------".to_string());
-            let bin2 = b2.map(|b| format!("{:08b}", b)).unwrap_or_else(|| "--------".to_string());
-            
+            let hex1 = b1
+                .map(|b| format!("{:02X}", b))
+                .unwrap_or_else(|| "--".to_string());
+            let hex2 = b2
+                .map(|b| format!("{:02X}", b))
+                .unwrap_or_else(|| "--".to_string());
+
+            let bin1 = b1
+                .map(|b| format!("{:08b}", b))
+                .unwrap_or_else(|| "--------".to_string());
+            let bin2 = b2
+                .map(|b| format!("{:08b}", b))
+                .unwrap_or_else(|| "--------".to_string());
+
             let rel = if i >= start_offset {
                 format!("+{}", (i - start_offset) % stride)
             } else {

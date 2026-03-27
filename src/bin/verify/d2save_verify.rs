@@ -1,8 +1,8 @@
+use bitstream_io::{BitRead, BitReader, LittleEndian};
 use std::env;
 use std::fs;
-use std::process;
 use std::io::Cursor;
-use bitstream_io::{BitRead, BitReader, LittleEndian};
+use std::process;
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 
@@ -15,20 +15,24 @@ fn main() {
 
     if args.contains(&"--dump-bits".to_string()) {
         let idx = args.iter().position(|r| r == "--dump-bits").unwrap();
-        let start_bit: u64 = args[idx+1].parse().unwrap();
-        let count: u64 = args[idx+2].parse().unwrap();
+        let start_bit: u64 = args[idx + 1].parse().unwrap();
+        let count: u64 = args[idx + 2].parse().unwrap();
         let path = &args[1];
         let bytes = fs::read(path).unwrap();
-        
+
         println!("Dumping {} bits starting at {}:", count, start_bit);
         let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
         reader.skip(start_bit as u32).unwrap();
-        
+
         for i in 0..count {
             let bit = if reader.read_bit().unwrap() { '1' } else { '0' };
             print!("{}", bit);
-            if (i + 1) % 8 == 0 { print!(" "); }
-            if (i + 1) % 64 == 0 { println!(); }
+            if (i + 1) % 8 == 0 {
+                print!(" ");
+            }
+            if (i + 1) % 64 == 0 {
+                println!();
+            }
         }
         println!();
         process::exit(0);
@@ -72,10 +76,21 @@ fn main() {
 
         for (i, item) in items.iter().enumerate() {
             let trimmed = item.code.trim();
-            println!("  [Item {:>2}] {:<4} ID={:?}, Qual={:?}, Compact={}, StatBits={}, Props={}", 
-                i, trimmed, item.id, item.quality, item.is_compact, item.bits.len(), item.properties.len());
+            println!(
+                "  [Item {:>2}] {:<4} ID={:?}, Qual={:?}, Compact={}, StatBits={}, Props={}",
+                i,
+                trimmed,
+                item.id,
+                item.quality,
+                item.is_compact,
+                item.bits.len(),
+                item.properties.len()
+            );
             for prop in &item.properties {
-                println!("    - ID={:<3}, Val={:<5}, Name={}", prop.stat_id, prop.value, prop.name);
+                println!(
+                    "    - ID={:<3}, Val={:<5}, Name={}",
+                    prop.stat_id, prop.value, prop.name
+                );
             }
         }
 
@@ -91,13 +106,19 @@ fn main() {
             };
             // Try to parse back
             if let Err(e) = d2r_core::item::Item::from_bytes(&item_bits, &huffman, alpha_mode) {
-                println!("  [FAIL]  Item round-trip parse failure ({}): {}", item.code, e);
+                println!(
+                    "  [FAIL]  Item round-trip parse failure ({}): {}",
+                    item.code, e
+                );
                 all_items_symmetric = false;
             }
         }
 
         if all_items_symmetric {
-            println!("  [OK]    Item round-trip symmetry confirmed ({} items).", items.len());
+            println!(
+                "  [OK]    Item round-trip symmetry confirmed ({} items).",
+                items.len()
+            );
         } else {
             all_ok = false;
         }

@@ -17,9 +17,9 @@ fn main() {
 
     println!("Loading save from: {}", input_path);
     let mut bytes = fs::read(input_path).expect("Failed to read input file");
-    
+
     let mut save = Save::from_bytes(&bytes).expect("Failed to parse save file");
-    
+
     if save.header.version != 105 {
         println!("Error: This tool only supports Alpha v105 (version 105) save files.");
         process::exit(1);
@@ -50,9 +50,13 @@ fn main() {
     }
 
     println!("Writing unlocked save to: {}", output_path);
-    save.apply_header_to_bytes(&mut bytes).expect("Failed to apply header changes");
+    save.apply_header_to_bytes(&mut bytes)
+        .expect("Failed to apply header changes");
     fs::write(output_path, bytes).expect("Failed to write output file");
 
     println!("Done!");
-    println!("Verify results: cargo run --bin d2item_chunk_verify -- {}", output_path);
+    println!(
+        "Verify results: cargo run --bin d2item_chunk_verify -- {}",
+        output_path
+    );
 }

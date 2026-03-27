@@ -59,9 +59,7 @@ fn main() -> io::Result<()> {
 
     println!("First {} GF diffs:", diffs.len());
     for (idx, (pos, a_val, b_val)) in diffs.iter().enumerate() {
-        println!(
-            "  #{idx}: offset {pos} -> A=0x{a_val:02X} B=0x{b_val:02X}"
-        );
+        println!("  #{idx}: offset {pos} -> A=0x{a_val:02X} B=0x{b_val:02X}");
     }
 
     if range_a.len() != range_b.len() {

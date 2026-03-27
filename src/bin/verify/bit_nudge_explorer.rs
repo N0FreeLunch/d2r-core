@@ -1,5 +1,5 @@
-use d2r_core::item::{HuffmanTree, Item, BitRecorder, RecordedBit};
 use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
+use d2r_core::item::{BitRecorder, HuffmanTree, Item, RecordedBit};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -26,7 +26,7 @@ struct NudgeReport {
 fn main() -> io::Result<()> {
     let _ = dotenvy::dotenv();
     let args: Vec<String> = env::args().collect();
-    
+
     let mut save_path_str = None;
     let mut item_index = None;
     let mut target_offset = None;
@@ -57,7 +57,9 @@ fn main() -> io::Result<()> {
     }
 
     if save_path_str.is_none() || item_index.is_none() {
-        println!("Usage: cargo run --bin BitNudgeExplorer -- <save_file> <item_index> [--offset <bit>] [--range <bits>] [--json]");
+        println!(
+            "Usage: cargo run --bin BitNudgeExplorer -- <save_file> <item_index> [--offset <bit>] [--range <bits>] [--json]"
+        );
         return Ok(());
     }
 
@@ -82,15 +84,21 @@ fn main() -> io::Result<()> {
         trials: Vec::new(),
     };
 
-    println!("[BitNudgeExplorer] Exploring nudges for Item #{} ({}) near bit offset {}...", 
-        item_idx, item.code.trim(), offset);
+    println!(
+        "[BitNudgeExplorer] Exploring nudges for Item #{} ({}) near bit offset {}...",
+        item_idx,
+        item.code.trim(),
+        offset
+    );
 
     for shift in -nudge_range..=nudge_range {
-        if shift == 0 { continue; }
-        
+        if shift == 0 {
+            continue;
+        }
+
         let nudged_bits = apply_nudge(actual_bits, offset, shift);
         let (sim, code) = evaluate_symmetry(&nudged_bits, &huffman, item.version == 105);
-        
+
         let trial = NudgeTrial {
             nudge_offset: offset,
             shift_amount: shift,
@@ -98,8 +106,12 @@ fn main() -> io::Result<()> {
             new_status: if sim >= 100.0 { "SOLVED" } else { "TRIED" }.to_string(),
             code,
         };
-        
-        if report.best_trial.as_ref().map_or(true, |b| trial.new_similarity > b.new_similarity) {
+
+        if report
+            .best_trial
+            .as_ref()
+            .map_or(true, |b| trial.new_similarity > b.new_similarity)
+        {
             report.best_trial = Some(trial.clone());
         }
         report.trials.push(trial);
@@ -109,8 +121,10 @@ fn main() -> io::Result<()> {
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
         if let Some(best) = &report.best_trial {
-            println!("Best Nudge Result: Shift {} bits at Offset {} -> Similarity {:.2}% ({})", 
-                best.shift_amount, best.nudge_offset, best.new_similarity, best.new_status);
+            println!(
+                "Best Nudge Result: Shift {} bits at Offset {} -> Similarity {:.2}% ({})",
+                best.shift_amount, best.nudge_offset, best.new_similarity, best.new_status
+            );
         } else {
             println!("No improvements found.");
         }
@@ -149,30 +163,43 @@ fn apply_nudge(original: &[bool], offset: u64, shift: i32) -> Vec<bool> {
 fn evaluate_symmetry(bits: &[bool], huffman: &HuffmanTree, is_v105: bool) -> (f64, String) {
     // 1. Convert bits to bytes for the reader
     let mut writer = BitWriter::endian(Vec::new(), LittleEndian);
-    for &b in bits { let _ = writer.write_bit(b); }
+    for &b in bits {
+        let _ = writer.write_bit(b);
+    }
     let nudged_bytes = writer.into_writer();
-    
+
     // 2. Parse from nudged bytes
     let mut reader = BitReader::endian(Cursor::new(&nudged_bytes), LittleEndian);
     let mut recorder = BitRecorder::new(&mut reader);
     match Item::from_reader_with_context(&mut recorder, huffman, None, false) {
         Ok(item) => {
             let actual_bits: Vec<bool> = recorder.recorded_bits.iter().map(|rb| rb.bit).collect();
-            
+
             // 3. Re-serialize parsed item to get expected bits
             let mut cloned = item.clone();
             cloned.bits.clear();
-            let Ok(expected_bytes) = cloned.to_bytes(huffman, is_v105) else { return (0.0, "ERR".to_string()); };
-            
+            let Ok(expected_bytes) = cloned.to_bytes(huffman, is_v105) else {
+                return (0.0, "ERR".to_string());
+            };
+
             let mut e_reader = BitReader::endian(Cursor::new(&expected_bytes), LittleEndian);
             let mut e_recorder = BitRecorder::new(&mut e_reader);
             let _ = Item::from_reader_with_context(&mut e_recorder, huffman, None, false);
-            let expected_bits: Vec<bool> = e_recorder.recorded_bits.iter().map(|rb| rb.bit).collect();
-            
+            let expected_bits: Vec<bool> =
+                e_recorder.recorded_bits.iter().map(|rb| rb.bit).collect();
+
             // 4. Calculate similarity
-            let matches = actual_bits.iter().zip(expected_bits.iter()).filter(|(a, b)| a == b).count();
+            let matches = actual_bits
+                .iter()
+                .zip(expected_bits.iter())
+                .filter(|(a, b)| a == b)
+                .count();
             let max_len = actual_bits.len().max(expected_bits.len());
-            let sim = if max_len > 0 { (matches as f64 / max_len as f64) * 100.0 } else { 0.0 };
+            let sim = if max_len > 0 {
+                (matches as f64 / max_len as f64) * 100.0
+            } else {
+                0.0
+            };
             (sim, item.code.clone())
         }
         Err(_) => (0.0, "FAIL".to_string()),
@@ -186,14 +213,16 @@ fn load_items_with_recorder(bytes: &[u8], huffman: &HuffmanTree) -> Vec<(Item, V
     while let Some(rel_jm) = bytes[jm_pos..].windows(2).position(|w| w == b"JM") {
         let abs_jm = jm_pos + rel_jm;
         if abs_jm + 4 <= bytes.len() {
-             let mut bit_pos = (abs_jm as u64 + 4) * 8;
-             let bit_limit = bytes.len() as u64 * 8;
-             while bit_pos < bit_limit - 16 {
+            let mut bit_pos = (abs_jm as u64 + 4) * 8;
+            let bit_limit = bytes.len() as u64 * 8;
+            while bit_pos < bit_limit - 16 {
                 let b_start = (bit_pos / 8) as usize;
                 let b_off = (bit_pos % 8) as u32;
                 let mut cursor = Cursor::new(&bytes[b_start..]);
                 let mut reader = BitReader::endian(&mut cursor, LittleEndian);
-                if b_off > 0 { let _ = reader.skip(b_off).ok(); }
+                if b_off > 0 {
+                    let _ = reader.skip(b_off).ok();
+                }
                 let mut recorder = BitRecorder::new(&mut reader);
                 match Item::from_reader_with_context(&mut recorder, huffman, None, false) {
                     Ok(item) => {
@@ -202,12 +231,16 @@ fn load_items_with_recorder(bytes: &[u8], huffman: &HuffmanTree) -> Vec<(Item, V
                         collection.push((item, bits));
                         bit_pos += consumed;
                     }
-                    Err(_) => { bit_pos += 1; }
+                    Err(_) => {
+                        bit_pos += 1;
+                    }
                 }
-             }
+            }
         }
         jm_pos = abs_jm + 2;
-        if !collection.is_empty() { break; }
+        if !collection.is_empty() {
+            break;
+        }
     }
     collection
 }

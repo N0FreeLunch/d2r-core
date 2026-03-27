@@ -1,8 +1,8 @@
+use bitstream_io::{BitRead, BitReader, LittleEndian};
+use d2r_core::save::{gf_payload_range, map_core_sections};
 use std::env;
 use std::fs;
 use std::io::{self, Cursor};
-use bitstream_io::{BitRead, BitReader, LittleEndian};
-use d2r_core::save::{map_core_sections, gf_payload_range};
 
 fn get_retail_bits(stat_id: u32) -> u32 {
     match stat_id {
@@ -26,7 +26,7 @@ fn main() -> io::Result<()> {
 
     let path = &args[1];
     let bytes = fs::read(path)?;
-    
+
     let mut target_id = 80;
     if let Some(pos) = args.iter().position(|x| x == "--stat-id") {
         if let Some(id_str) = args.get(pos + 1) {
@@ -47,22 +47,33 @@ fn main() -> io::Result<()> {
         }
     }
 
-    let map = map_core_sections(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let map =
+        map_core_sections(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     let payload_range = gf_payload_range(&map);
     let payload = &bytes[payload_range.start..payload_range.end];
-    
+
     println!("=== GF Oracle Sweep ===");
     println!("File      : {}", path);
     println!("Target ID : {}", target_id);
-    println!("Payload   : {} bytes (at 0x{:X})", payload.len(), payload_range.start);
+    println!(
+        "Payload   : {} bytes (at 0x{:X})",
+        payload.len(),
+        payload_range.start
+    );
     println!();
     println!("| Val Width | Score | Terminator Found | Terminator Bit Offset | Notes |");
     println!("|-----------|-------|------------------|-----------------------|-------|");
 
     for val_width in start_width..=end_width {
         let (score, term_found, term_pos, notes) = score_width(payload, target_id, val_width);
-        println!("| {:9} | {:5} | {:16} | {:21} | {:5} |",
-            val_width, score, term_found, term_pos.map(|p| p.to_string()).unwrap_or("-".to_string()), notes);
+        println!(
+            "| {:9} | {:5} | {:16} | {:21} | {:5} |",
+            val_width,
+            score,
+            term_found,
+            term_pos.map(|p| p.to_string()).unwrap_or("-".to_string()),
+            notes
+        );
     }
 
     Ok(())

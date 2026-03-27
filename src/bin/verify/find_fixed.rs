@@ -15,8 +15,9 @@ fn read_bits<R: BitRead>(reader: &mut R, n: u32) -> u32 {
 }
 
 fn main() {
-    let bytes = fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
-    
+    let bytes =
+        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
+
     println!("--- Testing Variable Fixed (Total 24bits) ---");
 
     for id_bits in 7..=11 {
@@ -24,14 +25,20 @@ fn main() {
         for start_bit in 7780..=7800 {
             let byte_offset = start_bit / 8;
             let bit_offset = start_bit % 8;
-            let mut reader = BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
-            for _ in 0..bit_offset { let _ = reader.read_bit().ok(); }
-            
+            let mut reader =
+                BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
+            for _ in 0..bit_offset {
+                let _ = reader.read_bit().ok();
+            }
+
             for _ in 0..10 {
                 let _id = read_bits(&mut reader, id_bits);
                 let val = read_bits(&mut reader, v_bits);
                 if val == 14 || val == 310 || val == 31 {
-                    println!("HIT! ID: {}, Val bits: {}, Start: {}, Value: {}", id_bits, v_bits, start_bit, val);
+                    println!(
+                        "HIT! ID: {}, Val bits: {}, Start: {}, Value: {}",
+                        id_bits, v_bits, start_bit, val
+                    );
                 }
             }
         }

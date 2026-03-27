@@ -1,7 +1,7 @@
-use std::fs;
-use std::env;
-use d2r_core::save::{Save, map_core_sections, AttributeSection};
 use d2r_core::item::HuffmanTree;
+use d2r_core::save::{AttributeSection, Save, map_core_sections};
+use std::env;
+use std::fs;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -9,17 +9,17 @@ fn main() {
         println!("Usage: dump_gf <file.d2s>");
         return;
     }
-    
+
     let bytes = fs::read(&args[1]).expect("read fail");
     let map = map_core_sections(&bytes).expect("map fail");
     let attr = AttributeSection::parse(&bytes, &map).expect("parse fail");
-    
+
     println!("=== GF Stats ===");
     for entry in attr.entries {
         if let Some(bits) = entry.opaque_bits {
-             println!("ID {:>3}: [Opaque bits len {}]", entry.stat_id, bits.len());
+            println!("ID {:>3}: [Opaque bits len {}]", entry.stat_id, bits.len());
         } else {
-             println!("ID {:>3}: Value {}", entry.stat_id, entry.raw_value);
+            println!("ID {:>3}: Value {}", entry.stat_id, entry.raw_value);
         }
     }
 }

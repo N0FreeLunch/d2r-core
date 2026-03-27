@@ -18,9 +18,12 @@ fn main() {
 
     let bytes = fs::read(path).expect("failed to read save file");
     let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
-    
+
     if reader.skip(base_bit as u32).is_err() {
-        eprintln!("Error: Cannot skip to bit {} (outside file boundaries).", base_bit);
+        eprintln!(
+            "Error: Cannot skip to bit {} (outside file boundaries).",
+            base_bit
+        );
         process::exit(1);
     }
 
@@ -37,7 +40,7 @@ fn main() {
             }
         }
         if row_str.is_empty() {
-             break;
+            break;
         }
         let current_pos = base_bit + (r + 1) * width;
         println!("{} (pos={})", row_str, current_pos);

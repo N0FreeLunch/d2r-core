@@ -1,13 +1,15 @@
+use bitstream_io::BitRead;
 use d2r_core::item::{HuffmanTree, Item, ItemQuality};
 use std::env;
 use std::fs;
 use std::io;
-use bitstream_io::BitRead;
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: cargo run --bin d2item_chunk_verify -- <file.d2s> [--range START..END] [--detail INDEX]");
+        eprintln!(
+            "Usage: cargo run --bin d2item_chunk_verify -- <file.d2s> [--range START..END] [--detail INDEX]"
+        );
         std::process::exit(1);
     }
 
@@ -55,35 +57,69 @@ fn main() -> io::Result<()> {
     let checksum_status = if original_checksum == calculated_checksum {
         format!("VALID (0x{:08X})", original_checksum)
     } else {
-        format!("INVALID (Expected 0x{:08X}, Got 0x{:08X})", calculated_checksum, original_checksum)
+        format!(
+            "INVALID (Expected 0x{:08X}, Got 0x{:08X})",
+            calculated_checksum, original_checksum
+        )
     };
 
     // Print Save Structure Table
     println!("=== Save File Structure ===");
     println!("Checksum: {}", checksum_status);
     println!();
-    println!("{:<20} | {:<4} | {:<10} | {:<10} | {:<10} | {:<10}", "Section", "Mark", "Start(Hex)", "End(Hex)", "Len(Dec)", "Status");
+    println!(
+        "{:<20} | {:<4} | {:<10} | {:<10} | {:<10} | {:<10}",
+        "Section", "Mark", "Start(Hex)", "End(Hex)", "Len(Dec)", "Status"
+    );
     println!("---------------------|------|------------|------------|------------|-----------");
 
     // 1. Header
-    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Header", "-", 0, map.gf_pos, map.gf_pos);
+    println!(
+        "{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]",
+        "Header", "-", 0, map.gf_pos, map.gf_pos
+    );
 
     // 2. Attributes (gf)
-    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Attributes", "gf", map.gf_pos, map.if_pos, map.if_pos - map.gf_pos);
+    println!(
+        "{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]",
+        "Attributes",
+        "gf",
+        map.gf_pos,
+        map.if_pos,
+        map.if_pos - map.gf_pos
+    );
 
     // 3. Skills (if)
     let skill_len = 2 + d2r_core::save::SKILL_SECTION_LEN;
     let skill_end = map.if_pos + skill_len;
-    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]", "Skills", "if", map.if_pos, skill_end, skill_len);
+    println!(
+        "{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [OK]",
+        "Skills", "if", map.if_pos, skill_end, skill_len
+    );
 
     // 4. Gap (Quest/Progression?)
     let jm0 = map.jm_positions[0];
     let gap_len = jm0.saturating_sub(skill_end);
-    let gap_status = if gap_len > 0 { format!("[?? {} bytes]", gap_len) } else { "[None]".to_string() };
-    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | {}", "Gap (Quest?)", "-", skill_end, jm0, gap_len, gap_status);
+    let gap_status = if gap_len > 0 {
+        format!("[?? {} bytes]", gap_len)
+    } else {
+        "[None]".to_string()
+    };
+    println!(
+        "{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | {}",
+        "Gap (Quest?)", "-", skill_end, jm0, gap_len, gap_status
+    );
 
     // 5. Items (First JM to End)
-    println!("{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [{} Sects]", "Items (JM total)", "JM", jm0, bytes.len(), bytes.len() - jm0, map.jm_positions.len());
+    println!(
+        "{:<20} | {:<4} | 0x{:08X} | 0x{:08X} | {:>10} | [{} Sects]",
+        "Items (JM total)",
+        "JM",
+        jm0,
+        bytes.len(),
+        bytes.len() - jm0,
+        map.jm_positions.len()
+    );
     println!();
 
     // === Progression Sections (Header) ===
@@ -93,8 +129,11 @@ fn main() -> io::Result<()> {
     let header_range = bytes.len().min(0x341);
     let header_slice = &bytes[..header_range];
 
-    println!("[Scanning signatures in 0x0000..0x{:04X}]", header_range - 1);
-    
+    println!(
+        "[Scanning signatures in 0x0000..0x{:04X}]",
+        header_range - 1
+    );
+
     // Normal Pattern: [02, FF, 02] (Odd ON)
     let mut normal_found = false;
     for (i, win) in header_slice.windows(3).enumerate() {
@@ -131,7 +170,10 @@ fn main() -> io::Result<()> {
     println!();
 
     // Raw Header Dump (0x000..0x340)
-    println!("=== Raw Header Dump (0x000..0x{:04X}) ===", header_range - 1);
+    println!(
+        "=== Raw Header Dump (0x000..0x{:04X}) ===",
+        header_range - 1
+    );
     for row in 0..((header_range + 15) / 16) {
         let row_start = row * 16;
         let row_end = (row_start + 16).min(header_range);
@@ -140,7 +182,9 @@ fn main() -> io::Result<()> {
         for b in row_start..row_end {
             print!(" {:02X}", bytes[b]);
         }
-        for _ in row_end..(row_start+16) { print!("   "); }
+        for _ in row_end..(row_start + 16) {
+            print!("   ");
+        }
         print!(" | ");
         // Binary (Compact)
         for b in row_start..row_end {
@@ -152,25 +196,31 @@ fn main() -> io::Result<()> {
     }
     println!();
 
-    
     // === Character Progression (Alpha v105 Engine) ===
     if let Ok(save) = d2r_core::save::Save::from_bytes(&bytes) {
         println!("=== Character Progression (Alpha v105) ===");
         let version = save.header.version;
-        
+
         // Quests
         println!("Completed Quests:");
         let mut completed_any = false;
         if let Some(ref quests) = save.header.quests {
             for quest in d2r_core::data::quests::V105_QUESTS {
                 if quests.is_v105_completed_by_name(quest.name) {
-                    let diff_str = match quest.difficulty { 0 => "Normal", 1 => "NM", 2 => "Hell", _ => "?" };
+                    let diff_str = match quest.difficulty {
+                        0 => "Normal",
+                        1 => "NM",
+                        2 => "Hell",
+                        _ => "?",
+                    };
                     println!("  [{:<6}] Act {} - {}", diff_str, quest.act, quest.name);
                     completed_any = true;
                 }
             }
         }
-        if !completed_any { println!("  (None)"); }
+        if !completed_any {
+            println!("  (None)");
+        }
         println!();
 
         // Waypoints
@@ -180,11 +230,25 @@ fn main() -> io::Result<()> {
             let mut diff_wps = Vec::new();
             for wp in d2r_core::data::waypoints::WAYPOINTS {
                 let activated = if version == 105 {
-                    save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name, diff as u8)).unwrap_or(false)
+                    save.header
+                        .waypoints
+                        .as_ref()
+                        .map(|w| w.is_activated_by_name(wp.name, diff as u8))
+                        .unwrap_or(false)
                 } else {
                     match diff {
-                        0 => save.header.waypoints.as_ref().map(|w| w.is_activated_by_name(wp.name, 0)).unwrap_or(false),
-                        1 | 2 => save.header.expansion.as_ref().map(|e| e.is_activated_by_name(diff as u8, wp.name)).unwrap_or(false),
+                        0 => save
+                            .header
+                            .waypoints
+                            .as_ref()
+                            .map(|w| w.is_activated_by_name(wp.name, 0))
+                            .unwrap_or(false),
+                        1 | 2 => save
+                            .header
+                            .expansion
+                            .as_ref()
+                            .map(|e| e.is_activated_by_name(diff as u8, wp.name))
+                            .unwrap_or(false),
                         _ => false,
                     }
                 };
@@ -194,12 +258,19 @@ fn main() -> io::Result<()> {
                 }
             }
             if !diff_wps.is_empty() {
-                let diff_str = match diff { 0 => "Normal", 1 => "Nightmare", 2 => "Hell", _ => "?" };
+                let diff_str = match diff {
+                    0 => "Normal",
+                    1 => "Nightmare",
+                    2 => "Hell",
+                    _ => "?",
+                };
                 println!("  [{:>9}]: {}", diff_str, diff_wps.join(", "));
                 wp_any = true;
             }
         }
-        if !wp_any { println!("  (None)"); }
+        if !wp_any {
+            println!("  (None)");
+        }
         println!();
     }
 
@@ -211,20 +282,23 @@ fn main() -> io::Result<()> {
         } else {
             0
         };
-        
+
         // Find next JM marker or end of file
         let end_marker = if jm_idx + 1 < jm_positions.len() {
             jm_positions[jm_idx + 1]
         } else {
             bytes.len()
         };
-        
+
         println!("JM Section at 0x{:04X}: {} items", start_pos, count_val);
         if count_val > 0 {
             let section_data = &bytes[start_pos + 4..end_marker];
-            
+
             if env::var("D2R_ITEM_TRACE").is_ok() {
-                println!("  [Diagnostic] Performing bit-level probe for JM section at 0x{:04X}...", start_pos);
+                println!(
+                    "  [Diagnostic] Performing bit-level probe for JM section at 0x{:04X}...",
+                    start_pos
+                );
                 let section_bits = (section_data.len() * 8) as u64;
                 for b in 0..section_bits.saturating_sub(64) {
                     if is_terminator_like(section_data, b) {
@@ -256,9 +330,9 @@ fn main() -> io::Result<()> {
             }
         }
     }
-    
+
     let items = all_items;
-    
+
     if let Some(idx) = detail_index {
         if idx >= items.len() {
             eprintln!("Index {} out of bounds (total items: {})", idx, items.len());
@@ -277,7 +351,10 @@ fn print_summary(items: &[Item], start: usize, end: usize) {
     println!("Total Items Found: {}", items.len());
     println!("Scanning Range: {}..{}", start, actual_end);
     println!();
-    println!("{:>5} | {:<5} | {:>4} | {:<10} | {:<4} | {:<8}", "Index", "Code", "Bits", "Quality", "RW", "Loc");
+    println!(
+        "{:>5} | {:<5} | {:>4} | {:<10} | {:<4} | {:<8}",
+        "Index", "Code", "Bits", "Quality", "RW", "Loc"
+    );
     println!("------|-------|------|------------|------|---------");
 
     for i in start..actual_end {
@@ -304,17 +381,27 @@ fn print_summary(items: &[Item], start: usize, end: usize) {
             item.location,
             item.socketed_items.len()
         );
-        
+
         for child in &item.socketed_items {
-            println!("      └── Socketed: '{}' ({} bits)", child.code, child.bits.len());
+            println!(
+                "      └── Socketed: '{}' ({} bits)",
+                child.code,
+                child.bits.len()
+            );
         }
-        
+
         // Basic anomaly check
         if item.is_runeword && item.bits.len() < 100 {
-            println!("      └── [WARN] Runeword with suspicious short bit-length: {}", item.bits.len());
+            println!(
+                "      └── [WARN] Runeword with suspicious short bit-length: {}",
+                item.bits.len()
+            );
         }
         if item.quality == Some(ItemQuality::Normal) && item.bits.len() > 200 {
-            println!("      └── [WARN] Normal item with suspicious long bit-length: {}", item.bits.len());
+            println!(
+                "      └── [WARN] Normal item with suspicious long bit-length: {}",
+                item.bits.len()
+            );
         }
     }
 }
@@ -328,7 +415,10 @@ fn print_detail(index: usize, item: &Item) {
     println!("Socketed: {}", (item.flags & (1 << 11)) != 0);
     println!("Quality: {:?}", item.quality);
     println!("Runeword: {}", item.is_runeword);
-    println!("Location: Mode={} Page={} X={} Y={} Loc={}", item.mode, item.page, item.x, item.y, item.location);
+    println!(
+        "Location: Mode={} Page={} X={} Y={} Loc={}",
+        item.mode, item.page, item.x, item.y, item.location
+    );
     println!("Properties Complete: {}", item.properties_complete);
     println!();
     println!("Properties:");
@@ -347,23 +437,28 @@ fn dump_bit_window(data: &[u8], pos: u64) {
     let half = 32;
     let start = pos.saturating_sub(half);
     let end = (pos + half).min((data.len() * 8) as u64);
-    
+
     print!("  [BitWindow] @{:>4}: ", pos);
     for b in start..end {
         let byte_idx = (b / 8) as usize;
         let bit_idx = (b % 8) as u8;
         let bit = (data[byte_idx] >> bit_idx) & 1 != 0;
         print!("{}", if bit { "1" } else { "0" });
-        if b % 8 == 7 { print!(" "); }
+        if b % 8 == 7 {
+            print!(" ");
+        }
     }
     println!();
 }
 
 fn is_terminator_like(data: &[u8], bit_pos: u64) -> bool {
     // Look for 9 ones followed by 8 zeros (17 bits)
-    let mut reader = bitstream_io::BitReader::endian(std::io::Cursor::new(data), bitstream_io::LittleEndian);
-    if reader.skip(bit_pos as u32).is_err() { return false; }
-    
+    let mut reader =
+        bitstream_io::BitReader::endian(std::io::Cursor::new(data), bitstream_io::LittleEndian);
+    if reader.skip(bit_pos as u32).is_err() {
+        return false;
+    }
+
     let mut val = 0u32;
     for i in 0..17 {
         if let Ok(bit) = reader.read_bit() {
@@ -380,9 +475,12 @@ fn is_terminator_like(data: &[u8], bit_pos: u64) -> bool {
 fn peek_code_minimal(data: &[u8], start_bit: u64, huffman: &HuffmanTree) -> Option<String> {
     // Flags(32)+Ver(3)+Mode(3)+Loc(4)+X(4) = 46 bits
     // We'll just try decoding at offsets 46, 46+7 (if Loc 0), etc.
-    for offset in [46u64, 46+7] { 
-        let mut reader = bitstream_io::BitReader::endian(std::io::Cursor::new(data), bitstream_io::LittleEndian);
-        if reader.skip((start_bit + offset) as u32).is_err() { continue; }
+    for offset in [46u64, 46 + 7] {
+        let mut reader =
+            bitstream_io::BitReader::endian(std::io::Cursor::new(data), bitstream_io::LittleEndian);
+        if reader.skip((start_bit + offset) as u32).is_err() {
+            continue;
+        }
         let mut code = String::new();
         let mut ok = true;
         for _ in 0..4 {
@@ -396,7 +494,9 @@ fn peek_code_minimal(data: &[u8], start_bit: u64, huffman: &HuffmanTree) -> Opti
         if ok {
             let trimmed = code.trim();
             if trimmed.len() >= 3 && trimmed.chars().all(|c| c.is_alphanumeric()) {
-                let known = ["jav", "buc", "rin", "amu", "key", "tsc", "isc", "hp1", "mp1"];
+                let known = [
+                    "jav", "buc", "rin", "amu", "key", "tsc", "isc", "hp1", "mp1",
+                ];
                 if known.contains(&trimmed) {
                     return Some(code);
                 }

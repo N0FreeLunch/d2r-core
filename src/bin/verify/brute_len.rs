@@ -19,14 +19,20 @@ fn main() {
 
     let bytes = fs::read(path).expect("failed to read save file");
 
-    println!("Scanning 9-bit Terminator (511) starting from {}...", base_bit);
+    println!(
+        "Scanning 9-bit Terminator (511) starting from {}...",
+        base_bit
+    );
     println!("Range: {} to {} bits from base", min_len, max_len);
 
     let mut found = 0;
     for len in min_len..=max_len {
         let target = base_bit + len;
         if check(target, &bytes) {
-            println!("  [MATCH] Found 511 at Bit Offset {} (Length: {} bits from base)", target, len);
+            println!(
+                "  [MATCH] Found 511 at Bit Offset {} (Length: {} bits from base)",
+                target, len
+            );
             found += 1;
         }
     }
@@ -43,7 +49,7 @@ fn check(start: usize, bytes: &[u8]) -> bool {
     if reader.skip(start as u32).is_err() {
         return false;
     }
-    
+
     let mut recorder = BitRecorder::new(&mut reader);
     match recorder.read_bits(9) {
         Ok(511) => true,

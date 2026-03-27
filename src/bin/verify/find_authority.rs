@@ -15,10 +15,11 @@ fn read_bits<R: BitRead>(reader: &mut R, n: u32) -> u32 {
 }
 
 fn main() {
-    let bytes = fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
+    let bytes =
+        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
     let start_bit = 7790;
     let targets = [310, 14, 31, 1];
-    
+
     println!("--- Optimized Alpha v105 Property Chain Discovery ---");
     println!("Target Values: {:?}", targets);
 
@@ -32,21 +33,30 @@ fn main() {
 
     while let Some((bit_pos, depth, sequence)) = stack.pop() {
         iterations += 1;
-        if iterations > 1_000_000 { break; }
+        if iterations > 1_000_000 {
+            break;
+        }
         if iterations % 100_000 == 0 {
             print!("."); // Minimal progress indicator
             std::io::Write::flush(&mut std::io::stdout()).unwrap();
         }
 
-        if depth > 10 { continue; }
+        if depth > 10 {
+            continue;
+        }
 
         let byte_offset = bit_pos / 8;
         let bit_offset = bit_pos % 8;
-        if byte_offset as usize >= bytes.len() { continue; }
+        if byte_offset as usize >= bytes.len() {
+            continue;
+        }
 
-        let mut reader = BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
-        for _ in 0..bit_offset { let _ = reader.read_bit().ok(); }
-        
+        let mut reader =
+            BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
+        for _ in 0..bit_offset {
+            let _ = reader.read_bit().ok();
+        }
+
         let id = read_bits(&mut reader, id_bits);
         if id == terminator {
             let values: Vec<u32> = sequence.iter().map(|s| s.2).collect();
@@ -54,7 +64,10 @@ fn main() {
             if matches >= 3 {
                 best_results.push((matches, sequence.clone()));
                 if matches == 4 {
-                    println!("\n[FOUND PERFECT MATCH at iter {}] Params: {:?}", iterations, sequence);
+                    println!(
+                        "\n[FOUND PERFECT MATCH at iter {}] Params: {:?}",
+                        iterations, sequence
+                    );
                 }
             }
             continue;
@@ -63,18 +76,23 @@ fn main() {
         // Branching logic: prioritize widths that might yield our target values
         // Most stats are 1-12 bits.
         for w in (1..=14).rev() {
-            let mut r2 = BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
-            for _ in 0..bit_offset { let _ = r2.read_bit().ok(); }
+            let mut r2 =
+                BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
+            for _ in 0..bit_offset {
+                let _ = r2.read_bit().ok();
+            }
             let _id = read_bits(&mut r2, id_bits);
             let val = read_bits(&mut r2, w);
 
             // PRUNING: If the ID is insane (unlikely for first 10 stats)
             // Or if the value is unreasonably large (> 1024 for most Alpha stats)
-            if id > 511 || val > 1024 { continue; }
+            if id > 511 || val > 1024 {
+                continue;
+            }
 
             let mut next_seq = sequence.clone();
             next_seq.push((id, w, val));
-            
+
             stack.push((bit_pos + id_bits as u64 + w as u64, depth + 1, next_seq));
         }
     }

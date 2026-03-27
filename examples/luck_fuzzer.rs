@@ -1,5 +1,7 @@
-use d2r_core::save::{Save, AttributeEntry, map_core_sections, AttributeSection, finalize_save_bytes};
 use d2r_core::item::{HuffmanTree, Item, ItemProperty, ItemQuality};
+use d2r_core::save::{
+    AttributeEntry, AttributeSection, Save, finalize_save_bytes, map_core_sections,
+};
 use std::env;
 use std::fs;
 use std::process;
@@ -9,7 +11,9 @@ fn main() {
     println!("DEBUG Args: {:?}", args);
     if args.len() < 6 {
         println!("Status: Fuzzing Tool Initialized");
-        println!("Usage: cargo run --example luck_fuzzer -- <input.d2s> <output.d2s> <mode:gf|if|af> <id> <value> [bits]");
+        println!(
+            "Usage: cargo run --example luck_fuzzer -- <input.d2s> <output.d2s> <mode:gf|if|af> <id> <value> [bits]"
+        );
         process::exit(1);
     }
 
@@ -18,7 +22,7 @@ fn main() {
     let mode = &args[3];
     let stat_id: u32 = args[4].parse().expect("Invalid stat_id");
     let value: u32 = args[5].parse().expect("Invalid value");
-    
+
     let mut item_index: usize = 10;
     let mut gf_bits: u32 = 10;
 
@@ -35,14 +39,17 @@ fn main() {
                 match trailing_args[i].as_str() {
                     "--item-index" => {
                         if i + 1 < trailing_args.len() {
-                            item_index = trailing_args[i+1].parse().expect("Invalid item index");
+                            item_index = trailing_args[i + 1].parse().expect("Invalid item index");
                             i += 2;
                         } else {
                             panic!("Missing value for --item-index");
                         }
                     }
                     _ => {
-                        panic!("Unknown trailing argument for {} mode: {}", mode, trailing_args[i]);
+                        panic!(
+                            "Unknown trailing argument for {} mode: {}",
+                            mode, trailing_args[i]
+                        );
                     }
                 }
             }
@@ -60,7 +67,7 @@ fn main() {
 
     let bytes = fs::read(input_path).expect("Failed to read input file");
     let huffman = HuffmanTree::new();
-    
+
     // Parse core sections
     let map = map_core_sections(&bytes).expect("Failed to map sections");
     let mut attrs = AttributeSection::parse(&bytes, &map).expect("Failed to parse attributes");
@@ -88,11 +95,17 @@ fn main() {
         "if" => {
             println!("Mutating Item Properties (if) at index {}...", item_index);
             if let Some(item) = items.get_mut(item_index) {
-                println!("Target Item: {} [Old Quality: {:?}, Version: {}]", item.code, item.quality, item.version);
-                
+                println!(
+                    "Target Item: {} [Old Quality: {:?}, Version: {}]",
+                    item.code, item.quality, item.version
+                );
+
                 // Alpha item property value constraint
                 if (item.version == 1 || item.version == 5) && value > 1 {
-                    println!("Error: Value {} is > 1 for Alpha item (version {}). Bounded to 1-bit value.", value, item.version);
+                    println!(
+                        "Error: Value {} is > 1 for Alpha item (version {}). Bounded to 1-bit value.",
+                        value, item.version
+                    );
                     process::exit(1);
                 }
 
@@ -100,8 +113,8 @@ fn main() {
                 item.is_compact = false;
                 item.level = Some(10);
                 item.flags &= !(1 << 21); // Clear compact
-                item.flags |= 1 << 10;    // Set magic bit
-                
+                item.flags |= 1 << 10; // Set magic bit
+
                 item.properties.retain(|p| p.stat_id != stat_id);
                 item.properties.push(ItemProperty {
                     stat_id,
@@ -112,7 +125,10 @@ fn main() {
                 });
                 item.properties_complete = true;
                 item.bits.clear(); // FORCE RE-ENCODE
-                println!("Set Item {} to Magic, Level 10, Stat ID {}", item_index, stat_id);
+                println!(
+                    "Set Item {} to Magic, Level 10, Stat ID {}",
+                    item_index, stat_id
+                );
             } else {
                 println!("Error: Item {} not found.", item_index);
                 process::exit(1);
@@ -121,15 +137,21 @@ fn main() {
         "af" => {
             println!("Mutating Item Affixes (af) at index {}...", item_index);
             if let Some(item) = items.get_mut(item_index) {
-                println!("Target Item: {} [Old Quality: {:?}]", item.code, item.quality);
+                println!(
+                    "Target Item: {} [Old Quality: {:?}]",
+                    item.code, item.quality
+                );
                 item.quality = Some(ItemQuality::Magic);
                 item.is_compact = false;
                 item.level = Some(10);
                 item.flags &= !(1 << 21); // Clear compact
-                item.flags |= 1 << 10;    // Set magic bit
+                item.flags |= 1 << 10; // Set magic bit
                 item.magic_suffix = Some(stat_id as u16);
                 item.bits.clear(); // FORCE RE-ENCODE
-                println!("Set Item {} to Magic, Level 10, Magic Suffix ID {}", item_index, stat_id);
+                println!(
+                    "Set Item {} to Magic, Level 10, Magic Suffix ID {}",
+                    item_index, stat_id
+                );
             } else {
                 println!("Error: Item {} not found.", item_index);
                 process::exit(1);
@@ -151,7 +173,8 @@ fn main() {
         None, // Expansion
         &items,
         &huffman,
-    ).expect("Failed to rebuild save bytes");
+    )
+    .expect("Failed to rebuild save bytes");
 
     finalize_save_bytes(&mut save_bytes).expect("Failed to finalize checksums");
     fs::write(output_path, &save_bytes).expect("Failed to write output file");

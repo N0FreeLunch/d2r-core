@@ -1,5 +1,5 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use d2r_core::item::{HuffmanTree, Item, BitRecorder};
+use d2r_core::item::{BitRecorder, HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -12,15 +12,26 @@ fn main() {
     }
     let path = &args[1];
     let offset = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    let count_bits = args.get(3).and_then(|s| s.parse::<u32>().ok()).unwrap_or(64);
+    let count_bits = args
+        .get(3)
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(64);
     let bytes = fs::read(path).expect("failed to read save file");
 
     if offset > 0 {
-        let mut reader = IoBitReader::endian(Cursor::new(&bytes[(offset/8) as usize..]), LittleEndian);
+        let mut reader =
+            IoBitReader::endian(Cursor::new(&bytes[(offset / 8) as usize..]), LittleEndian);
         let mut recorder = BitRecorder::new(&mut reader);
-        for _ in 0..(offset % 8) { recorder.read_bit().unwrap(); }
+        for _ in 0..(offset % 8) {
+            recorder.read_bit().unwrap();
+        }
         let val = recorder.read_bits_u64(count_bits).unwrap_or(0);
-        println!("Bits at offset {}: {:0width$b}", offset, val, width=count_bits as usize);
+        println!(
+            "Bits at offset {}: {:0width$b}",
+            offset,
+            val,
+            width = count_bits as usize
+        );
         return;
     }
 
@@ -37,7 +48,12 @@ fn main() {
     let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
     for i in 0..count {
         let bit_start = (jm_pos + 4) * 8 + recorder.total_read as usize;
-        match Item::from_reader_with_context(&mut recorder, &huffman, Some((&bytes, ((jm_pos+4)*8) as u64)), is_alpha) {
+        match Item::from_reader_with_context(
+            &mut recorder,
+            &huffman,
+            Some((&bytes, ((jm_pos + 4) * 8) as u64)),
+            is_alpha,
+        ) {
             Ok(item) => {
                 println!(
                     "Item {}: '{}' (start_bit={}, len={} bits)",

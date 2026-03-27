@@ -1,9 +1,10 @@
 use std::fs;
 
 fn main() {
-    let bytes = fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
+    let bytes =
+        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
     let val = 14u32;
-    
+
     println!("--- Searching for Value {} (4-9 bits) ---", val);
 
     for width in 4..=9 {
@@ -13,7 +14,10 @@ fn main() {
             for (i, &p) in pattern.iter().enumerate() {
                 let bit_idx = (bit + i as u64) / 8;
                 let bit_off = (bit + i as u64) % 8;
-                if bit_idx as usize >= bytes.len() { matches = false; break; }
+                if bit_idx as usize >= bytes.len() {
+                    matches = false;
+                    break;
+                }
                 let b = (bytes[bit_idx as usize] >> bit_off) & 1;
                 if b != p as u8 {
                     matches = false;

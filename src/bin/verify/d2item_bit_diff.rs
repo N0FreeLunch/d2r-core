@@ -1,5 +1,5 @@
-use d2r_core::item::{HuffmanTree, Item};
 use d2r_core::algo::alignment::BitAligner;
+use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -27,11 +27,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let items2 = load_items(&bytes2, &huffman, save2_path);
 
     if index1 >= items1.len() {
-        eprintln!("Error: Item index {} out of range for {} (found {} items)", index1, save1_path, items1.len());
+        eprintln!(
+            "Error: Item index {} out of range for {} (found {} items)",
+            index1,
+            save1_path,
+            items1.len()
+        );
         process::exit(1);
     }
     if index2 >= items2.len() {
-        eprintln!("Error: Item index {} out of range for {} (found {} items)", index2, save2_path, items2.len());
+        eprintln!(
+            "Error: Item index {} out of range for {} (found {} items)",
+            index2,
+            save2_path,
+            items2.len()
+        );
         process::exit(1);
     }
 
@@ -45,8 +55,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let result = aligner.align(&bits1, &bits2);
 
     println!("--- Bitstream Alignment Diff ---");
-    println!("Item A: {} #{} ({})", Path::new(save1_path).file_name().unwrap_or_default().to_string_lossy(), index1, item1.code.trim());
-    println!("Item B: {} #{} ({})", Path::new(save2_path).file_name().unwrap_or_default().to_string_lossy(), index2, item2.code.trim());
+    println!(
+        "Item A: {} #{} ({})",
+        Path::new(save1_path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy(),
+        index1,
+        item1.code.trim()
+    );
+    println!(
+        "Item B: {} #{} ({})",
+        Path::new(save2_path)
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy(),
+        index2,
+        item2.code.trim()
+    );
     println!("--------------------------------");
     println!("Score        : {}", result.score);
     println!("Gap Count    : {}", result.gap_indices.len());

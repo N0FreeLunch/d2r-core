@@ -1,5 +1,5 @@
-use d2r_core::item::{HuffmanTree, Item};
 use d2r_core::algo::alignment::{BitAligner, MsaResult};
+use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -14,7 +14,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let save_path = &args[1];
-    let indices: Vec<usize> = args[2..].iter()
+    let indices: Vec<usize> = args[2..]
+        .iter()
         .map(|s| s.parse().expect("index must be a number"))
         .collect();
 
@@ -41,7 +42,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for &idx in &indices {
         if idx >= items.len() {
-            eprintln!("Error: Item index {} out of range (found {} items)", idx, items.len());
+            eprintln!(
+                "Error: Item index {} out of range (found {} items)",
+                idx,
+                items.len()
+            );
             process::exit(1);
         }
         let item = &items[idx];
@@ -57,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("File  : {}", save_path);
     println!("Items : {}", item_info.join(", "));
     println!("-------------------------------------------");
-    
+
     // Print aligned rows with info
     for (i, row) in msa.rows.iter().enumerate() {
         print!("{: <10}: ", item_info[i]);
@@ -80,17 +85,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(true) => {
                 print!("1");
                 conserved_count += 1;
-            },
+            }
             Some(false) => {
                 print!("0");
                 conserved_count += 1;
-            },
+            }
             None => print!("."),
         }
     }
     println!();
     println!("-------------------------------------------");
-    
+
     let confidence = (conserved_count as f64 / consensus.len() as f64) * 100.0;
     println!("Conserved bits : {} / {}", conserved_count, consensus.len());
     println!("Confidence     : {:.2}%", confidence);

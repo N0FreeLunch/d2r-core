@@ -1,5 +1,5 @@
-use std::env;
 use bitstream_io::{BitRead, BitReader, LittleEndian};
+use std::env;
 use std::fs;
 use std::io::Cursor;
 
@@ -22,20 +22,28 @@ fn main() {
     let id_bits = 9u32;
     let val_bits = total_width - id_bits;
 
-    let bytes = fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
-    
-    println!("--- Alpha v105 Fixed {}-bit Property Extraction ({} ID + {} VAL) ---", total_width, id_bits, val_bits);
+    let bytes =
+        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
+
+    println!(
+        "--- Alpha v105 Fixed {}-bit Property Extraction ({} ID + {} VAL) ---",
+        total_width, id_bits, val_bits
+    );
 
     let byte_offset = start_bit / 8;
     let bit_offset = start_bit % 8;
     let mut reader = BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
-    for _ in 0..bit_offset { let _ = reader.read_bit().ok(); }
-    
+    for _ in 0..bit_offset {
+        let _ = reader.read_bit().ok();
+    }
+
     for i in 0..20 {
         let pos = start_bit + (i as u64) * (total_width as u64);
         let id = read_bits(&mut reader, id_bits);
         let val = read_bits(&mut reader, val_bits);
         println!("Prop {:>2}: ID={:<3}, Val={:<8} (Bit={})", i, id, val, pos);
-        if id == 511 { break; }
+        if id == 511 {
+            break;
+        }
     }
 }

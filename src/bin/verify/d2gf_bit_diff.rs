@@ -1,8 +1,8 @@
+use d2r_core::algo::alignment::{AlignmentResult, BitAligner};
+use d2r_core::save::{gf_payload_range, map_core_sections};
 use std::env;
 use std::fs;
 use std::io;
-use d2r_core::save::{map_core_sections, gf_payload_range};
-use d2r_core::algo::alignment::{BitAligner, AlignmentResult};
 
 fn bytes_to_bits(bytes: &[u8]) -> Vec<bool> {
     let mut bits = Vec::with_capacity(bytes.len() * 8);
@@ -27,8 +27,10 @@ fn main() -> io::Result<()> {
     let bytes1 = fs::read(path1)?;
     let bytes2 = fs::read(path2)?;
 
-    let map1 = map_core_sections(&bytes1).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let map2 = map_core_sections(&bytes2).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let map1 =
+        map_core_sections(&bytes1).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let map2 =
+        map_core_sections(&bytes2).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
 
     let range1 = gf_payload_range(&map1);
     let range2 = gf_payload_range(&map2);
@@ -55,18 +57,28 @@ fn main() -> io::Result<()> {
 
     println!("--- Aligned View (First 500 bits) ---");
     let preview_len = 500.min(result.actual_aligned.len());
-    let sub_actual: Vec<Option<bool>> = result.actual_aligned.iter().take(preview_len).cloned().collect();
-    let sub_expected: Vec<Option<bool>> = result.expected_aligned.iter().take(preview_len).cloned().collect();
-    
+    let sub_actual: Vec<Option<bool>> = result
+        .actual_aligned
+        .iter()
+        .take(preview_len)
+        .cloned()
+        .collect();
+    let sub_expected: Vec<Option<bool>> = result
+        .expected_aligned
+        .iter()
+        .take(preview_len)
+        .cloned()
+        .collect();
+
     let sub_result = AlignmentResult {
         score: 0,
         actual_aligned: sub_actual,
         expected_aligned: sub_expected,
         gap_indices: Vec::new(),
     };
-    
+
     println!("{}", sub_result.pretty_print());
-    
+
     if result.actual_aligned.len() > 500 {
         println!("... (truncated)");
     }

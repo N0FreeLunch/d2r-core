@@ -40,7 +40,9 @@ fn main() {
 
         for i in 0..item_count {
             let _ = bitstream_io::BitRead::byte_align(&mut reader);
-            if let Ok(item) = d2r_core::item::Item::from_reader(&mut reader, &huffman, version == 105) {
+            if let Ok(item) =
+                d2r_core::item::Item::from_reader(&mut reader, &huffman, version == 105)
+            {
                 let (w, h) = d2r_core::inventory::get_item_size(&item.code);
                 println!(
                     "  [{:>2}] {:<4} | Size: {}x{} | Pos: ({}, {}) | Loc: {}",

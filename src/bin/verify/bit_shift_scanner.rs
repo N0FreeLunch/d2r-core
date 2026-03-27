@@ -1,5 +1,5 @@
-use d2r_core::item::{HuffmanTree, Item, BitRecorder, ParsingResult};
 use bitstream_io::{BitRead, BitReader, LittleEndian};
+use d2r_core::item::{BitRecorder, HuffmanTree, Item, ParsingResult};
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -27,15 +27,22 @@ struct ScanResult {
 impl std::fmt::Display for BitStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let status = if self.is_valid { "OK " } else { "ERR" };
-        write!(f, "[Offset {:+4}] [{}] {} (bits={}) score={:.2}", 
-            self.relative_offset, status, self.code.trim(), self.consumed_bits, self.score)
+        write!(
+            f,
+            "[Offset {:+4}] [{}] {} (bits={}) score={:.2}",
+            self.relative_offset,
+            status,
+            self.code.trim(),
+            self.consumed_bits,
+            self.score
+        )
     }
 }
 
 fn main() -> io::Result<()> {
     let _ = dotenvy::dotenv();
     let args: Vec<String> = env::args().collect();
-    
+
     let mut save_path_str = None;
     let mut byte_offset = None;
     let mut window = 128;
@@ -55,7 +62,9 @@ fn main() -> io::Result<()> {
                 if save_path_str.is_none() {
                     save_path_str = Some(&args[i]);
                 } else if byte_offset.is_none() {
-                    byte_offset = Some(usize::from_str_radix(args[i].trim_start_matches("0x"), 16).unwrap_or(0));
+                    byte_offset = Some(
+                        usize::from_str_radix(args[i].trim_start_matches("0x"), 16).unwrap_or(0),
+                    );
                 }
             }
         }
@@ -63,7 +72,9 @@ fn main() -> io::Result<()> {
     }
 
     if save_path_str.is_none() || byte_offset.is_none() {
-        println!("CLI Usage: cargo run --bin BitShiftScanner -- <save_file> <byte_offset_hex> [--window <bits>] [--json]");
+        println!(
+            "CLI Usage: cargo run --bin BitShiftScanner -- <save_file> <byte_offset_hex> [--window <bits>] [--json]"
+        );
         return Ok(());
     }
 
@@ -78,7 +89,13 @@ fn main() -> io::Result<()> {
     if use_json {
         println!("{}", serde_json::to_string_pretty(&result).unwrap());
     } else {
-        println!("[BitShiftScanner] File: {}", PathBuf::from(save_path).file_name().unwrap_or_default().to_string_lossy());
+        println!(
+            "[BitShiftScanner] File: {}",
+            PathBuf::from(save_path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
         println!("  Base Offset: 0x{:04X}", byte_offset);
         println!("  Window     : ±{} bits", window);
         println!("  Candidates Found: {}", result.candidates.len());
@@ -96,26 +113,39 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn run_bit_scan(bytes: &[u8], base_byte_offset: usize, window: isize, huffman: &HuffmanTree) -> ScanResult {
+fn run_bit_scan(
+    bytes: &[u8],
+    base_byte_offset: usize,
+    window: isize,
+    huffman: &HuffmanTree,
+) -> ScanResult {
     let mut candidates = Vec::new();
-    
+
     let base_bit_pos = (base_byte_offset as u64) * 8;
-    let start_bit = if base_bit_pos > window as u64 { base_bit_pos - window as u64 } else { 0 };
+    let start_bit = if base_bit_pos > window as u64 {
+        base_bit_pos - window as u64
+    } else {
+        0
+    };
     let end_bit = base_bit_pos + window as u64;
 
     for bit_pos in start_bit..=end_bit {
         let b_start = (bit_pos / 8) as usize;
         let b_off = (bit_pos % 8) as u32;
-        
-        if b_start + 4 > bytes.len() { break; }
+
+        if b_start + 4 > bytes.len() {
+            break;
+        }
 
         let mut cursor = Cursor::new(&bytes[b_start..]);
         let mut reader = BitReader::endian(&mut cursor, LittleEndian);
-        if b_off > 0 { let _ = reader.skip(b_off).ok(); }
-        
+        if b_off > 0 {
+            let _ = reader.skip(b_off).ok();
+        }
+
         let mut recorder = BitRecorder::new(&mut reader);
         let parse_res = Item::from_reader_with_context(&mut recorder, huffman, None, false);
-        
+
         let consumed = reader.position_in_bits().unwrap_or(0);
         let offset_diff = bit_pos as i64 - base_bit_pos as i64;
 
@@ -125,9 +155,15 @@ fn run_bit_scan(bytes: &[u8], base_byte_offset: usize, window: isize, huffman: &
         };
 
         let mut score = 0.0;
-        if is_valid { score += 50.0; }
-        if consumed >= 32 && consumed <= 1000 { score += 30.0; }
-        if !code.contains("ERR") && code.trim().len() == 4 { score += 20.0; }
+        if is_valid {
+            score += 50.0;
+        }
+        if consumed >= 32 && consumed <= 1000 {
+            score += 30.0;
+        }
+        if !code.contains("ERR") && code.trim().len() == 4 {
+            score += 20.0;
+        }
 
         if consumed >= 16 {
             candidates.push(BitStep {
@@ -141,7 +177,11 @@ fn run_bit_scan(bytes: &[u8], base_byte_offset: usize, window: isize, huffman: &
         }
     }
 
-    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     ScanResult {
         file_path: "".to_string(),

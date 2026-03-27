@@ -1,7 +1,7 @@
-use std::fs;
-use std::io::{self, Cursor};
 use bitstream_io::{BitRead, BitReader, LittleEndian};
 use d2r_core::data::stat_costs::STAT_COSTS;
+use std::fs;
+use std::io::{self, Cursor};
 
 #[derive(Debug, Clone)]
 struct StatRead {
@@ -57,7 +57,13 @@ fn explore_path(
     let bit_offset = (start_bit % 8) as u32;
 
     if start_byte + 4 >= bytes.len() {
-        return Ok(ProbePath { start_bit, id_bits, stats: Vec::new(), score: 0, terminated: false });
+        return Ok(ProbePath {
+            start_bit,
+            id_bits,
+            stats: Vec::new(),
+            score: 0,
+            terminated: false,
+        });
     }
 
     let mut reader = BitReader::endian(Cursor::new(&bytes[start_byte..]), LittleEndian);
@@ -74,8 +80,10 @@ fn explore_path(
     };
 
     for _ in 0..max_depth {
-        let Ok(id) = read_bits(&mut reader, id_bits) else { break; };
-        
+        let Ok(id) = read_bits(&mut reader, id_bits) else {
+            break;
+        };
+
         let terminator = (1 << id_bits) - 1;
         if id == terminator {
             path.score += 100;
@@ -87,7 +95,7 @@ fn explore_path(
         if let Some(cost) = maybe_cost {
             path.score += 30;
             path.score += get_signature_bonus(id);
-            
+
             let val = if cost.save_bits > 0 {
                 read_bits(&mut reader, cost.save_bits as u32).unwrap_or(0)
             } else {
@@ -132,26 +140,33 @@ fn main() -> io::Result<()> {
 
     // Try parsing as search_id if it's small, otherwise interpret as base_bit
     let val2: u64 = args[2].parse().expect("Invalid numeric argument");
-    
+
     if val2 < 1024 {
         let search_id = val2 as u32;
         let id_bits: u32 = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(9);
         println!("Searching for ID {} with {} bits...", search_id, id_bits);
-        
+
         for bit in 7000..(bytes.len() as u64 * 8) {
             let start_byte = (bit / 8) as usize;
             let bit_offset = (bit % 8) as u32;
-            if start_byte + 4 >= bytes.len() { break; }
+            if start_byte + 4 >= bytes.len() {
+                break;
+            }
 
             let mut reader = BitReader::endian(Cursor::new(&bytes[start_byte..]), LittleEndian);
             for _ in 0..bit_offset {
                 let _ = reader.read_bit()?;
             }
-            
+
             let id = read_bits(&mut reader, id_bits)?;
             if id == search_id {
                 let path = explore_path(&bytes, bit, id_bits, 10)?;
-                println!("Match at bit {}: Score {}, Stats {:?}", bit, path.score, path.stats.iter().map(|s| &s.name).collect::<Vec<_>>());
+                println!(
+                    "Match at bit {}: Score {}, Stats {:?}",
+                    bit,
+                    path.score,
+                    path.stats.iter().map(|s| &s.name).collect::<Vec<_>>()
+                );
             }
         }
     } else {
@@ -161,12 +176,19 @@ fn main() -> io::Result<()> {
 
         println!("=== D2R Item Bit Width Probe Tool ===");
         println!("Target File: {}", save_file);
-        println!("Base Bit: {}, Window: +/-, Max Depth: {}\n", base_bit, window);
+        println!(
+            "Base Bit: {}, Window: +/-, Max Depth: {}\n",
+            base_bit, window
+        );
 
         let mut paths = Vec::new();
 
         for id_bits in [9, 10, 11] {
-            let start_range = if base_bit > window { base_bit - window } else { 0 };
+            let start_range = if base_bit > window {
+                base_bit - window
+            } else {
+                0
+            };
             let end_range = base_bit + window;
 
             for bit in start_range..=end_range {
@@ -178,15 +200,26 @@ fn main() -> io::Result<()> {
         }
 
         paths.sort_by(|a, b| {
-            b.score.cmp(&a.score)
+            b.score
+                .cmp(&a.score)
                 .then_with(|| b.stats.len().cmp(&a.stats.len()))
         });
 
-        println!("{:<5} | {:<7} | {:<7} | {:<7} | {:<10} | Stats", "Rank", "Score", "ID Bits", "Offset", "Term?");
-        println!("{:-<5}-|-{:-<7}-|-{:-<7}-|-{:-<7}-|-{:-<10}-|-------", "", "", "", "", "");
+        println!(
+            "{:<5} | {:<7} | {:<7} | {:<7} | {:<10} | Stats",
+            "Rank", "Score", "ID Bits", "Offset", "Term?"
+        );
+        println!(
+            "{:-<5}-|-{:-<7}-|-{:-<7}-|-{:-<7}-|-{:-<10}-|-------",
+            "", "", "", "", ""
+        );
 
         for (i, path) in paths.iter().take(20).enumerate() {
-            let stat_ids: Vec<String> = path.stats.iter().map(|s| format!("{} ({})={}", s.id, s.name, s.value)).collect();
+            let stat_ids: Vec<String> = path
+                .stats
+                .iter()
+                .map(|s| format!("{} ({})={}", s.id, s.name, s.value))
+                .collect();
             println!(
                 "{:<5} | {:<7} | {:<7} | {:<7} | {:<10} | [{}]",
                 i + 1,

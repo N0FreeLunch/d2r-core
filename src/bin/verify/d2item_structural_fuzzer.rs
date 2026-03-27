@@ -1,7 +1,7 @@
-use std::fs;
-use std::io::{self, Cursor};
 use bitstream_io::{BitRead, BitReader, LittleEndian};
 use serde::Serialize;
+use std::fs;
+use std::io::{self, Cursor};
 
 #[derive(Serialize)]
 struct PropertyEntry {
@@ -47,7 +47,7 @@ fn main() -> io::Result<()> {
         match args[i].as_str() {
             "--start-bit" => {
                 if i + 1 < args.len() {
-                    start_bit = args[i+1].parse().expect("Invalid start-bit");
+                    start_bit = args[i + 1].parse().expect("Invalid start-bit");
                     i += 2;
                 } else {
                     panic!("Missing value for --start-bit");
@@ -63,7 +63,7 @@ fn main() -> io::Result<()> {
             }
             "--width-range" => {
                 if i + 1 < args.len() {
-                    let range: Vec<&str> = args[i+1].split("..").collect();
+                    let range: Vec<&str> = args[i + 1].split("..").collect();
                     if range.len() == 2 {
                         width_range_start = range[0].parse().expect("Invalid range start");
                         width_range_end = range[1].parse().expect("Invalid range end");
@@ -77,7 +77,7 @@ fn main() -> io::Result<()> {
             }
             "--max-props" => {
                 if i + 1 < args.len() {
-                    max_props = args[i+1].parse().expect("Invalid max-props");
+                    max_props = args[i + 1].parse().expect("Invalid max-props");
                     i += 2;
                 } else {
                     panic!("Missing value for --max-props");
@@ -128,15 +128,22 @@ fn main() -> io::Result<()> {
                     terminator_at = current_pos;
                 }
 
-                if width < 9 { break; }
-                if let Err(_) = reader.read_var::<u64>((width - 9) as u32) { break; }
+                if width < 9 {
+                    break;
+                }
+                if let Err(_) = reader.read_var::<u64>((width - 9) as u32) {
+                    break;
+                }
             }
 
             if found_terminator {
                 if brute_mode && props_read > 5 {
-                    println!("  Match Found: Start={}, Width={}, Props={}", current_start, width, props_read);
+                    println!(
+                        "  Match Found: Start={}, Width={}, Props={}",
+                        current_start, width, props_read
+                    );
                 }
-                
+
                 if props_read as i32 > best_score {
                     best_score = props_read as i32;
                     best_width = width;
@@ -164,7 +171,9 @@ fn main() -> io::Result<()> {
                     Ok(id) => id,
                     Err(_) => break,
                 };
-                if stat_id == 0x1FF { break; }
+                if stat_id == 0x1FF {
+                    break;
+                }
                 let value_bits = (best_width - 9) as u32;
                 let value = reader.read_var::<u64>(value_bits).unwrap_or(0);
                 report.properties.push(PropertyEntry {
@@ -192,15 +201,20 @@ fn main() -> io::Result<()> {
                     };
 
                     if stat_id == 0x1FF {
-                        println!("| {:5} | {:10} | [ TERMINATOR ]    |                       |", p, current_pos);
+                        println!(
+                            "| {:5} | {:10} | [ TERMINATOR ]    |                       |",
+                            p, current_pos
+                        );
                         // Decide if we want to break or continue to see what's after
                         // For now, let's continue for a few more to see spacers
                     } else {
                         let value_bits = (best_width - 9) as u32;
                         let value = reader.read_var::<u64>(value_bits).unwrap_or(0);
-                        
-                        println!("| {:5} | {:10} | {:#05x} ({:4})    | {:#010x} ({:10}) |", 
-                            p, current_pos, stat_id, stat_id, value, value);
+
+                        println!(
+                            "| {:5} | {:10} | {:#05x} ({:4})    | {:#010x} ({:10}) |",
+                            p, current_pos, stat_id, stat_id, value, value
+                        );
                     }
                 }
             }

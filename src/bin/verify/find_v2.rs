@@ -1,9 +1,10 @@
 use std::fs;
 
 fn main() {
-    let bytes = fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
+    let bytes =
+        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
     let targets = [310, 14, 31, 1];
-    
+
     println!("--- Searching for Specific Target Values (v2) ---");
 
     for bit in 7700..8100 {
@@ -18,8 +19,10 @@ fn main() {
             }
             if targets.contains(&val) {
                 // Potential target found. Now check for neighbors.
-                for bit2 in bit-64..bit+64 {
-                    if bit2 == bit { continue; }
+                for bit2 in bit - 64..bit + 64 {
+                    if bit2 == bit {
+                        continue;
+                    }
                     for width2 in 1..=12 {
                         let mut val2 = 0u32;
                         for j in 0..width2 {
@@ -30,7 +33,10 @@ fn main() {
                             }
                         }
                         if targets.contains(&val2) && val2 != val {
-                             println!("FOUND CLUSTER! Bit:{} Val:{}, Near Bit:{} Val:{}", bit, val, bit2, val2);
+                            println!(
+                                "FOUND CLUSTER! Bit:{} Val:{}, Near Bit:{} Val:{}",
+                                bit, val, bit2, val2
+                            );
                         }
                     }
                 }

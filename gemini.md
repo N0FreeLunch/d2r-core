@@ -61,6 +61,7 @@ Final updated directive documents should only be written after this review is co
   - Preserve data-boundary separation (`d2r-core` vs `d2r-data`).
   - Apply `Conflict Check -> Action Plan -> Side-Effect Scan` before changing directive files or skills.
   - For complex PowerShell logic, prefer temporary `tmp/` script harness execution; purge temporary artifacts before completion.
+  - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, you MUST adhere to the standards defined in the **`powershell-safe-file-ops`** skill (`d2r-spec/.agents/skills/powershell-safe-file-ops/SKILL.md`) to prevent encoding hazards and shell syntax failures.
 - **Response Contract for Meaningful Deliverables**:
   - Include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line whenever the output contains substantive analysis or planning artifacts.
 

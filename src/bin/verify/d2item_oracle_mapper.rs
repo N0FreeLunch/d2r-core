@@ -118,7 +118,7 @@ fn main() -> io::Result<()> {
         }
     }
 
-    if heatmap {
+    if heatmap && !show_json {
         for a in &scan_results {
             if a.code == "gp" { continue; } // Skip empty section
             println!("\n[Heatmap] Code: {}, Start: {}, Width: {}", a.code, a.bit_offset, heatmap_width);

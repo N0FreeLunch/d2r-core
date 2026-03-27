@@ -5,9 +5,11 @@ use serde::Serialize;
 use d2r_core::item::{HuffmanTree, is_plausible_item_header, peek_item_header_at};
 use d2r_core::save::find_jm_markers;
 
+use std::path::Path;
+
 #[derive(Serialize, Debug, Clone)]
-struct AnchorRecord {
-    bit_pos: u64,
+struct ScanAnchor {
+    bit_offset: u64,
     code: String,
     flags: u32,
     version: u8,
@@ -22,7 +24,7 @@ struct AnchorRecord {
 #[derive(Serialize)]
 struct OracleReport {
     file: String,
-    anchors: Vec<AnchorRecord>,
+    scan_results: Vec<ScanAnchor>,
 }
 
 fn main() -> io::Result<()> {
@@ -52,7 +54,7 @@ fn main() -> io::Result<()> {
         }
     }
 
-    let mut anchors = Vec::new();
+    let mut scan_results = Vec::new();
 
     let jm_markers = find_jm_markers(&bytes);
     for &jm_pos in &jm_markers {
@@ -65,8 +67,8 @@ fn main() -> io::Result<()> {
                 peek_item_header_at(&bytes, bit_cursor, &huffman, true) {
                 
                 if is_plausible_item_header(mode, loc, &code, flags, ver, true) {
-                    let mut record = AnchorRecord {
-                        bit_pos: bit_cursor,
+                    let mut record = ScanAnchor {
+                        bit_offset: bit_cursor,
                         code: code.trim().to_string(),
                         flags,
                         version: ver,
@@ -86,7 +88,7 @@ fn main() -> io::Result<()> {
                         record.score = Some(score);
                     }
 
-                    anchors.push(record);
+                    scan_results.push(record);
                     bit_cursor += header_bits;
                     // skip alignment
                     continue;
@@ -98,32 +100,33 @@ fn main() -> io::Result<()> {
 
     if list_anchors || auto_map {
         if show_json {
+            let filename = Path::new(path).file_name().unwrap_or_default().to_string_lossy().to_string();
             let report = OracleReport {
-                file: path.clone(),
-                anchors: anchors.clone(),
+                file: filename,
+                scan_results: scan_results.clone(),
             };
             println!("{}", serde_json::to_string_pretty(&report).unwrap());
         } else {
             println!("| Anchor Bit | Code | Flags      | Ver | Mode | Loc | Width | Score |");
             println!("|------------|------|------------|-----|------|-----|-------|-------|");
-            for a in &anchors {
+            for a in &scan_results {
                 let width_str = a.best_width.map(|w| w.to_string()).unwrap_or_else(|| "-".to_string());
                 let score_str = a.score.map(|s| s.to_string()).unwrap_or_else(|| "-".to_string());
                 println!("| {:10} | {:4} | {:#010x} | {:3} | {:4} | {:3} | {:5} | {:5} |",
-                    a.bit_pos, a.code, a.flags, a.version, a.mode, a.location, width_str, score_str);
+                    a.bit_offset, a.code, a.flags, a.version, a.mode, a.location, width_str, score_str);
             }
         }
     }
 
     if heatmap {
-        for a in &anchors {
+        for a in &scan_results {
             if a.code == "gp" { continue; } // Skip empty section
-            println!("\n[Heatmap] Code: {}, Start: {}, Width: {}", a.code, a.bit_pos, heatmap_width);
+            println!("\n[Heatmap] Code: {}, Start: {}, Width: {}", a.code, a.bit_offset, heatmap_width);
             let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
-            let stats_offset = if a.version == 5 || a.version == 1 { 19 } else { 0 };
+            let _stats_offset = if a.version == 5 || a.version == 1 { 19 } else { 0 };
             
             // Search for the actual start of stats bit (heuristic to find first 1 or 0x1FF)
-            let mut start = a.bit_pos + 60; // Approximate header end
+            let start = a.bit_offset + 60; // Approximate header end
             if reader.skip(start as u32).is_err() { continue; }
             
             for row in 0..10 {

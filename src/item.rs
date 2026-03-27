@@ -1117,18 +1117,37 @@ impl Item {
             (armor_like_unknown, armor_like_unknown, false)
         };
 
+        let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
+
         if version == 5 || version == 1 {
-            // In Alpha v105 v5, Stats like Defense/Durability are skipped in the header block.
-            // They are part of the property lists.
+            // In Alpha v105 v5, Defense/Durability/Quantity are still present for relevant templates.
+            if reads_defense {
+                defense = Some(recorder.read_bits(11)?);
+            }
+            if reads_durability {
+                let m_dur = recorder.read_bits(8)?;
+                max_durability = Some(m_dur);
+                if m_dur > 0 {
+                    current_durability = Some(recorder.read_bits(9)?);
+                    let _extra = recorder.read_bit()?;
+                }
+            }
+            if reads_quantity {
+                quantity = Some(recorder.read_bits(9)?);
+            }
+            if is_socketed {
+                sockets = Some(recorder.read_bits(4)? as u8);
+            }
+
             return Ok((
-                item_id, item_level, item_quality, 
+                item_id, item_level, item_quality,
                 has_multiple_graphics, multi_graphics_bits,
                 has_class_specific_data, class_specific_bits,
                 low_high_graphic_bits, magic_prefix, magic_suffix,
                 rare_name_1, rare_name_2, rare_affixes,
                 unique_id, runeword_id, runeword_level,
                 personalized_player_name, tbk_ibk_teleport,
-                timestamp_flag, None, None, None, None, None, 0
+                timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0
             ));
         }
 
@@ -1225,8 +1244,15 @@ impl Item {
     ) -> ParsingResult<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
         recorder.push_context("Item Stats");
         let trimmed_code = code.trim();
-        let (properties, properties_complete) =
-            read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?;
+        let is_alpha = version == 5 || version == 1;
+        let quality_val = quality.unwrap_or(ItemQuality::Normal);
+
+        let (properties, properties_complete) = if is_alpha && quality_val == ItemQuality::Normal {
+            // Alpha v105 Normal items (potions, scrolls, javelins) usually lack property lists.
+            (Vec::new(), true)
+        } else {
+            read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?
+        };
 
         let mut set_attributes = Vec::new();
         let mut runeword_attributes = Vec::new();
@@ -1570,7 +1596,8 @@ impl Item {
         let section_bits = (section_bytes.len() * 8) as u64;
         println!("[DEBUG] read_section count={}, is_alpha={}", top_level_count, alpha_mode);
         let mut items: Vec<Item> = Vec::with_capacity(top_level_count as usize);
-        let mut bit_pos = 0u64;
+        // Alpha v105 items have a 2-bit offset from the JM+count header.
+        let mut bit_pos = if alpha_mode { 2u64 } else { 0u64 };
         let mut is_alpha = alpha_mode;
         if section_bytes.len() >= 4 {
             println!("[DEBUG] Section bytes[0..4]: {:02X} {:02X} {:02X} {:02X}", section_bytes[0], section_bytes[1], section_bytes[2], section_bytes[3]);
@@ -1755,6 +1782,23 @@ impl Item {
             .unwrap_or(bytes.len());
 
         Item::read_section(&bytes[jm_pos + 4..next_jm], top_level_count, huffman, alpha_mode)
+    }
+
+    pub fn serialize_section(
+        items: &[Item],
+        huffman: &HuffmanTree,
+        alpha_mode: bool,
+    ) -> io::Result<Vec<u8>> {
+        let mut emitter = BitEmitter::new();
+        if alpha_mode {
+            // v105 Alpha items start 2 bits in.
+            emitter.write_bits(0, 2)?;
+        }
+        for item in items {
+            item.write_recursive(&mut emitter, huffman, alpha_mode)?;
+        }
+        emitter.byte_align()?;
+        Ok(emitter.into_bytes())
     }
 
     pub fn scan_items(bytes: &[u8], huffman: &HuffmanTree) -> Vec<(usize, String)> {

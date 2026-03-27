@@ -1035,10 +1035,8 @@ pub fn rebuild_item_section(
     let jm1 = jm_positions[0];
     let jm2 = jm_positions[1];
 
-    let mut serialized_section = Vec::new();
-    for item in items {
-        serialized_section.extend_from_slice(&item.to_bytes(huffman, alpha_mode)?);
-    }
+    let mut serialized_section = Item::serialize_section(items, huffman, alpha_mode)?;
+
     if items.len() > u16::MAX as usize {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

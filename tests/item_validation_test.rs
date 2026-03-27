@@ -1,4 +1,4 @@
-use d2r_core::engine::validation::{validate_item, StatValidationStatus};
+use d2r_core::engine::validation::{StatValidationStatus, validate_item};
 use d2r_core::item::{Item, ItemProperty, ItemQuality};
 
 fn base_item() -> Item {
@@ -36,7 +36,12 @@ fn validate_unique_item_perfect_roll() {
     assert_eq!(result.spec_name, "The Gnasher");
     assert!(result.is_perfect);
     assert!((result.score - 1.0).abs() < f32::EPSILON);
-    assert!(result.stats.iter().all(|s| s.status == StatValidationStatus::InRange));
+    assert!(
+        result
+            .stats
+            .iter()
+            .all(|s| s.status == StatValidationStatus::InRange)
+    );
 }
 
 #[test]
@@ -55,10 +60,12 @@ fn validate_unique_item_out_of_range_roll() {
     assert_eq!(result.spec_name, "The Gnasher");
     assert!(!result.is_perfect);
     assert!(result.score < 1.0);
-    assert!(result
-        .stats
-        .iter()
-        .any(|s| s.stat_id == 111 && s.status == StatValidationStatus::OutOfRange));
+    assert!(
+        result
+            .stats
+            .iter()
+            .any(|s| s.stat_id == 111 && s.status == StatValidationStatus::OutOfRange)
+    );
 }
 
 #[test]
@@ -78,10 +85,12 @@ fn validate_runeword_item_static_data() {
     assert_eq!(result.spec_name, "Authority");
     assert!(!result.is_perfect);
     assert!(result.score > 0.0 && result.score < 1.0);
-    assert!(result
-        .stats
-        .iter()
-        .all(|s| s.status == StatValidationStatus::InRange));
+    assert!(
+        result
+            .stats
+            .iter()
+            .all(|s| s.status == StatValidationStatus::InRange)
+    );
 }
 
 #[test]
@@ -99,14 +108,18 @@ fn validate_param_mismatch_creates_missing_and_unexpected() {
 
     let result = validate_item(&item).expect("runeword item should resolve a spec");
     assert_eq!(result.spec_name, "Authority");
-    assert!(result
-        .stats
-        .iter()
-        .any(|s| s.status == StatValidationStatus::UnexpectedOnItem));
-    assert!(result
-        .stats
-        .iter()
-        .any(|s| s.status == StatValidationStatus::MissingOnItem));
+    assert!(
+        result
+            .stats
+            .iter()
+            .any(|s| s.status == StatValidationStatus::UnexpectedOnItem)
+    );
+    assert!(
+        result
+            .stats
+            .iter()
+            .any(|s| s.status == StatValidationStatus::MissingOnItem)
+    );
 }
 
 #[test]
@@ -124,7 +137,7 @@ fn validate_magic_item_with_affixes() {
     assert_eq!(result.spec_name, "Sturdy of Health");
     assert!(!result.is_perfect);
     // Score is 0.5 because only the variable stat (16: 20-30) is counted in variable_scores
-    assert!((result.score - 0.5).abs() < 0.001); 
+    assert!((result.score - 0.5).abs() < 0.001);
 }
 
 #[test]
@@ -134,15 +147,20 @@ fn validate_rare_item_merged_stats() {
     // Let's use two affixes that both give Defense if possible, or just two different ones.
     // Prefix 1: Sturdy (20..30 Def)
     // Prefix 2: Strong (31..40 Def)
-    item.rare_affixes[0] = Some(1); 
-    item.rare_affixes[2] = Some(2); 
+    item.rare_affixes[0] = Some(1);
+    item.rare_affixes[2] = Some(2);
     item.properties = vec![
         prop(16, 0, 60), // Merged range: (20+31)..(30+40) = 51..70. 60 is in range.
     ];
 
     let result = validate_item(&item).expect("rare item should validate");
     assert!(!result.is_perfect);
-    assert!(result.stats.iter().all(|s| s.status == StatValidationStatus::InRange));
+    assert!(
+        result
+            .stats
+            .iter()
+            .all(|s| s.status == StatValidationStatus::InRange)
+    );
     assert_eq!(result.stats[0].min, 51);
     assert_eq!(result.stats[0].max, 70);
 }
@@ -159,6 +177,9 @@ fn validate_magic_item_with_type_violation() {
     ];
 
     let result = validate_item(&item).expect("should validate");
-    assert!(!result.warnings.is_empty(), "Should warn about type violation");
+    assert!(
+        !result.warnings.is_empty(),
+        "Should warn about type violation"
+    );
     assert!(result.warnings[0].contains("not eligible"));
 }

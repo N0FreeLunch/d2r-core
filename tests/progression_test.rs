@@ -1,5 +1,7 @@
 use d2r_core::item::HuffmanTree;
-use d2r_core::save::{Save, rebuild_status_and_player_items, WaypointSection, QuestSection, ExpansionSection};
+use d2r_core::save::{
+    ExpansionSection, QuestSection, Save, WaypointSection, rebuild_status_and_player_items,
+};
 use std::fs;
 use std::path::PathBuf;
 
@@ -21,9 +23,17 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     let save = Save::from_bytes(&bytes)?;
     assert_eq!(save.header.version, 105);
 
-    let mut wps = save.header.waypoints.clone().expect("v105 should have waypoints");
+    let mut wps = save
+        .header
+        .waypoints
+        .clone()
+        .expect("v105 should have waypoints");
     let mut quests = save.header.quests.clone().expect("v105 should have quests");
-    let mut expansion = save.header.expansion.clone().expect("v105 should have expansion");
+    let mut expansion = save
+        .header
+        .expansion
+        .clone()
+        .expect("v105 should have expansion");
 
     // Check Initial Waypoint (e.g. byte 10 is 1 for Act 1 Town)
     assert_eq!(wps.raw_bytes[10], 0x01);

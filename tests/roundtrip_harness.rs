@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod roundtrip_tests {
-    use d2r_core::item::{Item, HuffmanTree};
     use d2r_core::domain::vo::align_to_byte;
+    use d2r_core::item::{HuffmanTree, Item};
     use std::fs;
     use std::path::PathBuf;
 
@@ -20,16 +20,19 @@ mod roundtrip_tests {
         let path = repo_path("tests/fixtures/savegames/original/amazon_authority_runeword.d2s");
         let bytes = fs::read(path).expect("fixture should be readable");
         let huffman = HuffmanTree::new();
-        
+
         // 1. Read all items from the save
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-        let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
-        
+        let items =
+            Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
+
         for item in &items {
             // 2. Re-serialize each item
             let alpha_mode = version == 105;
-            let reserialized = item.to_bytes(&huffman, alpha_mode).expect("should re-serialize");
-            
+            let reserialized = item
+                .to_bytes(&huffman, alpha_mode)
+                .expect("should re-serialize");
+
             // 3. Compare bits if the item wasn't recovered/modified during parse
             // Note: If the item was 'recovered' due to bit-mismatch, the roundtrip
             // might produce a 'fixed' bitstream which is logically identical but bit-different.
@@ -40,13 +43,18 @@ mod roundtrip_tests {
                     // Re-calculate how many bytes the original bits occupied
                     let original_bits_len = item.bits.len() as u64;
                     let original_bytes_len = align_to_byte(original_bits_len) / 8;
-                    
-                    assert_eq!(reserialized.len() as u64, original_bytes_len, 
-                        "Reserialized length mismatch for item {}", item.code);
-                    
-                    // We don't have the original raw segment here easily, 
+
+                    assert_eq!(
+                        reserialized.len() as u64,
+                        original_bytes_len,
+                        "Reserialized length mismatch for item {}",
+                        item.code
+                    );
+
+                    // We don't have the original raw segment here easily,
                     // but we can parse the reserialized bytes back and compare properties.
-                    let item_back = Item::from_bytes(&reserialized, &huffman, alpha_mode).expect("should parse back");
+                    let item_back = Item::from_bytes(&reserialized, &huffman, alpha_mode)
+                        .expect("should parse back");
                     assert_eq!(item.code, item_back.code);
                     assert_eq!(item.properties.len(), item_back.properties.len());
                     for (p1, p2) in item.properties.iter().zip(item_back.properties.iter()) {
@@ -63,49 +71,95 @@ mod roundtrip_tests {
     fn test_mutation_and_roundtrip() {
         let path = repo_path("tests/fixtures/savegames/original/amazon_authority_runeword.d2s");
         let bytes = fs::read(path).expect("fixture should be readable");
-        println!("Save Signature: 0x{:08X}", u32::from_le_bytes(bytes[0..4].try_into().unwrap()));
-        println!("Save Version: 0x{:08X}", u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
+        println!(
+            "Save Signature: 0x{:08X}",
+            u32::from_le_bytes(bytes[0..4].try_into().unwrap())
+        );
+        println!(
+            "Save Version: 0x{:08X}",
+            u32::from_le_bytes(bytes[4..8].try_into().unwrap())
+        );
         let huffman = HuffmanTree::new();
-        
+
         // Use Trace to see what's happening
-        unsafe { std::env::set_var("D2R_ITEM_TRACE", "1"); }
+        unsafe {
+            std::env::set_var("D2R_ITEM_TRACE", "1");
+        }
 
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-        let mut items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
-        
+        let mut items =
+            Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
+
         // The Authority item was previously misidentified as "w ha", but it's "xrs " (Cuirass)
-        let authority = items.iter_mut().find(|item| item.code.trim() == "xrs").expect("Authority item (xrs) not found");
-        
-        println!("Authority Item: Code={}, Version={}, Flags=0x{:08X}", authority.code, authority.version, authority.flags);
-        
+        let authority = items
+            .iter_mut()
+            .find(|item| item.code.trim() == "xrs")
+            .expect("Authority item (xrs) not found");
+
+        println!(
+            "Authority Item: Code={}, Version={}, Flags=0x{:08X}",
+            authority.code, authority.version, authority.flags
+        );
+
         // Check current properties
-        println!("Item properties: {:?}", authority.properties.iter().map(|p| (p.stat_id, &p.name)).collect::<Vec<_>>());
-        println!("Set attributes: {:?}", authority.set_attributes.iter().map(|list| list.iter().map(|p| p.stat_id).collect::<Vec<_>>()).collect::<Vec<_>>());
-        println!("Runeword attributes: {:?}", authority.runeword_attributes.iter().map(|p| p.stat_id).collect::<Vec<_>>());
+        println!(
+            "Item properties: {:?}",
+            authority
+                .properties
+                .iter()
+                .map(|p| (p.stat_id, &p.name))
+                .collect::<Vec<_>>()
+        );
+        println!(
+            "Set attributes: {:?}",
+            authority
+                .set_attributes
+                .iter()
+                .map(|list| list.iter().map(|p| p.stat_id).collect::<Vec<_>>())
+                .collect::<Vec<_>>()
+        );
+        println!(
+            "Runeword attributes: {:?}",
+            authority
+                .runeword_attributes
+                .iter()
+                .map(|p| p.stat_id)
+                .collect::<Vec<_>>()
+        );
         println!("--------------------------------------------------");
 
         // Mutate internal properties:
         // In Alpha v105 Authority, ID 9 (maxmana) exists.
-        let target_stat_id = 9; 
-       use d2r_core::domain::vo::ItemStatValue;
+        let target_stat_id = 9;
+        use d2r_core::domain::vo::ItemStatValue;
         let new_val = ItemStatValue::new(100).unwrap();
 
-        assert!(authority.set_property_value(target_stat_id, new_val), "Failed to set property {}", target_stat_id);
-        
+        assert!(
+            authority.set_property_value(target_stat_id, new_val),
+            "Failed to set property {}",
+            target_stat_id
+        );
+
         // Re-serialize and verify
         let alpha_mode = version == 105;
-        let reserialized = authority.to_bytes(&huffman, alpha_mode).expect("should re-serialize modified item");
-        
+        let reserialized = authority
+            .to_bytes(&huffman, alpha_mode)
+            .expect("should re-serialize modified item");
+
         // Parse back and verify new value
-        let modified_item = Item::from_bytes(&reserialized, &huffman, alpha_mode).expect("should parse back modified bits");
-        
+        let modified_item = Item::from_bytes(&reserialized, &huffman, alpha_mode)
+            .expect("should parse back modified bits");
+
         let mut all_stats = modified_item.properties.clone();
         for list in &modified_item.set_attributes {
             all_stats.extend(list.clone());
         }
         all_stats.extend(modified_item.runeword_attributes.clone());
 
-        let new_stat = all_stats.iter().find(|p| p.stat_id == target_stat_id).expect("Mutated stat not found");
+        let new_stat = all_stats
+            .iter()
+            .find(|p| p.stat_id == target_stat_id)
+            .expect("Mutated stat not found");
         assert_eq!(new_stat.value, 300);
     }
 
@@ -117,18 +171,33 @@ mod roundtrip_tests {
 
         // 1. Read all items - Expecting 16 items (via rescue strategy)
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-        let items = Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
-        assert_eq!(items.len(), 16, "Should have recovered all 16 items from 10-scrolls fixture");
+        let items =
+            Item::read_player_items(&bytes, &huffman, version == 105).expect("items should parse");
+        assert_eq!(
+            items.len(),
+            16,
+            "Should have recovered all 16 items from 10-scrolls fixture"
+        );
 
         for item in &items {
             // 2. Re-serialize
             let reserialized = item.to_bytes(&huffman, true).expect("should re-serialize");
 
             // 3. Parse back and verify basic identity
-            let item_back = Item::from_bytes(&reserialized, &huffman, true).expect("should parse back");
+            let item_back =
+                Item::from_bytes(&reserialized, &huffman, true).expect("should parse back");
             assert_eq!(item.code, item_back.code, "Code mismatch for {}", item.code);
-            assert_eq!(item.version, item_back.version, "Version mismatch for {}", item.code);
-            assert_eq!(item.properties.len(), item_back.properties.len(), "Properties length mismatch for {}", item.code);
+            assert_eq!(
+                item.version, item_back.version,
+                "Version mismatch for {}",
+                item.code
+            );
+            assert_eq!(
+                item.properties.len(),
+                item_back.properties.len(),
+                "Properties length mismatch for {}",
+                item.code
+            );
         }
     }
 
@@ -138,7 +207,7 @@ mod roundtrip_tests {
             AttributeSection, map_core_sections, parse_quest_section, parse_skill_section,
             rebuild_status_and_player_items,
         };
-        
+
         // Target fixtures for full save integrity
         let fixtures = [
             "tests/fixtures/savegames/original/amazon_10_scrolls.d2s",
@@ -146,12 +215,12 @@ mod roundtrip_tests {
             "tests/fixtures/savegames/original/amazon_empty.d2s",
             "tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s",
         ];
-        
+
         let huffman = HuffmanTree::new();
         for fixture in fixtures {
             let path = repo_path(fixture);
             let bytes = fs::read(path).expect("fixture should be readable");
-            
+
             // 1. Map and Parse all sections
             let map = map_core_sections(&bytes)?;
             let attributes = AttributeSection::parse(&bytes, &map)?;
@@ -159,7 +228,7 @@ mod roundtrip_tests {
             let quests = parse_quest_section(&bytes, &map)?;
             let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
             let items = Item::read_player_items(&bytes, &huffman, version == 105)?;
-            
+
             // 2. Rebuild the entire save
             let rebuilt = rebuild_status_and_player_items(
                 &bytes,
@@ -171,9 +240,14 @@ mod roundtrip_tests {
                 &items,
                 &huffman,
             )?;
-            
+
             // 3. 100% Binary match requirement for these specific fixtures
-            assert_eq!(rebuilt.len(), bytes.len(), "Length mismatch for {}", fixture);
+            assert_eq!(
+                rebuilt.len(),
+                bytes.len(),
+                "Length mismatch for {}",
+                fixture
+            );
             assert_eq!(rebuilt, bytes, "Full save binary mismatch for {}", fixture);
         }
         Ok(())

@@ -6,7 +6,7 @@ mod kani_tests {
     fn proof_item_stat_value_invariants() {
         let val: i32 = kani::any();
         let result = ItemStatValue::new(val);
-        
+
         if val >= ItemStatValue::MIN_SAFE && val <= ItemStatValue::MAX_SAFE {
             assert!(result.is_ok());
             assert_eq!(result.unwrap().value(), val);
@@ -85,10 +85,10 @@ mod kani_tests {
         let pos: u64 = kani::any();
         // Skip extreme boundary to avoid overflow in (pos + 7) during proof
         // though u64 is huge enough for normal bit positions.
-        kani::assume(pos < u64::MAX - 8); 
+        kani::assume(pos < u64::MAX - 8);
 
         let aligned = d2r_core::domain::vo::align_to_byte(pos);
-        
+
         assert!(aligned % 8 == 0);
         assert!(aligned >= pos);
         assert!(aligned < pos + 8);

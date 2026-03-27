@@ -23,6 +23,10 @@ name = "dump_character"
 path = "src/bin/dump_character.rs"
 
 [[bin]]
+name = "d2r-env-check"
+path = "src/bin/d2r-env-check.rs"
+
+[[bin]]
 name = "d2save_verify"
 path = "src/bin/verify/d2save_verify.rs"
 

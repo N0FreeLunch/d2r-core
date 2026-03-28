@@ -66,6 +66,15 @@ Final updated directive documents should only be written after this review is co
   - Include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line whenever the output contains substantive analysis or planning artifacts.
 
 
+## Custom Agent Skills Auto-Discovery (2026-03-28)
+- **Official Skills Repository**: All project-specific custom skills are stored in `d2r-spec/.agents/skills/`.
+- **Discovery Mandatory**: At the start of a session or when encountering specialized tasks (multi-repo ops, bit-forensics, etc.), the agent MUST scan this directory to identify available specialized guidance.
+- **Activation Workaround**: Due to directory junction restrictions, `activate_skill` may fail to list these skills automatically. In such cases, the agent MUST use `run_shell_command` with PowerShell (`Get-Content`) to read the `SKILL.md` file from the identified subdirectory and manually adopt its directives.
+- **Key Skills to Prioritize**:
+  - `d2r-multi-repo-ops`: Essential for operations involving `d2r-spec` and `d2r-data` junctions.
+  - `powershell-safe-file-ops`: Mandatory for all file operations in Windows environment.
+
+
 ## Required Final Field
 End meaningful outputs with:
 `Recommended Next Model: <model> - <short reason>`

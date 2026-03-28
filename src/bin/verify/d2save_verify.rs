@@ -3,8 +3,22 @@ use std::env;
 use std::fs;
 use std::io::Cursor;
 use std::process;
+use serde::Serialize;
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
+
+#[derive(Serialize)]
+struct VerifyIssue {
+    kind: String,
+    message: String,
+}
+
+#[derive(Serialize)]
+struct VerifyResult {
+    file: String,
+    status: String,
+    issues: Vec<VerifyIssue>,
+}
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -38,9 +52,143 @@ fn main() {
         process::exit(0);
     }
 
+    if args.contains(&"--json".to_string()) {
+        let path = match args.iter().skip(1).find(|a| !a.starts_with("--")) {
+            Some(p) => p,
+            None => {
+                eprintln!("Error: No file provided for --json");
+                process::exit(1);
+            }
+        };
+
+        let mut issues = Vec::new();
+        let mut fail = false;
+
+        let bytes = match fs::read(path) {
+            Ok(b) => b,
+            Err(e) => {
+                issues.push(VerifyIssue {
+                    kind: "io".to_string(),
+                    message: format!("Cannot read file: {}", e),
+                });
+                let result = VerifyResult {
+                    file: path.clone(),
+                    status: "fail".to_string(),
+                    issues,
+                };
+                println!("{}", serde_json::to_string(&result).unwrap());
+                process::exit(1);
+            }
+        };
+
+        let save = match Save::from_bytes(&bytes) {
+            Ok(s) => s,
+            Err(err) => {
+                issues.push(VerifyIssue {
+                    kind: "header_parse".to_string(),
+                    message: format!("{}", err),
+                });
+                let result = VerifyResult {
+                    file: path.clone(),
+                    status: "fail".to_string(),
+                    issues,
+                };
+                println!("{}", serde_json::to_string(&result).unwrap());
+                process::exit(1);
+            }
+        };
+
+        let huffman = d2r_core::item::HuffmanTree::new();
+        let alpha_mode = save.header.version == 105;
+        let items = match d2r_core::item::Item::read_player_items(&bytes, &huffman, alpha_mode) {
+            Ok(items) => items,
+            Err(err) => {
+                issues.push(VerifyIssue {
+                    kind: "item_parse".to_string(),
+                    message: format!("{}", err),
+                });
+                fail = true;
+                Vec::new()
+            }
+        };
+
+        for item in &items {
+            let item_bits = match item.to_bytes(&huffman, alpha_mode) {
+                Ok(b) => b,
+                Err(e) => {
+                    issues.push(VerifyIssue {
+                        kind: "item_parse".to_string(),
+                        message: format!("Item to_bytes ({}): {}", item.code, e),
+                    });
+                    fail = true;
+                    continue;
+                }
+            };
+            if let Err(e) = d2r_core::item::Item::from_bytes(&item_bits, &huffman, alpha_mode) {
+                issues.push(VerifyIssue {
+                    kind: "item_parse".to_string(),
+                    message: format!("Item round-trip parse failure ({}): {}", item.code, e),
+                });
+                fail = true;
+            }
+        }
+
+        if save.header.file_size as usize != bytes.len() {
+            issues.push(VerifyIssue {
+                kind: "file_size".to_string(),
+                message: format!(
+                    "File size header: {} bytes, actual: {} bytes",
+                    save.header.file_size,
+                    bytes.len()
+                ),
+            });
+            fail = true;
+        }
+
+        match recalculate_checksum(&bytes) {
+            Ok(calculated_checksum) => {
+                if save.header.checksum != calculated_checksum {
+                    issues.push(VerifyIssue {
+                        kind: "checksum".to_string(),
+                        message: format!(
+                            "stored=0x{:08X}, calculated=0x{:08X}",
+                            save.header.checksum, calculated_checksum
+                        ),
+                    });
+                    fail = true;
+                }
+            }
+            Err(err) => {
+                issues.push(VerifyIssue {
+                    kind: "checksum".to_string(),
+                    message: format!("recalculation error: {}", err),
+                });
+                fail = true;
+            }
+        }
+
+        if find_jm_markers(&bytes).is_empty() {
+            issues.push(VerifyIssue {
+                kind: "jm_markers".to_string(),
+                message: "No JM markers found".to_string(),
+            });
+        }
+
+        let result = VerifyResult {
+            file: path.clone(),
+            status: if fail { "fail".to_string() } else { "ok".to_string() },
+            issues,
+        };
+        println!("{}", serde_json::to_string(&result).unwrap());
+        process::exit(if fail { 1 } else { 0 });
+    }
+
     let mut all_ok = true;
 
     for path in &args[1..] {
+        if path.starts_with("--") {
+            continue;
+        }
         println!("=== {} ===", path);
         let bytes = match fs::read(path) {
             Ok(b) => b,

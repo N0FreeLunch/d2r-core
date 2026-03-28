@@ -132,6 +132,10 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
 3. **Error Feedback Utilization (AI-Friendly Diagnostics)**: Prioritize the use of AI-friendly, structured error diagnostics. When debugging, rely on actionable hints and structured details (e.g., offsets, expected vs. actual) rather than raw string outputs.
 4. **Golden Master Priority (Living Specification)**: Treat actual game-generated save files (Golden Master) as the ultimate verifier truth. Passing verification against real fixture data is the mandatory, absolute condition for completing logic implementations.
 5. **PowerShell Minimization & Rust-First for Data**: For complex or high-volume data extraction and parsing (e.g., game data tables), persistent PowerShell-based loops are prohibited due to path interpretation issues (`0087`) and token inefficiency. High-performance, integrated Rust-based tools (integrated into the repo as binaries) MUST be developed and prioritized for these tasks to ensure deterministic execution and resource conservation.
+6. **Standardized Interaction (ADR 0004)**:
+    - **Data-First**: Always prefer structured JSON output (`--json`) for machine-to-machine reliability.
+    - **Self-Correction**: Utilize `hints` and `metadata` from tool outputs for autonomous reasoning.
+    - **Environment Abstraction**: Refer to the local `d2r-spec/AGENTS.md` for detailed strategies on handling OS-specific environment boundaries (encoding, paths, and shell rendering).
 
 
 ## 8. Anti-Loop & Ambiguity Resolution Protocol

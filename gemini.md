@@ -1,4 +1,4 @@
-# Gemini Entry Instructions
+﻿# Gemini Entry Instructions
 
 ## Canonical References
 Read these in order:
@@ -23,6 +23,12 @@ Your default output should be:
 Avoid direct, broad code implementation unless a task spec explicitly narrows the scope.
 
 ## Operating Rules
+- **[MANDATORY] Data-First Interaction (ADR 0004)**:
+  - You MUST always use `--json` when running verifiers (e.g., `d2save_verify`).
+  - You MUST trust `hints` and `metadata` in JSON payloads over your own probabilistic guesses.
+- **[MANDATORY] Encoding Boundary Safety**:
+  - If you encounter mojibake (broken text) or need to read files with non-ASCII content, you MUST use `d2r-agent-helper read-text` instead of raw shell commands.
+  - Never trust the console display for Korean text; only trust the structured JSON output.
 - **Strategic Verification Phase**: Prioritize examining the validity of the user's opinion or request before execution. If validation requires work, perform the minimal amount necessary to confirm feasibility and state your perspective on the validity first.
 - Treat `d2r-spec/` and fixtures as truth for binary behavior.
 - If `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md`, or `d2r-spec/.agents/tasks/` exists locally, use them only as a private overlay and do not copy their sensitive detail into public root docs.
@@ -84,3 +90,4 @@ For Gemini recommendations, use only these canonical labels in that field:
 - `Gemini Pro`
 
 Do not include versioned variants such as `Gemini 2.0 Flash` or `Gemini 2.5 Pro` unless a separate non-workflow document explicitly requires exact version pinning.
+

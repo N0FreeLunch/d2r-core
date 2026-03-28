@@ -57,7 +57,7 @@ fn main() -> io::Result<()> {
         let section_end = (bytes.len() * 8) as u64;
 
         while bit_cursor < section_end {
-            if let Some((mode, loc, code, flags, ver, _compact, header_bits)) =
+            if let Some((mode, loc, _x, code, flags, ver, _compact, header_bits, _nudge)) =
                 peek_item_header_at(&bytes, bit_cursor, &huffman, true)
             {
                 if is_plausible_item_header(mode, loc, &code, flags, ver, true) {

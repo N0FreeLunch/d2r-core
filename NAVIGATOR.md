@@ -41,8 +41,8 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 | **Status (Attrs/Skills)** | `d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
 | **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
 | **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
-| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0088-integrated-game-data-forge-strategy.md` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
-| **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md`, `0088` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
+| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0079-integrated-game-data-forge-strategy.md` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
+| **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md`, `0079` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
 | **Environment / Paths** | `d2r-spec/discussion/0036-environment-path-normalization.md` | `.env` | `tests/common.rs` |
 | **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
 
@@ -53,7 +53,7 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 - **D2R/DLC Aware**: We prioritize D2R/DLC support over classic LoD logic.
 - **External Data Boundary**: Extracted tables are maintained in `d2r-data/` (root link to sibling repo). In `d2r-core`, only `src/data/mod.rs` should bridge into that data.
 - **Environment First**: All paths MUST be retrieved via `tests/common.rs` or environment variables (Source of Truth: `.env`). Do not hardcode relative paths like `../../d2r-data`.
-- **PowerShell Minimization & Rust-First for Data**: For persistent data processing or high-volume extraction (`0088`), Rust-based integrated tools (`d2data-forge`) MUST be prioritized over PowerShell loops to ensure path integrity (`0087`) and token efficiency.
+- **PowerShell Minimization & Rust-First for Data**: For persistent data processing or high-volume extraction (`0079`), Rust-based integrated tools (`d2data-forge`) MUST be prioritized over PowerShell loops to ensure path integrity (`0087`) and token efficiency.
 
 
 ## 3. Git-Aware Context Recovery

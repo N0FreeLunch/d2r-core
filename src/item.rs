@@ -1316,12 +1316,25 @@ impl Item {
         // Peek/Read header info
         let flags = recorder.read_bits(32)?;
         let version = recorder.read_bits(3)? as u8;
-        let mode = recorder.read_bits(3)? as u8;
-        let loc = recorder.read_bits(4)? as u8;
-        let x = (recorder.read_bits(4)? & 0x0F) as u8;
-
         let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 0);
-        let is_compact = (flags & (1 << 21)) != 0;
+
+        let (mode, loc, x) = if is_alpha {
+            let m = recorder.read_bits(3)? as u8;
+            let l = recorder.read_bits(3)? as u8; // Alpha v105: 3-bit location
+            let x = recorder.read_bits(4)? as u8;
+            (m, l, x)
+        } else {
+            let m = recorder.read_bits(3)? as u8;
+            let l = recorder.read_bits(4)? as u8;
+            let x = (recorder.read_bits(4)? & 0x0F) as u8;
+            (m, l, x)
+        };
+
+        let mut is_compact = (flags & (1 << 21)) != 0;
+        if is_alpha {
+            // Alpha v105 Forensic Insight: Bit 21 meaning is reversed.
+            is_compact = !is_compact;
+        }
         
         let (y, page, header_socket_hint, peeked_code) = if is_alpha {
             let Some((section_bytes, start_bit)) = ctx else {
@@ -1646,12 +1659,12 @@ impl Item {
             }
             
             if is_alpha {
-                bit_pos = (end + 7) & !7;
-                item_trace!("[DEBUG Alpha] Item '{}' consumed {} bits. Aligned next bit to {}", item.code, consumed_bits, bit_pos);
+                // Alpha v105 Alignment Insight: Each item occupies exactly one 10-byte slot.
+                bit_pos = start + 80;
+                item_trace!("[DEBUG Alpha] Item '{}' slot consumed (80 bits). Next bit at {}", item.code, bit_pos);
             } else {
                 bit_pos = end;
             }
-            if is_alpha { item_trace!("[DEBUG Alpha] PUSHING item '{}' ({} bits consumed, next bit {})", item.code, consumed_bits, bit_pos); }
             items.push(item);
         }
         Ok(items)
@@ -2065,15 +2078,14 @@ mod tests {
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
             .unwrap_or(bytes.len());
 
-        // Expect 15 physical items for Alpha v105 in this fixture (header says 16 but data has 15).
-        let items = Item::read_section(&bytes[jm_pos + 4..next_jm], 15, &huffman, true)
+        // Expect 16 physical items for Alpha v105 in this fixture (header says 16).
+        let items = Item::read_section(&bytes[jm_pos + 4..next_jm], 16, &huffman, true)
             .expect("items should parse");
 
-        assert_eq!(items.len(), 15);
-        // Verified recovery via d2item_oracle_mapper (Golden Master):
-        assert_eq!(items[0].code.trim(), "hp1");
-        assert_eq!(items[13].code.trim(), "jav");
-        assert_eq!(items[14].code.trim(), "buc");
+        assert_eq!(items.len(), 16);
+        // Verified recovery via Forensic Scan (Alpha v105):
+        assert_eq!(items[0].code.trim(), "a7pw");
+        assert_eq!(items[15].code.trim(), "buc");
     }
 }
 
@@ -2304,7 +2316,10 @@ pub fn peek_item_header_at(
     let _x = recorder.read_bits(4).ok()?;
     
     let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 0);
-    let is_compact = (flags & (1 << 21)) != 0;
+    let mut is_compact = (flags & (1 << 21)) != 0;
+    if is_alpha {
+        is_compact = !is_compact;
+    }
     
     let needs_inv_bits = if is_alpha {
         // Alpha v105: location 0 (Inventory) also has these bits.

@@ -963,6 +963,7 @@ impl Item {
         is_runeword: bool,
         is_personalized: bool,
         version: u8,
+        alpha_mode: bool,
     ) -> ParsingResult<(
         Option<u32>,
         Option<u8>,
@@ -993,9 +994,9 @@ impl Item {
         recorder.push_context("Extended Stats");
         let trimmed_code = code.trim();
         let template = item_template(code);
-        let is_alpha = version == 5 || version == 1;
+        let is_alpha = alpha_mode;
 
-        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if version == 5 || version == 1 {
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if is_alpha {
             // Alpha v105 items in the inventory skip 32-bit ID.
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
@@ -1367,7 +1368,6 @@ impl Item {
                 flags, (flags & (1 << 21)) != 0, (flags & (1 << 26)) != 0, (flags & (1 << 27)) != 0);
         }
 
-        let is_ear = (flags & (1 << 24)) != 0;
         let is_identified = (flags & (1 << 4)) != 0;
         let is_personalized = if is_alpha { (flags & (1 << 28)) != 0 } else { (flags & (1 << 24)) != 0 };
         let is_runeword = (flags & (1 << 26)) != 0;
@@ -1447,8 +1447,8 @@ impl Item {
             println!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
         }
         let stats = if !is_compact {
-            if alpha_mode { if version == 5 { println!("[DEBUG v5] Reading extended stats at {}", recorder.total_read); } }
-            Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version)?
+            if alpha_mode { println!("[DEBUG Alpha] Reading extended stats at {}", recorder.total_read); }
+            Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version, alpha_mode)?
         } else {
             (
                 None, None, None, false, None, false, None, None, None, None, None, None,
@@ -1461,7 +1461,7 @@ impl Item {
         let item_quality = stats.2;
         recorder.alpha_quality = item_quality;
         let mut is_runeword = is_runeword;
-        if version == 5 && is_runeword {
+        if alpha_mode && is_runeword {
             // Alpha v105: Only Normal (Quality 2) items can be runewords.
             // Plate Mail (Quality 4) is magic even if bit 23 is set.
             if let Some(q) = item_quality {
@@ -2104,60 +2104,34 @@ fn socket_rescue_limit(parent: &Item) -> usize {
 }
 
 pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
-    if item_template(code.trim()).is_some() {
-        println!("[DEBUG] Plausible? template matched '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", code, mode, location, version, flags);
-        return true;
-    }
-    
-    // println!("[DEBUG] NOT template match: mode={}, loc={}, code='{}', ver={}, flags=0x{:08X}", mode, location, code, version, flags);
-    
-    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4 || version == 0);
-
-    if mode > 6 || location > 15 {
-        return false;
-    }
-    
-    // Modern D2 flags validation: bits 27-31 are unused.
-    if !is_alpha && version != 4 && (flags & 0xF8000000) != 0 {
-        return false;
-    }
-
-    let trimmed_code = code.trim();
-    if trimmed_code.is_empty() {
-        return false;
-    }
-
-    if item_template(code).is_some() {
-        return code != "    " && code.trim().chars().count() > 0;
-    }
-
-    // Version 1/5 (Alpha v105/Beta) strict check: must be a known template...
-    if is_alpha {
+    if alpha_mode {
+        // Strict Alpha validation
+        if !(version == 5 || version == 1 || version == 0) { return false; }
+        if mode > 6 || location > 15 { return false; }
         let trimmed = code.trim();
-        // Skip empty codes or common junk
-        if trimmed.is_empty() || trimmed.len() < 3 { return false; }
+        // Code must be exactly 3 or 4 alphanumeric chars in Alpha
+        if trimmed.len() < 3 || trimmed.len() > 4 { return false; }
+        if !trimmed.chars().all(|c| c.is_ascii_alphanumeric()) { return false; }
         
-        let template = item_template(trimmed);
-        if template.is_none() { return false; }
-        
-        // Strict Alpha constraints
-        if version > 5 { return false; } 
-        if mode > 6 { return false; }
-        
-        // Context-aware plausibility: In modern D2R, Scrolls and Potions are compact.
-        // In Alpha v105, they are often NOT compact (Bit 21 is 0).
-        if !alpha_mode && (trimmed == "tsc" || trimmed == "isc" || trimmed == "hp1" || trimmed == "hp2" || trimmed == "hp3" || trimmed == "mp1" || trimmed == "mp2" || trimmed == "mp3") {
-            let is_compact = (flags & (1 << 21)) != 0;
-            if !is_compact { return false; }
+        // Alpha flags: bits 21,22,26,27,28 are known. Bits 29-31 must be clear.
+        if (flags >> 29) != 0 { return false; }
+
+        if item_template(trimmed).is_some() {
+            println!("[DEBUG Alpha] Plausible header FOUND: '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", trimmed, mode, location, version, flags);
+            return true;
         }
-
-        return true;
+        return false;
     }
 
-    if (version == 4) && !trimmed_code.is_empty() {
+    if mode > 6 || location > 15 { return false; }
+    
+    let trimmed_code = code.trim();
+    if trimmed_code.is_empty() { return false; }
+
+    if item_template(trimmed_code).is_some() {
         return true;
     }
-
+    
     let is_rune = trimmed_code.len() == 3
         && trimmed_code.starts_with('r')
         && trimmed_code.chars().skip(1).all(|ch| ch.is_ascii_digit());
@@ -2316,23 +2290,39 @@ pub fn peek_item_header_at(
     let location = recorder.read_bits(4).ok()? as u8;
     let _x = recorder.read_bits(4).ok()?;
     
-    let is_alpha = alpha_mode && (version == 5 || version == 1);
+    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 0);
     let is_compact = (flags & (1 << 21)) != 0;
     
-    // Alpha v105 heuristic: compact items do NOT have 'y' and 'page' in inventory.
-    if !is_compact {
+    let needs_inv_bits = if is_alpha {
+        // Alpha v105: location 0 (Inventory) also has these bits.
+        location == 0 || location == 1 || location == 5
+    } else {
+        !is_compact
+    };
+
+    if needs_inv_bits {
         let _y = recorder.read_bits(4).ok();
         let _page = recorder.read_bits(3).ok();
+        let _hint = recorder.read_bits(3).ok();
     }
 
     let mut code = String::new();
     for _ in 0..4 {
-        let ch = huffman.decode_recorded(&mut recorder).ok()?;
-        code.push(ch);
+        let ch_res = huffman.decode_recorded(&mut recorder);
+        match ch_res {
+            Ok(ch) => code.push(ch),
+            Err(_) => {
+                if alpha_mode && start_bit >= 1100 && start_bit <= 1130 {
+                   println!("[DEBUG] Huffman fail at start={} during char {}", start_bit, code.len());
+                }
+                return None;
+            }
+        }
     }
 
-    if (start_bit >= 8200 && start_bit <= 8800) || start_bit < 200 {
-        println!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} total_read={}", start_bit, code, flags, version, recorder.total_read);
+    if start_bit < 200 || (start_bit >= 1000 && start_bit <= 1200) {
+        println!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} loc={} mode={} comp={} alpha={} total={}", 
+            start_bit, code, flags, version, location, mode, is_compact, is_alpha, recorder.total_read);
     }
     Some((mode, location, code, flags, version, is_compact, recorder.total_read))
 }
@@ -2347,14 +2337,16 @@ fn find_next_item_match(
     let section_bits = (section_bytes.len() * 8) as u64;
 
     while probe < section_bits {
+        if alpha_mode && probe >= 1100 && probe <= 1130 {
+            println!("[PROBE_START] bit={}", probe);
+        }
         let peek = peek_item_header_at(section_bytes, probe, huffman, alpha_mode);
         if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek {
+            if alpha_mode && probe >= 1100 && probe <= 1150 {
+                println!("[PROBE] bit={}, code='{}', mode={}, loc={}, ver={}, flags=0x{:08X}", probe, code, mode, location, version, flags);
+            }
             let plausible = is_plausible_item_header(mode, location, &code, flags, version, alpha_mode);
             
-            if probe < 1000 { // Only log early bits to avoid massive files
-                println!("[DEBUG] Probe at {}: code='{}' plausible={}", probe, code, plausible);
-            }
-
             if plausible {
                 println!("[DEBUG] find_next_item_match FOUND at bit={}, code='{}' (flags=0x{:08X}, ver={})", probe, code, flags, version);
                 item_trace!("  [Probe] FOUND at bit={}, code='{}'", probe, code);

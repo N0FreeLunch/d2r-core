@@ -320,7 +320,7 @@ impl HuffmanTree {
         let mut current = &self.root;
         loop {
             if let Some(symbol) = current.symbol {
-                // println!("  [Huffman] Decoded '{}' from bits {:?}", symbol, bits);
+                // item_trace!("  [Huffman] Decoded '{}' from bits {:?}", symbol, bits);
                 return Ok(symbol);
             }
             let bit = read_bit()?;
@@ -558,7 +558,7 @@ impl Item {
     /// Mutates a specific property value.
     /// Returns true if the property was found and updated.
     pub fn set_property_value(&mut self, stat_id: u32, value: crate::domain::vo::ItemStatValue) -> bool {
-        println!("DEBUG: set_property_value(id={}, val={}), self.version={}, self.is_runeword={}", stat_id, value.value(), self.version, self.is_runeword);
+        item_trace!("DEBUG: set_property_value(id={}, val={}), self.version={}, self.is_runeword={}", stat_id, value.value(), self.version, self.is_runeword);
         let mut found = false;
         
         {
@@ -743,19 +743,19 @@ pub fn parse_single_property<R: BitRead>(
         let stat_id = match read_alpha_stat_id(recorder) {
             Ok(id) => id,
             Err(_) if version == 5 => {
-                println!("[DEBUG v5] Property stream ended abruptly, assuming terminator.");
+                item_trace!("[DEBUG v5] Property stream ended abruptly, assuming terminator.");
                 return Ok(PropertyParseResult::Terminator);
             }
             Err(e) => return Err(e),
         };
         
         if version == 5 {
-             println!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.total_read - 9);
+             item_trace!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.total_read - 9);
         }
         
         if is_alpha_terminator(stat_id) {
             if version == 5 {
-                 println!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
+                 item_trace!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
             }
             // Alpha v105 Magic/Rare properties are 10-bit aligned.
             if recorder.alpha_quality != Some(ItemQuality::Normal) {
@@ -779,7 +779,7 @@ pub fn parse_single_property<R: BitRead>(
         let val = if val_bits > 0 { recorder.read_bits(val_bits)? } else { 0 };
         
         if version == 5 {
-             println!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.total_read - val_bits as u64, 9 + val_bits);
+             item_trace!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.total_read - val_bits as u64, 9 + val_bits);
         }
 
         return Ok(PropertyParseResult::Property(ItemProperty {
@@ -1007,7 +1007,7 @@ impl Item {
             let has_class_specific_data = recorder.read_bit()?;
             let timestamp_flag = recorder.read_bit()?;
             
-            println!("[DEBUG v5] Lvl={}, Qual={:?}, multi_gfx={}, class_data={}, timestamp={}", level, quality, has_multiple_graphics, has_class_specific_data, timestamp_flag);
+            item_trace!("[DEBUG v5] Lvl={}, Qual={:?}, multi_gfx={}, class_data={}, timestamp={}", level, quality, has_multiple_graphics, has_class_specific_data, timestamp_flag);
             
             (Some(0u32), Some(level), Some(quality), has_multiple_graphics, has_class_specific_data, timestamp_flag)
         } else {
@@ -1016,8 +1016,8 @@ impl Item {
         };
 
         if version == 5 {
-             println!("[DEBUG v5] Post-base header at bit {}", recorder.total_read);
-             println!("[DEBUG v5] Lvl: {:?}, Qual: {:?}, Code: '{}'", item_level, item_quality, trimmed_code);
+             item_trace!("[DEBUG v5] Post-base header at bit {}", recorder.total_read);
+             item_trace!("[DEBUG v5] Lvl: {:?}, Qual: {:?}, Code: '{}'", item_level, item_quality, trimmed_code);
         }
 
         item_trace!(
@@ -1324,7 +1324,13 @@ impl Item {
         let is_compact = (flags & (1 << 21)) != 0;
         
         let (y, page, header_socket_hint, peeked_code) = if is_alpha {
-            let (section_bytes, start_bit) = ctx.expect("Alpha v105 requires context for heuristic sync");
+            let Some((section_bytes, start_bit)) = ctx else {
+                return Err(ParsingFailure {
+                    error: ParsingError::Generic("Alpha v105 requires context for heuristic sync".to_string()),
+                    context_stack: vec!["AlphaSync".to_string()],
+                    bit_offset: 0,
+                });
+            };
             let Some((_m, _l, peek_code, _f, _v, _c, header_bits)) = peek_item_header_at(section_bytes, start_bit, huffman, alpha_mode)
             else {
                 return Err(ParsingFailure {
@@ -1363,8 +1369,8 @@ impl Item {
         let is_alpha = version == 5 || version == 1;
 
         if is_alpha && version == 5 {
-             println!("[DEBUG v5] Start parsing item header at {}", recorder.total_read);
-             println!("[DEBUG v5] Flags: 0x{:08X} (bit 21 compact={}, bit 26 runeword={}, bit 27 socketed={})", 
+             item_trace!("[DEBUG v5] Start parsing item header at {}", recorder.total_read);
+             item_trace!("[DEBUG v5] Flags: 0x{:08X} (bit 21 compact={}, bit 26 runeword={}, bit 27 socketed={})", 
                 flags, (flags & (1 << 21)) != 0, (flags & (1 << 26)) != 0, (flags & (1 << 27)) != 0);
         }
 
@@ -1383,7 +1389,7 @@ impl Item {
         };
         let code_end = recorder.total_read;
         if is_alpha && version == 5 {
-             println!("[DEBUG v5] Code: '{}' bits [{}..{}]", code, code_start, code_end);
+             item_trace!("[DEBUG v5] Code: '{}' bits [{}..{}]", code, code_start, code_end);
         }
 
         if is_ear {
@@ -1444,10 +1450,10 @@ impl Item {
         }
         let trimmed_code = code.trim();
         if version == 5 {
-            println!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
+            item_trace!("[DEBUG v5] {} | flags=0x{:08X}, ver={}, mode={}, loc={}, x={}, y={}, compact={}", trimmed_code, flags, version, mode, loc, x, y, is_compact);
         }
         let stats = if !is_compact {
-            if alpha_mode { println!("[DEBUG Alpha] Reading extended stats at {}", recorder.total_read); }
+            if alpha_mode { item_trace!("[DEBUG Alpha] Reading extended stats at {}", recorder.total_read); }
             Self::read_extended_stats(recorder, &code, is_socketed, is_runeword, is_personalized, version, alpha_mode)?
         } else {
             (
@@ -1622,7 +1628,8 @@ impl Item {
             let parse_result = parse_item_at(section_bytes, start, huffman, items.len(), is_alpha);
             let (item, consumed_bits) = match parse_result {
                 Ok(res) => res,
-                Err(_) => {
+                Err(e) => {
+                    if is_alpha { item_trace!("[DEBUG Alpha] Parse FAILED at bit {}: {:?}", start, e.error); }
                     bit_pos = start + 1;
                     continue;
                 }
@@ -1638,7 +1645,13 @@ impl Item {
                 }
             }
             
-            bit_pos = end;
+            if is_alpha {
+                bit_pos = (end + 7) & !7;
+                item_trace!("[DEBUG Alpha] Item '{}' consumed {} bits. Aligned next bit to {}", item.code, consumed_bits, bit_pos);
+            } else {
+                bit_pos = end;
+            }
+            if is_alpha { item_trace!("[DEBUG Alpha] PUSHING item '{}' ({} bits consumed, next bit {})", item.code, consumed_bits, bit_pos); }
             items.push(item);
         }
         Ok(items)
@@ -2116,8 +2129,8 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
         // Alpha flags: bits 21,22,26,27,28 are known. Bits 29-31 must be clear.
         if (flags >> 29) != 0 { return false; }
 
-        if item_template(trimmed).is_some() {
-            println!("[DEBUG Alpha] Plausible header FOUND: '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", trimmed, mode, location, version, flags);
+        if trimmed.len() >= 3 && trimmed.len() <= 4 && trimmed.chars().all(|c| c.is_ascii_alphanumeric()) {
+            item_trace!("[DEBUG Alpha] RELAXED header FOUND: '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", trimmed, mode, location, version, flags);
             return true;
         }
         return false;
@@ -2313,7 +2326,7 @@ pub fn peek_item_header_at(
             Ok(ch) => code.push(ch),
             Err(_) => {
                 if alpha_mode && start_bit >= 1100 && start_bit <= 1130 {
-                   println!("[DEBUG] Huffman fail at start={} during char {}", start_bit, code.len());
+                   item_trace!("[DEBUG] Huffman fail at start={} during char {}", start_bit, code.len());
                 }
                 return None;
             }
@@ -2321,7 +2334,7 @@ pub fn peek_item_header_at(
     }
 
     if start_bit < 200 || (start_bit >= 1000 && start_bit <= 1200) {
-        println!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} loc={} mode={} comp={} alpha={} total={}", 
+        item_trace!("[DEBUG Peek] start={} code='{}' flags=0x{:08X} ver={} loc={} mode={} comp={} alpha={} total={}", 
             start_bit, code, flags, version, location, mode, is_compact, is_alpha, recorder.total_read);
     }
     Some((mode, location, code, flags, version, is_compact, recorder.total_read))
@@ -2338,17 +2351,17 @@ fn find_next_item_match(
 
     while probe < section_bits {
         if alpha_mode && probe >= 1100 && probe <= 1130 {
-            println!("[PROBE_START] bit={}", probe);
+            item_trace!("[PROBE_START] bit={}", probe);
         }
         let peek = peek_item_header_at(section_bytes, probe, huffman, alpha_mode);
         if let Some((mode, location, code, flags, version, _is_compact, _header_len)) = peek {
             if alpha_mode && probe >= 1100 && probe <= 1150 {
-                println!("[PROBE] bit={}, code='{}', mode={}, loc={}, ver={}, flags=0x{:08X}", probe, code, mode, location, version, flags);
+                item_trace!("[PROBE] bit={}, code='{}', mode={}, loc={}, ver={}, flags=0x{:08X}", probe, code, mode, location, version, flags);
             }
             let plausible = is_plausible_item_header(mode, location, &code, flags, version, alpha_mode);
             
             if plausible {
-                println!("[DEBUG] find_next_item_match FOUND at bit={}, code='{}' (flags=0x{:08X}, ver={})", probe, code, flags, version);
+                item_trace!("[DEBUG] find_next_item_match FOUND at bit={}, code='{}' (flags=0x{:08X}, ver={})", probe, code, flags, version);
                 item_trace!("  [Probe] FOUND at bit={}, code='{}'", probe, code);
                 return Some(probe);
             }
@@ -2433,7 +2446,7 @@ mod v5_fuzz_tests {
                 }
             }
             if code.starts_with('j') || code.starts_with('b') || code.starts_with('w') {
-                 println!("[Fuzz] Bit={} Code='{}' Flags=0x{:08X} Mod={} Loc={}", 
+                 item_trace!("[Fuzz] Bit={} Code='{}' Flags=0x{:08X} Mod={} Loc={}", 
                     probe, code, flags, mode, loc);
             }
         }
@@ -2456,7 +2469,7 @@ mod v5_fuzz_tests {
             let flags = recorder.read_bits(32).unwrap_or(0);
             let ver = recorder.read_bits(3).unwrap_or(0);
             
-            println!("Item {} at relative {}: flags=0x{:08X}, ver={}", i, bit_pos - jm_start_bit, flags, ver);
+            item_trace!("Item {} at relative {}: flags=0x{:08X}, ver={}", i, bit_pos - jm_start_bit, flags, ver);
             
             // Dynamic jump for testing.
             if i < 4 { bit_pos += 72; }
@@ -2494,7 +2507,7 @@ mod v5_fuzz_tests {
                 }
             }
             if !code.trim().is_empty() && code.chars().all(|c| c.is_alphanumeric() || c == ' ') {
-                 println!("[GlobalFuzz] Bit={} Code='{}' Flags=0x{:08X}", i, code, flags);
+                 item_trace!("[GlobalFuzz] Bit={} Code='{}' Flags=0x{:08X}", i, code, flags);
             }
         }
     }

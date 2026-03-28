@@ -11,6 +11,7 @@ use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 struct VerifyIssue {
     kind: String,
     message: String,
+    bit_offset: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -18,6 +19,8 @@ struct VerifyResult {
     file: String,
     status: String,
     issues: Vec<VerifyIssue>,
+    hints: Vec<String>,
+    metadata: serde_json::Value,
 }
 
 fn main() {
@@ -70,11 +73,14 @@ fn main() {
                 issues.push(VerifyIssue {
                     kind: "io".to_string(),
                     message: format!("Cannot read file: {}", e),
+                    bit_offset: None,
                 });
                 let result = VerifyResult {
                     file: path.clone(),
                     status: "fail".to_string(),
                     issues,
+                    hints: vec!["Ensure the file path is correct and accessible.".to_string()],
+                    metadata: serde_json::json!({}),
                 };
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
@@ -87,11 +93,16 @@ fn main() {
                 issues.push(VerifyIssue {
                     kind: "header_parse".to_string(),
                     message: format!("{}", err),
+                    bit_offset: None,
                 });
                 let result = VerifyResult {
                     file: path.clone(),
                     status: "fail".to_string(),
                     issues,
+                    hints: vec!["Header is corrupted or in an unsupported format.".to_string()],
+                    metadata: serde_json::json!({
+                        "file_size_actual": bytes.len(),
+                    }),
                 };
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
@@ -103,9 +114,17 @@ fn main() {
         let items = match d2r_core::item::Item::read_player_items(&bytes, &huffman, alpha_mode) {
             Ok(items) => items,
             Err(err) => {
+                let bit_offset = match err.error {
+                    d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
+                    _ => None,
+                };
                 issues.push(VerifyIssue {
                     kind: "item_parse".to_string(),
                     message: format!("{}", err),
+                    bit_offset,
                 });
                 fail = true;
                 Vec::new()
@@ -119,41 +138,56 @@ fn main() {
                     issues.push(VerifyIssue {
                         kind: "item_parse".to_string(),
                         message: format!("Item to_bytes ({}): {}", item.code, e),
+                        bit_offset: None,
                     });
                     fail = true;
                     continue;
                 }
             };
             if let Err(e) = d2r_core::item::Item::from_bytes(&item_bits, &huffman, alpha_mode) {
+                let bit_offset = match e.error {
+                    d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
+                    _ => None,
+                };
                 issues.push(VerifyIssue {
                     kind: "item_parse".to_string(),
                     message: format!("Item round-trip parse failure ({}): {}", item.code, e),
+                    bit_offset,
                 });
                 fail = true;
             }
         }
 
-        if save.header.file_size as usize != bytes.len() {
+        let header_size = save.header.file_size as usize;
+        let actual_size = bytes.len();
+        if header_size != actual_size {
             issues.push(VerifyIssue {
                 kind: "file_size".to_string(),
                 message: format!(
                     "File size header: {} bytes, actual: {} bytes",
-                    save.header.file_size,
-                    bytes.len()
+                    header_size, actual_size
                 ),
+                bit_offset: None,
             });
             fail = true;
         }
 
+        let stored_checksum = save.header.checksum;
+        let mut calculated_checksum_opt = None;
         match recalculate_checksum(&bytes) {
             Ok(calculated_checksum) => {
-                if save.header.checksum != calculated_checksum {
+                calculated_checksum_opt = Some(calculated_checksum);
+                if stored_checksum != calculated_checksum {
                     issues.push(VerifyIssue {
                         kind: "checksum".to_string(),
                         message: format!(
                             "stored=0x{:08X}, calculated=0x{:08X}",
-                            save.header.checksum, calculated_checksum
+                            stored_checksum, calculated_checksum
                         ),
+                        bit_offset: None,
                     });
                     fail = true;
                 }
@@ -162,22 +196,59 @@ fn main() {
                 issues.push(VerifyIssue {
                     kind: "checksum".to_string(),
                     message: format!("recalculation error: {}", err),
+                    bit_offset: None,
                 });
                 fail = true;
             }
         }
 
-        if find_jm_markers(&bytes).is_empty() {
+        let jm_markers = find_jm_markers(&bytes);
+        if jm_markers.is_empty() {
             issues.push(VerifyIssue {
                 kind: "jm_markers".to_string(),
                 message: "No JM markers found".to_string(),
+                bit_offset: None,
             });
         }
 
+        // Hint synthesis
+        let mut hints = Vec::new();
+        for issue in &issues {
+            match issue.kind.as_str() {
+                "io" => hints.push("Ensure the file path is correct and accessible.".to_string()),
+                "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),
+                "item_parse" => {
+                    if let Some(offset) = issue.bit_offset {
+                        hints.push(format!("Investigate bit-width or alignment logic near bit offset {}.", offset));
+                    } else {
+                        hints.push("Check item data structure or Huffman encoding table.".to_string());
+                    }
+                },
+                "file_size" => hints.push("File size in header must match the actual byte count. Truncation suspected.".to_string()),
+                "checksum" => hints.push("Checksum must be refreshed after any file mutation (lives at offset 12).".to_string()),
+                "jm_markers" => hints.push("Missing JM markers suggest the file is not a valid character save or is severely truncated.".to_string()),
+                _ => {}
+            }
+        }
+        hints.dedup();
+
+        let issue_count = issues.len();
         let result = VerifyResult {
             file: path.clone(),
             status: if fail { "fail".to_string() } else { "ok".to_string() },
             issues,
+            hints,
+            metadata: serde_json::json!({
+                "header_version": save.header.version,
+                "alpha_mode": alpha_mode,
+                "file_size_header": header_size,
+                "file_size_actual": actual_size,
+                "file_size_delta": (actual_size as i64) - (header_size as i64),
+                "checksum_stored": format!("0x{:08X}", stored_checksum),
+                "checksum_calculated": calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
+                "jm_marker_count": jm_markers.len(),
+                "issue_count": issue_count,
+            }),
         };
         println!("{}", serde_json::to_string(&result).unwrap());
         process::exit(if fail { 1 } else { 0 });

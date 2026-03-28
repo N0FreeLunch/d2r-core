@@ -47,6 +47,7 @@ fn main() -> io::Result<()> {
     let mut byte_offset = None;
     let mut window = 128;
     let mut use_json = false;
+    let mut alpha_mode = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -58,13 +59,17 @@ fn main() -> io::Result<()> {
                     window = args[i].parse().unwrap_or(128);
                 }
             }
+            "--alpha" => alpha_mode = true,
             _ => {
                 if save_path_str.is_none() {
                     save_path_str = Some(&args[i]);
                 } else if byte_offset.is_none() {
-                    byte_offset = Some(
-                        usize::from_str_radix(args[i].trim_start_matches("0x"), 16).unwrap_or(0),
-                    );
+                    let val = if args[i].starts_with("0x") {
+                        usize::from_str_radix(&args[i][2..], 16).unwrap_or(0)
+                    } else {
+                        args[i].parse().unwrap_or(0)
+                    };
+                    byte_offset = Some(val);
                 }
             }
         }
@@ -83,7 +88,7 @@ fn main() -> io::Result<()> {
     let bytes = fs::read(save_path)?;
     let huffman = HuffmanTree::new();
 
-    let mut result = run_bit_scan(&bytes, byte_offset, window, &huffman);
+    let mut result = run_bit_scan(&bytes, byte_offset, window, &huffman, alpha_mode);
     result.file_path = save_path.clone();
 
     if use_json {
@@ -118,6 +123,7 @@ fn run_bit_scan(
     base_byte_offset: usize,
     window: isize,
     huffman: &HuffmanTree,
+    alpha_mode: bool,
 ) -> ScanResult {
     let mut candidates = Vec::new();
 
@@ -144,9 +150,8 @@ fn run_bit_scan(
         }
 
         let mut recorder = BitRecorder::new(&mut reader);
-        let parse_res = Item::from_reader_with_context(&mut recorder, huffman, None, false);
-
-        let consumed = reader.position_in_bits().unwrap_or(0);
+        let parse_res = Item::from_reader_with_context(&mut recorder, huffman, Some((bytes, bit_pos)), alpha_mode);
+        let consumed = recorder.total_read;
         let offset_diff = bit_pos as i64 - base_bit_pos as i64;
 
         let (is_valid, code, error) = match parse_res {

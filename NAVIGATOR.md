@@ -28,7 +28,7 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 | **Validation Engine** | `src/engine/validation.rs` | `discussion/0034` | `item_validation_test` |
 | **Interpretation** | `src/engine/formatter.rs` | `discussion/0033`, `0034` | `option_rendering_test` |
 | **Inventory Grid** | `src/inventory.rs` | `discussion/0021` | `d2save_inventory_check`|
-| **Game Data Gateway**| `src/data/mod.rs` | `discussion/0035` | `cargo check` |
+| **Game Data Gateway**| `src/data/mod.rs` | `discussion/0035`, `0104` | `cargo check`, `forge --verify` |
 | **Quest/Waypoint (v105)** | `src/save.rs`, `d2r-data/quests.rs`, `d2r-data/waypoints.rs` | `discussion/0068`, `0069` | `d2item_chunk_verify`, `v105_unlocker` |
 
 ## 1. Core Domains & File Map
@@ -41,7 +41,7 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 | **Status (Attrs/Skills)** | `d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
 | **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
 | **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
-| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0079-integrated-game-data-forge-strategy.md` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
+| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035`, `0104` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
 | **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md`, `0079` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
 | **Environment / Paths** | `d2r-spec/discussion/0036-environment-path-normalization.md` | `.env` | `tests/common.rs` |
 | **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |

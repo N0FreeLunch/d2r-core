@@ -31,5 +31,7 @@ tests/fixtures/savegames/modified/
 # External Data (Symbolic Link)
 d2r-data/
 
+# Private/public-safe task artifacts should live in the overlay by default.
+.agents/tasks/
 
 .aider*

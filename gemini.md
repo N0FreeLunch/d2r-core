@@ -1,4 +1,4 @@
-﻿# Gemini Entry Instructions
+# Gemini Entry Instructions
 
 ## Canonical References
 Read these in order:
@@ -74,11 +74,15 @@ Final updated directive documents should only be written after this review is co
 
 ## Custom Agent Skills Auto-Discovery (2026-03-28)
 - **Official Skills Repository**: All project-specific custom skills are stored in `d2r-spec/.agents/skills/`.
-- **Discovery Mandatory**: At the start of a session or when encountering specialized tasks (multi-repo ops, bit-forensics, etc.), the agent MUST scan this directory to identify available specialized guidance.
+- **High-Efficiency Skill Discovery (Flash-Optimized)**:
+  - Gemini models (especially Flash) MUST prioritize reading **`d2r-spec/.agents/skills/SKILL_INDEX.yml`** at the start of a session or when encountering a new task type (e.g., bit-parsing, multi-repo ops, spec-hardening).
+  - Use the index to quickly match keywords (`triggers`, `use_when`) without scanning directories.
+  - Once a skill is identified, read its **`SKILL.md`** file directly via `view_file` (using the path from the index).
 - **Activation Workaround**: Due to directory junction restrictions, `activate_skill` may fail to list these skills automatically. In such cases, the agent MUST use `run_shell_command` with PowerShell (`Get-Content`) to read the `SKILL.md` file from the identified subdirectory and manually adopt its directives.
 - **Key Skills to Prioritize**:
   - `d2r-multi-repo-ops`: Essential for operations involving `d2r-spec` and `d2r-data` junctions.
   - `powershell-safe-file-ops`: Mandatory for all file operations in Windows environment.
+  - `discussion-to-task-hardening`: Mandatory before marking any task draft as `Ready`.
 
 
 ## Required Final Field

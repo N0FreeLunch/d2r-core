@@ -162,27 +162,31 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
         return format!("Unknown Stat {} (value: {})", stat_id, prop.value);
     };
 
-    let descfunc = cost.descfunc.unwrap_or(0);
+    let descfunc = cost.descfunc;
     let key = if prop.value >= 0 {
         cost.descstrpos
     } else {
         cost.descstrneg
     };
-    let Some(key) = key else {
+    if key.is_empty() {
         return format!("{} (value: {})", cost.name, prop.value);
     };
 
     let loc_str = get_loc(key, language).trim();
     
     // Slice 1: DescStr2 handling (e.g. Based on Character Level)
-    let phrase2 = cost.descstr2.map(|k| get_loc(k, language));
+    let phrase2 = if !cost.descstr2.is_empty() {
+        Some(get_loc(cost.descstr2, language))
+    } else {
+        None
+    };
     
     // Slice 2: Level Scaling logic utilizing op and op_param
     let mut display_value = prop.value;
-    if let (Some(op), Some(op_param)) = (cost.op, cost.op_param) {
-        match op {
+    if cost.op != 0 {
+        match cost.op {
             2 | 4 | 5 => {
-                display_value = (prop.value * char_level as i32) >> op_param;
+                display_value = (prop.value * char_level as i32) >> cost.op_param;
             }
             _ => {}
         }
@@ -221,7 +225,20 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
             if class_id == 0 && !loc_str.starts_with("ItemModifier") {
                 format!("{} {}", signed_value, loc_str)
             } else if let Some(class_name) = class_name(class_id, language) {
-                if language == "ko" {
+                let mod_str_key = match class_id {
+                    0 => "ModStr3a", // Amazon
+                    1 => "ModStr3c", // Necro
+                    2 => "ModStr3b", // Paladin
+                    3 => "ModStr3e", // Barb
+                    4 => "ModStr3d", // Sorc
+                    5 => "ModStre8a", // Druid
+                    6 => "ModStre8b", // Assassin
+                    _ => "strModAllSkillLevels",
+                };
+                let template = get_loc(mod_str_key, language);
+                if template.contains('%') {
+                    format_template(template, &[signed_value, class_name.to_string()])
+                } else if language == "ko" {
                     format!("{} {} 스킬 레벨 상승", signed_value, class_name)
                 } else {
                     format!("{} to {} Skill Levels", signed_value, class_name)
@@ -257,27 +274,23 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
                 )
             } else {
                 // descfunc 15 appends a descstr2 phrase (e.g. "on attack")
-                let phrase2 = STAT_COSTS
-                    .iter()
-                    .find(|s| s.id == prop.stat_id)
-                    .and_then(|s| s.descstr2)
-                    .map(|k| get_loc(k, language))
-                    .unwrap_or(get_loc("Attack", language)); // Better fallback
-                if language == "ko" {
-                    format!("{}% 확률로 레벨 {} {} {} 시전", display_value, skill_level, skill, phrase2)
+                let phrase2 = if !cost.descstr2.is_empty() {
+                    get_loc(cost.descstr2, language)
                 } else {
-                    format!("{}% Chance to cast level {} {} {}", display_value, skill_level, skill, phrase2)
-                }
+                    get_loc("ItemExpansiveChancX", language) // Fallback to template if possible
+                };
+                
+                let template = get_loc_optional("ItemExpansiveChancX", language).unwrap_or("%d%% Chance to cast level %d %s on attack");
+                format_template(template, &[display_value.to_string(), skill_level.to_string(), skill, phrase2.to_string()])
             }
         }
         16 => {
             let skill = skill_name(prop.param, language);
             if loc_str.contains('%') {
                 format_template(loc_str, &[display_value.to_string(), skill.to_string()])
-            } else if language == "ko" {
-                format!("장착 시 레벨 {} {} 오라", display_value, skill)
             } else {
-                format!("Level {} {} Aura When Equipped", display_value, skill)
+                let template = get_loc_optional("ModStr16", language).unwrap_or("Level %d %s Aura When Equipped");
+                format_template(template, &[display_value.to_string(), skill])
             }
         }
         17 | 18 => {
@@ -315,41 +328,35 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
             let skill = skill_name(skill_id, language);
             let current_charges = prop.value & 0xFF;
             let max_charges = (prop.value >> 8) & 0xFF;
-            if loc_str.contains('%') {
-                format_template(
-                    loc_str,
-                    &[
-                        skill_level.to_string(),
-                        skill,
-                        current_charges.to_string(),
-                        max_charges.to_string()
-                    ],
-                )
-            } else {
-                let charge_text = format!("({}/{})", current_charges, max_charges);
-                if language == "ko" {
-                    format!("레벨 {} {} {}", skill_level, skill, charge_text)
-                } else {
-                    format!("Level {} {} {}", skill_level, skill, charge_text)
-                }
-            }
+            format_skill_charges(skill_level, &skill, current_charges as u32, max_charges as u32, language)
         }
         27 => {
             let skill = skill_name(prop.param, language);
             if loc_str.contains('%') {
                 format_template(loc_str, &[signed_value, skill])
-            } else if language == "ko" {
-                format!("{} {} (클래스 전용)", signed_value, skill)
             } else {
-                format!("{} to {} (Class Only)", signed_value, skill)
+                let class_id = match cost.name.as_ref() {
+                    "amazon_skill" => Some(0),
+                    "necromancer_skill" => Some(1),
+                    "paladin_skill" => Some(2),
+                    "barbarian_skill" => Some(3),
+                    "sorceress_skill" => Some(4),
+                    "druid_skill" => Some(5),
+                    "assassin_skill" => Some(6),
+                    _ => None,
+                };
+                let only_text = if let Some(cid) = class_id {
+                    get_loc(get_class_only_key(cid), language)
+                } else {
+                    ""
+                };
+                format!("{} {} {}", signed_value, skill, only_text)
             }
         }
         28 => {
             let skill = skill_name(prop.param, language);
             if loc_str.contains('%') {
                 format_template(loc_str, &[signed_value, skill])
-            } else if language == "ko" {
-                format!("{} {}", signed_value, skill)
             } else {
                 format!("{} to {}", signed_value, skill)
             }
@@ -439,6 +446,31 @@ fn decode_skill_tab_param(param: u32) -> (usize, usize) {
     (absolute / 3, absolute % 3)
 }
 
+fn get_class_only_key(class_id: usize) -> &'static str {
+    match class_id {
+        0 => "AmaOnly",
+        1 => "NecOnly",
+        2 => "PalOnly",
+        3 => "BarOnly",
+        4 => "SorOnly",
+        5 => "DruOnly",
+        6 => "AssOnly",
+        _ => "ItemStats1a", // Requirements not met fallback
+    }
+}
+
+fn format_skill_charges(level: u32, skill: &str, cur: u32, max: u32, language: &str) -> String {
+    let template = get_loc_optional("ModStre10d", language).unwrap_or("Level %d %s (%d/%d Charges)");
+    if template.contains("%s") {
+        format_template(template, &[level.to_string(), skill.to_string(), cur.to_string(), max.to_string()])
+    } else {
+        // Korean pattern like "(%d/%d 회)" -> needs skill/level prefix
+        let level_label = get_loc("ModStre10b", language);
+        let charges_formatted = format_template(template, &[cur.to_string(), max.to_string()]);
+        format!("{} {} {} {}", level_label, level, skill, charges_formatted)
+    }
+}
+
 fn format_template(template: &str, args: &[String]) -> String {
     let mut out = String::new();
     let chars: Vec<char> = template.chars().collect();
@@ -463,16 +495,21 @@ fn format_template(template: &str, args: &[String]) -> String {
                         continue;
                     }
                     '+' => {
-                        if i + 2 < chars.len() && (chars[i+2] == 'd' || chars[i+2] == 'i') {
-                            if let Some(val) = args.get(arg_idx) {
-                                if !val.starts_with('-') && !val.starts_with('+') {
-                                    out.push('+');
+                        if i + 2 < chars.len() {
+                            match chars[i + 2] {
+                                'd' | 'i' | 'u' => {
+                                    if let Some(val) = args.get(arg_idx) {
+                                        if !val.starts_with('-') && !val.starts_with('+') {
+                                            out.push('+');
+                                        }
+                                        out.push_str(val);
+                                        arg_idx += 1;
+                                    }
+                                    i += 3;
+                                    continue;
                                 }
-                                out.push_str(val);
-                                arg_idx += 1;
+                                _ => {}
                             }
-                            i += 3;
-                            continue;
                         }
                     }
                     _ => {}
@@ -575,11 +612,14 @@ pub fn resolve_item_name(item: &Item, language: &str) -> String {
 }
 
 fn get_loc(key: &str, language: &str) -> &'static str {
+    get_loc_optional(key, language).unwrap_or_else(|| Box::leak(key.to_string().into_boxed_str()))
+}
+
+fn get_loc_optional(key: &str, language: &str) -> Option<&'static str> {
     LOCALIZATIONS
         .iter()
         .find(|l| l.key == key)
         .map(|l| if language == "ko" { l.ko } else { l.en })
-        .unwrap_or(Box::leak(key.to_string().into_boxed_str()))
 }
 
 #[cfg(test)]
@@ -628,7 +668,7 @@ mod tests {
 
     #[test]
     fn test_descfunc_13_class_skills() {
-        let prop = make_prop(83, 1, 2);
+        let prop = make_prop(83, 4, 2); // ID 4 is Sorceress
         assert_eq!(format_property(&prop, 99, "en"), "+2 to Sorceress Skill Levels");
     }
 
@@ -656,6 +696,7 @@ mod tests {
         let param = (7 << 6) | 2; // Skill 7 (Fire Arrow), Level 2
         let value = (20 << 8) | 5;
         let prop = make_prop(204, param, value);
+        // "Level 2 Fire Arrow (5/20 Charges)" is the English template in LOCALIZATIONS
         assert_eq!(
             format_property(&prop, 99, "en"),
             "Level 2 Fire Arrow (5/20 Charges)"

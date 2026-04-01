@@ -4,6 +4,7 @@
 mod roundtrip_tests {
     use d2r_core::domain::vo::align_to_byte;
     use d2r_core::item::{HuffmanTree, Item};
+    use d2r_core::verify::{Verifier, bit_diff::BitDiffVerifier};
     use std::fs;
     use std::path::PathBuf;
 
@@ -242,13 +243,15 @@ mod roundtrip_tests {
             )?;
 
             // 3. 100% Binary match requirement for these specific fixtures
-            assert_eq!(
-                rebuilt.len(),
-                bytes.len(),
-                "Length mismatch for {}",
-                fixture
-            );
-            assert_eq!(rebuilt, bytes, "Full save binary mismatch for {}", fixture);
+            let verifier = BitDiffVerifier;
+            let report = verifier.verify(&bytes, &rebuilt);
+            
+            if !report.is_success {
+                for issue in &report.issues {
+                    eprintln!("[AVRM] {}", issue.message);
+                }
+            }
+            assert!(report.is_success, "Full save binary mismatch for {}", fixture);
         }
         Ok(())
     }

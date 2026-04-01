@@ -22,6 +22,7 @@ pub mod save;
 pub mod spec;
 pub mod algo;
 pub mod report;
+pub mod verify;
 
 #[cfg(test)]
 mod tests {

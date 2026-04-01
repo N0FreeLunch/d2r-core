@@ -218,6 +218,9 @@ mod roundtrip_tests {
         ];
 
         let huffman = HuffmanTree::new();
+        unsafe {
+            std::env::set_var("D2R_ITEM_TRACE", "1");
+        }
         for fixture in fixtures {
             let path = repo_path(fixture);
             let bytes = fs::read(path).expect("fixture should be readable");
@@ -247,8 +250,34 @@ mod roundtrip_tests {
             let report = verifier.verify(&bytes, &rebuilt);
             
             if !report.is_success {
+                let jm_pos = map.first_jm();
+                let section_start_bit = (jm_pos + 4) * 8;
                 for issue in &report.issues {
-                    eprintln!("[AVRM] {}", issue.message);
+                    let mut label = None;
+                    for item in &items {
+                        let abs_start = section_start_bit as u64 + item.range.start;
+                        let abs_end = section_start_bit as u64 + item.range.end;
+                        if issue.bit_offset >= abs_start && issue.bit_offset < abs_end {
+                            // Mismatch is in this item!
+                            let rel_bit = issue.bit_offset - abs_start;
+                            // Now find segment in item
+                            for seg in &item.segments {
+                                if rel_bit >= seg.start && rel_bit < seg.end {
+                                    label = Some(format!("Item({}) -> {}", item.code.trim(), seg.label));
+                                    break;
+                                }
+                            }
+                            if label.is_none() {
+                                label = Some(format!("Item({}) -> Unknown Segment", item.code.trim()));
+                            }
+                            break;
+                        }
+                    }
+                    if let Some(l) = label {
+                        eprintln!("[AVRM] {} | Context: {}", issue.message, l);
+                    } else {
+                        eprintln!("[AVRM] {}", issue.message);
+                    }
                 }
             }
             assert!(report.is_success, "Full save binary mismatch for {}", fixture);

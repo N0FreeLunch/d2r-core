@@ -43,13 +43,13 @@ pub struct RecordedBit {
     pub offset: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize)]
 pub struct ItemBitRange {
     pub start: u64,
     pub end: u64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct BitSegment {
     pub start: u64,
     pub end: u64,
@@ -552,6 +552,7 @@ pub struct Item {
     pub sockets: Option<u8>,
     pub modules: Vec<ItemModule>,
     pub range: ItemBitRange,
+    pub segments: Vec<BitSegment>,
 }
 
 impl Item {
@@ -1452,7 +1453,7 @@ impl Item {
 
         if is_ear {
             let end_bit = recorder.total_read;
-            return Ok(Item {
+            let mut item = Item {
                 bits: recorder.recorded_bits.clone(),
                 code,
                 flags,
@@ -1481,7 +1482,7 @@ impl Item {
                 is_identified,
                 is_personalized,
                 is_runeword: false,
-                is_ethereal: (flags & (1 << 22)) != 0, // Re-added original is_ethereal
+                is_ethereal: (flags & (1 << 22)) != 0,
                 magic_prefix: None,
                 magic_suffix: None,
                 rare_name_1: None,
@@ -1506,7 +1507,11 @@ impl Item {
                 sockets: None,
                 modules: Vec::new(),
                 range: ItemBitRange { start: start_bit, end: end_bit },
-            });
+                segments: Vec::new(),
+            };
+            recorder.pop_context();
+            item.segments = recorder.segments.clone();
+            return Ok(item);
         }
         let trimmed_code = code.trim();
         if version == 5 {
@@ -1594,7 +1599,7 @@ impl Item {
 
         let end_bit = recorder.total_read;
 
-        let item = Item {
+        let mut item = Item {
             bits: recorder.recorded_bits.clone(),
             code,
             flags,
@@ -1648,8 +1653,10 @@ impl Item {
             sockets,
             modules: Vec::new(),
             range: ItemBitRange { start: start_bit, end: end_bit },
+            segments: Vec::new(),
         };
         recorder.pop_context();
+        item.segments = recorder.segments.clone();
         Ok(item)
     }
 
@@ -1772,7 +1779,8 @@ impl Item {
             quantity: None,
             sockets: None,
             modules: Vec::new(),
-            range: ItemBitRange::default(),
+            range: ItemBitRange { start: 0, end: 0 },
+            segments: Vec::new(),
         }
     }
 
@@ -2150,6 +2158,9 @@ fn parse_item_at(
         bit_offset: start_bit,
     })?;
     let mut recorder = BitRecorder::new(&mut reader);
+    if item_trace_enabled() {
+        recorder.set_trace(true);
+    }
     recorder.push_context(&format!("Item[{}]", index));
     let item =
         Item::from_reader_with_context(&mut recorder, huffman, Some((section_bytes, start_bit)), alpha_mode)?;

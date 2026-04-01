@@ -47,6 +47,7 @@ impl Verifier for BitDiffVerifier {
                 bit_length: (fixture_rem.len() as u64 + reproduced_rem.len() as u64) * 8,
                 expected: fixture_rem.to_vec(),
                 actual: reproduced_rem.to_vec(),
+                label: None,
                 message: format!("Length mismatch: fixture={} bytes, reproduced={} bytes", fixture.len(), reproduced.len()),
             });
         }
@@ -69,6 +70,7 @@ impl BitDiffVerifier {
             bit_length,
             expected: fixture[byte_start..byte_end.min(fixture.len())].to_vec(),
             actual: reproduced[byte_start..byte_end.min(reproduced.len())].to_vec(),
+            label: None,
             message: format!("Bit mismatch at offset {} (len={})", bit_offset, bit_length),
         }
     }

@@ -16,6 +16,7 @@ pub struct VerificationIssue {
     pub bit_length: u64,
     pub expected: Vec<u8>,
     pub actual: Vec<u8>,
+    pub label: Option<String>,
     pub message: String,
 }
 

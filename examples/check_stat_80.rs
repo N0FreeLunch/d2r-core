@@ -1,8 +1,8 @@
-use d2r_core::data::stat_costs;
+use d2r_core::data::stat_costs::STAT_COSTS;
 
 fn main() {
     let stat_id = 80;
-    if let Some(c) = stat_costs.iter().find(|c| c.id == stat_id as u16) {
+    if let Some(c) = STAT_COSTS.iter().find(|c| c.id == stat_id as u32) {
         println!(
             "Stat {}: save_bits = {}, save_add = {}",
             stat_id, c.save_bits, c.save_add

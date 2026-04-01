@@ -1,4 +1,6 @@
+use crate::data::runewords::RUNEWORDS;
 use bitstream_io::{BitRead, BitReader as IoBitReader, BitWrite, BitWriter, LittleEndian};
+
 use serde::Serialize;
 use std::io::{self, Cursor};
 
@@ -1124,7 +1126,12 @@ impl Item {
         let mut runeword_id = None;
         let mut runeword_level = None;
         if is_runeword && version != 5 {
-            runeword_id = Some(recorder.read_bits(12)? as u16);
+            let id = recorder.read_bits(12)? as u16;
+            let name_id = (id & 0x7FF) as u32;
+            if !RUNEWORDS.iter().any(|rw| rw.id == name_id) {
+                item_trace!("  [Warn] Invalid runeword ID: {} (masked: {})", id, name_id);
+            }
+            runeword_id = Some(id);
             runeword_level = Some(recorder.read_bits(4)? as u8);
         }
 

@@ -49,6 +49,7 @@ fn main() {
     let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
     for i in 0..count {
         let bit_start = (jm_pos + 4) * 8 + recorder.total_read as usize;
+        recorder.recorded_bits.clear();
         match Item::from_reader_with_context(
             &mut recorder,
             &huffman,
@@ -63,6 +64,14 @@ fn main() {
                     bit_start,
                     item.bits.len()
                 );
+
+                // Forensic BitRange Verification (Slice S2)
+                let range_bits = item.range.end - item.range.start;
+                if range_bits != item.bits.len() as u64 {
+                    println!("  [FATAL] BitRange desync: Item reported {} bits, but bits.len() is {}", range_bits, item.bits.len());
+                } else {
+                    println!("  [PASS] BitRange consistent: {} bits", range_bits);
+                }
 
                 println!("  BSLV Layout Tree:");
                 let mut segments = recorder.segments.clone();

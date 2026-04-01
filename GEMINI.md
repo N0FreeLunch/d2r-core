@@ -72,13 +72,14 @@ Final updated directive documents should only be written after this review is co
   - Include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line whenever the output contains substantive analysis or planning artifacts.
 
 
-## Custom Agent Skills Auto-Discovery (2026-03-28)
-- **Official Skills Repository**: All project-specific custom skills are stored in `d2r-spec/.agents/skills/`.
-- **High-Efficiency Skill Discovery (Flash-Optimized)**:
-  - Gemini models (especially Flash) MUST prioritize reading **`d2r-spec/.agents/skills/SKILL_INDEX.yml`** at the start of a session or when encountering a new task type (e.g., bit-parsing, multi-repo ops, spec-hardening).
-  - Use the index to quickly match keywords (`triggers`, `use_when`) without scanning directories.
-  - Once a skill is identified, read its **`SKILL.md`** file directly via `view_file` (using the path from the index).
-- **Activation Workaround**: Due to directory junction restrictions, `activate_skill` may fail to list these skills automatically. In such cases, the agent MUST use `run_shell_command` with PowerShell (`Get-Content`) to read the `SKILL.md` file from the identified subdirectory and manually adopt its directives.
+
+## High-Efficiency Indexing & Skill Discovery (2026-04-01)
+- **Dual Bootstrapping (Flash-Optimized)**:
+  - Gemini models (especially Flash) MUST prioritize reading **BOTH** of the following at the start of a session:
+    1. **`d2r-spec/SYSTEM_INDEX.md`**: For the full tree of Agent Guidelines, ADR structures, and workflow boundaries preventing partial rule skipping.
+    2. **`d2r-spec/.agents/skills/SKILL_INDEX.yml`**: For quickly matching task keywords (`triggers`, `use_when`) to specific skill instructions.
+- **Official Skills Repository**: All custom skills are stored in `d2r-spec/.agents/skills/`.
+- **Skill Activation Workaround**: Due to directory junction restrictions, tools may fail to list skills automatically. In such cases, determine the path from the index and use `view_file` or PowerShell (`Get-Content`) to read the specific `SKILL.md` directly.
 - **Key Skills to Prioritize**:
   - `d2r-multi-repo-ops`: Essential for operations involving `d2r-spec` and `d2r-data` junctions.
   - `powershell-safe-file-ops`: Mandatory for all file operations in Windows environment.

@@ -3,7 +3,7 @@ use crate::data::{affixes, runewords, set_items, unique_items};
 use crate::data::item_codes::ITEM_TEMPLATES;
 use crate::data::item_types::ITEM_TYPES;
 use crate::data::legitimacy::{SOCKET_RULES, calc_alvl, STAFFMOD_ENTRIES};
-use crate::item::{Item, ItemProperty, ItemQuality};
+use crate::item::{Item, ItemBitRange, ItemProperty, ItemQuality};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -26,6 +26,7 @@ pub struct StatValidation {
     pub is_perfect: bool,
     pub score: f32,
     pub status: StatValidationStatus,
+    pub range: ItemBitRange,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,8 +226,8 @@ pub fn check_staffmod_legitimacy(item: &Item) -> Vec<String> {
                 .unwrap_or("unknown");
 
             warnings.push(format!(
-                "Property '{}' value {} requires ilvl {}, but item is ilvl {}",
-                stat_name, prop.value, req_lvl, ilvl
+                "Property '{}' value {} requires ilvl {}, but item is ilvl {} (at bits {}..{})",
+                stat_name, prop.value, req_lvl, ilvl, prop.range.start, prop.range.end
             ));
         }
     }
@@ -543,6 +544,7 @@ fn validate_item_properties(
                 } else {
                     StatValidationStatus::OutOfRange
                 },
+                range: prop.range,
             });
         } else {
             stats.push(StatValidation {
@@ -555,6 +557,7 @@ fn validate_item_properties(
                 is_perfect: false,
                 score: 0.0,
                 status: StatValidationStatus::UnexpectedOnItem,
+                range: prop.range,
             });
         }
     }
@@ -574,6 +577,7 @@ fn validate_item_properties(
             is_perfect: false,
             score: 0.0,
             status: StatValidationStatus::MissingOnItem,
+            range: ItemBitRange::default(),
         });
     }
 
@@ -761,6 +765,7 @@ mod tests {
             value: 15,
             param: 0,
             raw_value: 0, // dummy
+            range: ItemBitRange::default(),
         });
         
         // Expected: floor((524+1) * 1.5) * 1.15 = floor(787.5) * 1.15 = 787 * 1.15 = 905.05 -> 905?

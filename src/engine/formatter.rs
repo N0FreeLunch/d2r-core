@@ -3,6 +3,7 @@ use crate::data::item_codes::ITEM_TEMPLATES;
 use crate::data::localization::LOCALIZATIONS;
 use crate::data::monsters::MONSTER_TYPES;
 use crate::data::rare_names::{RARE_PREFIXES, RARE_SUFFIXES};
+use crate::data::runewords::RUNEWORDS;
 use crate::data::set_items::SET_ITEMS;
 use crate::data::sets::SET_BONUSES;
 use crate::data::skills::SKILLS;
@@ -501,6 +502,9 @@ pub fn resolve_item_name(item: &Item, language: &str) -> String {
     if item.is_runeword {
         if let Some(id) = item.runeword_id {
             let name_id = (id & 0x7FF) as u32;
+            if let Some(rw) = RUNEWORDS.iter().find(|rw| rw.id == name_id) {
+                return get_loc(rw.name, language).to_string();
+            }
             let key = format!("Runeword{}", name_id);
             return get_loc(&key, language).to_string();
         }

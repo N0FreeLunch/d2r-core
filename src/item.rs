@@ -1,4 +1,5 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, BitWrite, BitWriter, LittleEndian};
+use serde::Serialize;
 use std::io::{self, Cursor};
 
 fn item_trace_enabled() -> bool {
@@ -38,6 +39,14 @@ impl HuffmanNode {
 pub struct RecordedBit {
     pub bit: bool,
     pub offset: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct BitSegment {
+    pub start: u64,
+    pub end: u64,
+    pub label: String,
+    pub depth: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,6 +109,9 @@ pub struct BitRecorder<'a, R: BitRead> {
     pub recorded_bits: Vec<RecordedBit>,
     pub total_read: u64,
     pub context_stack: Vec<String>,
+    pub context_starts: Vec<u64>,
+    pub segments: Vec<BitSegment>,
+    pub trace_enabled: bool,
     pub alpha_quality: Option<ItemQuality>,
 }
 
@@ -110,8 +122,15 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
             recorded_bits: Vec::new(),
             total_read: 0,
             context_stack: Vec::new(),
+            context_starts: Vec::new(),
+            segments: Vec::new(),
+            trace_enabled: false,
             alpha_quality: None,
         }
+    }
+
+    pub fn set_trace(&mut self, enabled: bool) {
+        self.trace_enabled = enabled;
     }
 
     pub fn err<T>(&self, err: ParsingError) -> ParsingResult<T> {
@@ -124,10 +143,20 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
 
     pub fn push_context(&mut self, name: &str) {
         self.context_stack.push(name.to_string());
+        self.context_starts.push(self.total_read);
     }
 
     pub fn pop_context(&mut self) {
-        self.context_stack.pop();
+        let label = self.context_stack.pop().unwrap_or_default();
+        let start = self.context_starts.pop().unwrap_or(0);
+        if self.trace_enabled {
+            self.segments.push(BitSegment {
+                start,
+                end: self.total_read,
+                label,
+                depth: self.context_stack.len(),
+            });
+        }
     }
 
     pub fn with_context<T, F>(&mut self, name: &str, mut f: F) -> ParsingResult<T>
@@ -1313,6 +1342,7 @@ impl Item {
         let root_start = recorder.recorded_bits.len();
         recorder.push_context("Item Root");
         
+        recorder.push_context("Item Header");
         // Peek/Read header info
         let mut flags = recorder.read_bits(32)?;
         let mut version = recorder.read_bits(3)? as u8;
@@ -1384,6 +1414,7 @@ impl Item {
             };
             (y, page, socket_hint, None)
         };
+        recorder.pop_context();
         
         let header_end = recorder.recorded_bits.len();
         
@@ -1410,11 +1441,13 @@ impl Item {
         let is_ethereal = (flags & (1 << 22)) != 0;
 
         let code_start = recorder.total_read;
-        let (code, ear_class, ear_level, ear_player_name) = if let Some(code) = peeked_code {
-            (code, None, None, None)
-        } else {
-            Self::read_item_code(recorder, is_ear, huffman, version)?
-        };
+        let (code, ear_class, ear_level, ear_player_name) = recorder.with_context("Item Code", |rec| {
+            if let Some(code) = peeked_code.clone() {
+                Ok((code, None, None, None))
+            } else {
+                Self::read_item_code(rec, is_ear, huffman, version)
+            }
+        })?;
         let code_end = recorder.total_read;
         if is_alpha && version == 5 {
              item_trace!("[DEBUG v5] Code: '{}' bits [{}..{}]", code, code_start, code_end);

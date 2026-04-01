@@ -14,6 +14,7 @@
 
 use crate::data::stat_costs::{StatCostData, STAT_COSTS};
 use crate::item::{Checksum, HuffmanTree, Item};
+use crate::domain::progression::{Quest, QuestSet, Waypoint, WaypointSet};
 use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
 use std::io::{self, Cursor};
 use std::mem;
@@ -593,28 +594,15 @@ impl WaypointSection {
     }
 
     pub fn is_activated_by_name(&self, name: &str, difficulty: u8) -> bool {
-        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            // WS Section Layout:
-            // 0..8: "WS" Header
-            // 8..32: Normal (8..10: 02 01, 10..32: Data)
-            // 32..56: Nightmare (32..34: 02 01, 34..56: Data)
-            // 56..80: Hell (56..58: 02 01, 58..80: Data)
-            let global_bit_idx = (8 * 8) + (difficulty as usize * 24 * 8) + (2 * 8) + entry.ws_bit as usize;
-            let byte_idx = global_bit_idx / 8;
-            let bit_in_byte = global_bit_idx % 8;
-            if byte_idx < self.raw_bytes.len() {
-                return self.raw_bytes[byte_idx] & (1 << bit_in_byte) != 0;
-            }
-        }
-        false
+        let set = WaypointSet::from_bytes(&self.raw_bytes, difficulty);
+        set.find_by_name(name).map(|w| w.is_active()).unwrap_or(false)
     }
 
     pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
-        if let Some(entry) = crate::data::waypoints::WAYPOINTS.iter().find(|e| e.name == name) {
-            let global_bit_idx = (8 * 8) + (difficulty as usize * 24 * 8) + (2 * 8) + entry.ws_bit as usize;
-            let byte_idx = global_bit_idx / 8;
-            let bit_in_byte = global_bit_idx % 8;
-            self.set_activated(byte_idx, bit_in_byte, active);
+        let mut set = WaypointSet::from_bytes(&self.raw_bytes, difficulty);
+        if let Some(wp) = set.waypoints_mut().iter_mut().find(|w: &&mut Waypoint| w.name() == name) {
+            wp.set_active(active);
+            set.sync_to_bytes(&mut self.raw_bytes);
             return true;
         }
         false
@@ -686,32 +674,16 @@ impl QuestSection {
     }
 
     pub fn is_v105_completed_by_name(&self, name: &str) -> bool {
-        if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 403; // 0x193 relative
-            if offset < self.raw_bytes.len() {
-                let val = self.raw_bytes[offset];
-                // In v105, 0x01 is the completion bit (bit 0)
-                return (val & 0x01) != 0;
-            }
-        }
-        false
+        let set = QuestSet::from_v105_bytes(&self.raw_bytes);
+        set.find_by_name(name).map(|q| q.is_completed()).unwrap_or(false)
     }
 
     pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
-        if let Some(entry) = crate::data::quests::V105_QUESTS.iter().find(|e| e.name == name) {
-            let offset = entry.v105_offset - 403; // 0x193 relative
-            if offset + 1 < self.raw_bytes.len() {
-                if completed {
-                    // Set Byte 0 bit 0 (Completed)
-                    self.raw_bytes[offset] |= 0x01;
-                    // Set Byte 1 bit 4 (Checked/Seen - 0x10)
-                    self.raw_bytes[offset + 1] |= 0x10;
-                } else {
-                    self.raw_bytes[offset] &= !0x01;
-                    self.raw_bytes[offset + 1] &= !0x10;
-                }
-                return true;
-            }
+        let mut set = QuestSet::from_v105_bytes(&self.raw_bytes);
+        if let Some(q) = set.quests_mut().iter_mut().find(|q: &&mut Quest| q.name() == name) {
+            q.set_completed(completed);
+            set.sync_to_v105_bytes(&mut self.raw_bytes);
+            return true;
         }
         false
     }

@@ -723,7 +723,7 @@ pub fn read_property_list<R: BitRead>(
     recorder.push_context("Property List");
     let mut props = Vec::new();
 
-    let is_alpha = version == 5 || version == 1;
+    let _is_alpha = version == 5 || version == 1;
 
     if version == 5 { item_trace!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); }
     loop {
@@ -933,29 +933,6 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
 
 
 impl Item {
-    fn read_item_header<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<(u32, u8, u8, u8, u8, u8, u8, u8)> {
-        recorder.push_context("Item Header");
-        let flags = recorder.read_bits(32)?;
-        let version = recorder.read_bits(3)? as u8;
-        let mode = recorder.read_bits(3)? as u8;
-        let loc = recorder.read_bits(4)? as u8;
-        let x = (recorder.read_bits(4)? & 0x0F) as u8;
-
-        let (y, page, socket_hint) = if version == 5 || version == 1 {
-            let y = (recorder.read_bits(4)? & 0x0F) as u8;
-            let page = (recorder.read_bits(3)? & 0x07) as u8;
-            (y, page, 0)
-        } else {
-            let y = (recorder.read_bits(4)? & 0x0F) as u8;
-            let page = (recorder.read_bits(3)? & 0x07) as u8;
-            let socket_hint = (recorder.read_bits(3)? & 0x07) as u8;
-            (y, page, socket_hint)
-        };
-        recorder.pop_context();
-        Ok((flags, version, mode, loc, x, y, page, socket_hint))
-    }
-
-
     fn read_item_code<R: BitRead>(
         recorder: &mut BitRecorder<R>,
         is_ear: bool,
@@ -1027,7 +1004,7 @@ impl Item {
         let template = item_template(code);
         let is_alpha = alpha_mode;
 
-        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if is_alpha {
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, _timestamp_flag) = if is_alpha {
             // Alpha v105 items in the inventory skip 32-bit ID.
             let level = recorder.read_bits(7)? as u8;
             let quality_raw = recorder.read_bits(4)? as u8;
@@ -1346,7 +1323,7 @@ impl Item {
         ctx: Option<(&[u8], u64)>,
         alpha_mode: bool,
     ) -> ParsingResult<Item> {
-        let root_start = recorder.recorded_bits.len();
+        let _root_start = recorder.recorded_bits.len();
         recorder.push_context("Item Root");
         
         recorder.push_context("Item Header");
@@ -1423,7 +1400,7 @@ impl Item {
         };
         recorder.pop_context();
         
-        let header_end = recorder.recorded_bits.len();
+        let _header_end = recorder.recorded_bits.len();
         
         // Alpha v105: Bit 16 is NOT an ear identifier.
         let is_ear = if is_alpha {
@@ -1720,13 +1697,6 @@ impl Item {
             items.push(item);
         }
         Ok(items)
-    }
-
-    fn version_sum_check(items: &[Item], top_level_count: u16) -> bool {
-        let has_v5 = items.iter().any(|it| it.version == 5);
-        if !has_v5 { return false; }
-        let total: usize = items.iter().map(|it| 1 + it.socketed_items.len()).sum();
-        total == top_level_count as usize
     }
 
 
@@ -2146,10 +2116,6 @@ mod tests {
 }
 
 
-fn align_to_byte(bit_pos: u64) -> u64 {
-    (bit_pos + 7) & !7
-}
-
 fn parse_item_at(
     section_bytes: &[u8],
     start_bit: u64,
@@ -2172,17 +2138,6 @@ fn parse_item_at(
     Ok((item, consumed_bits))
 }
 
-const MAX_RESCUED_SOCKET_CHILDREN: usize = 6;
-const SOCKET_CHILD_SCAN_WINDOW_BITS: u64 = 128;
-
-fn socket_rescue_limit(parent: &Item) -> usize {
-    let count = parent.num_socketed_items as usize;
-    if (1..=MAX_RESCUED_SOCKET_CHILDREN).contains(&count) {
-        count
-    } else {
-        MAX_RESCUED_SOCKET_CHILDREN
-    }
-}
 
 pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
     let trimmed = code.trim();
@@ -2245,123 +2200,6 @@ fn parse_base_header<R: BitRead>(
     Ok((id, level, quality, String::new()))
 }
 
-fn is_plausible_socket_child_header(mode: u8, location: u8, code: &str, flags: u32) -> bool {
-    let Some(template) = item_template(code) else {
-        return false;
-    };
-    if !(mode == 6 || location == 6) {
-        return false;
-    }
-    
-    // Flags validation: bits 27-31 are unused in D2.
-    if (flags & 0xF8000000) != 0 {
-        return false;
-    }
-    let code = code.trim();
-    let is_rune =
-        code.len() == 3 && code.starts_with('r') && code[1..].chars().all(|ch| ch.is_ascii_digit());
-    let is_jewel = matches!(code, "jew" | "j34" | "cjw");
-    let is_gem_like = code.starts_with('g') || code.starts_with("sk");
-
-    (is_rune || is_jewel || is_gem_like)
-        && template.width == 1
-        && template.height == 1
-        && !template.is_armor
-        && !template.is_weapon
-        && !template.has_durability
-}
-
-fn scan_socket_children(
-    section_bytes: &[u8],
-    start_bit: u64,
-    huffman: &HuffmanTree,
-    max_children: usize,
-    alpha_mode: bool,
-) -> Option<(Vec<Item>, u64)> {
-    // When the parent property list terminates too early, real socket children still
-    // exist in the raw section bytes. We scan forward in a narrow byte-aligned window
-    // and reattach plausible 1x1 socket fillers so the item tree remains lossless.
-    if max_children == 0 {
-        return None;
-    }
-
-    item_trace!("  [Sockets] Reading {} children at bit {}", max_children, start_bit);
-    let mut children = Vec::new();
-    let mut search_start = start_bit;
-    let mut final_end = start_bit;
-
-    while children.len() < max_children {
-        item_trace!("  [Sockets] Searching for child {} at bit {}", children.len(), search_start);
-        let Some((child, child_end)) = find_next_socket_child(section_bytes, search_start, huffman, alpha_mode)
-        else {
-            break;
-        };
-
-        final_end = child_end;
-        search_start = child_end;
-        children.push(child);
-    }
-
-    if children.is_empty() {
-        None
-    } else {
-        Some((children, final_end))
-    }
-}
-
-fn find_next_socket_child(
-    section_bytes: &[u8],
-    start_bit: u64,
-    huffman: &HuffmanTree,
-    alpha_mode: bool,
-) -> Option<(Item, u64)> {
-    let mut probe = if alpha_mode { start_bit } else { align_to_byte(start_bit) };
-    let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
-
-    while probe < max_probe {
-        let Some((mode, location, _x, code, flags, version, _is_compact, _header_len, _nudge)) = peek_item_header_at(section_bytes, probe, huffman, alpha_mode)
-        else {
-            probe += if alpha_mode { 1 } else { 8 };
-            continue;
-        };
-        if !is_plausible_item_header(mode, location, &code, flags, version, alpha_mode) {
-            probe += if alpha_mode { 1 } else { 8 };
-            continue;
-        }
-
-        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, 0, alpha_mode) else {
-            probe += if alpha_mode { 1 } else { 8 };
-            continue;
-        };
-
-        if is_plausible_socket_child_header(full_item.mode, full_item.location, &full_item.code, full_item.flags) {
-            return Some((full_item, probe + consumed_bits));
-        }
-
-        probe += 8;
-    }
-
-    None
-}
-
-pub fn peek_code_minimal(
-    section_bytes: &[u8],
-    bit_pos: u64,
-    huffman: &HuffmanTree,
-) -> Option<String> {
-    let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    if reader.skip(bit_pos as u32).is_err() {
-        return None;
-    }
-    let mut code = String::new();
-    for _ in 0..4 {
-        match huffman.decode(&mut reader) {
-            Ok(c) => code.push(c),
-            Err(_) => return None,
-        }
-    }
-    Some(code)
-}
 
 pub fn peek_item_header_at(
     section_bytes: &[u8],

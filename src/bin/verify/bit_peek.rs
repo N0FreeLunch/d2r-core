@@ -1,4 +1,4 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use bitstream_io::{BitReader as IoBitReader, LittleEndian};
 use d2r_core::item::{BitRecorder, HuffmanTree, Item};
 use std::env;
 use std::fs;

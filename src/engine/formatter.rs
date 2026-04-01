@@ -224,16 +224,12 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
             let class_id = prop.param as usize;
             if class_id == 0 && !loc_str.starts_with("ItemModifier") {
                 format!("{} {}", signed_value, loc_str)
-            } else if let Some(class_name) = class_name(class_id, language) {
-                let mod_str_key = match class_id {
-                    0 => "ModStr3a", // Amazon
-                    1 => "ModStr3c", // Necro
-                    2 => "ModStr3b", // Paladin
-                    3 => "ModStr3e", // Barb
-                    4 => "ModStr3d", // Sorc
-                    5 => "ModStre8a", // Druid
-                    6 => "ModStre8b", // Assassin
-                    _ => "strModAllSkillLevels",
+            } else if let Some(stats) = CHAR_STATS.get(class_id) {
+                let class_name = get_loc(stats.class, language);
+                let mod_str_key = if !stats.all_skills.is_empty() {
+                    stats.all_skills
+                } else {
+                    "strModAllSkillLevels"
                 };
                 let template = get_loc(mod_str_key, language);
                 if template.contains('%') {
@@ -335,18 +331,12 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
             if loc_str.contains('%') {
                 format_template(loc_str, &[signed_value, skill])
             } else {
-                let class_id = match cost.name.as_ref() {
-                    "amazon_skill" => Some(0),
-                    "necromancer_skill" => Some(1),
-                    "paladin_skill" => Some(2),
-                    "barbarian_skill" => Some(3),
-                    "sorceress_skill" => Some(4),
-                    "druid_skill" => Some(5),
-                    "assassin_skill" => Some(6),
-                    _ => None,
-                };
+                let class_id = CHAR_STATS.iter().position(|s| {
+                    cost.name.starts_with(&s.class.to_lowercase())
+                });
+                
                 let only_text = if let Some(cid) = class_id {
-                    get_loc(get_class_only_key(cid), language)
+                    get_loc(CHAR_STATS[cid].class_only, language)
                 } else {
                     ""
                 };
@@ -390,10 +380,6 @@ pub fn strip_d2_color_codes(s: &str) -> String {
         i += 1;
     }
     out
-}
-
-fn class_name(class_id: usize, language: &str) -> Option<&'static str> {
-    CHAR_STATS.get(class_id).map(|stats| get_loc(stats.class, language))
 }
 
 fn skill_tab_name(class_id: usize, tab_index: usize, language: &str) -> Option<&'static str> {
@@ -444,19 +430,6 @@ fn decode_skill_tab_param(param: u32) -> (usize, usize) {
 
     let absolute = (param & 0xFF) as usize;
     (absolute / 3, absolute % 3)
-}
-
-fn get_class_only_key(class_id: usize) -> &'static str {
-    match class_id {
-        0 => "AmaOnly",
-        1 => "NecOnly",
-        2 => "PalOnly",
-        3 => "BarOnly",
-        4 => "SorOnly",
-        5 => "DruOnly",
-        6 => "AssOnly",
-        _ => "ItemStats1a", // Requirements not met fallback
-    }
 }
 
 fn format_skill_charges(level: u32, skill: &str, cur: u32, max: u32, language: &str) -> String {
@@ -668,7 +641,7 @@ mod tests {
 
     #[test]
     fn test_descfunc_13_class_skills() {
-        let prop = make_prop(83, 4, 2); // ID 4 is Sorceress
+        let prop = make_prop(83, 1, 2); // ID 1 is Sorceress
         assert_eq!(format_property(&prop, 99, "en"), "+2 to Sorceress Skill Levels");
     }
 

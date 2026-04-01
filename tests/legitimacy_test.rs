@@ -2,7 +2,7 @@ use d2r_core::data::legitimacy::calc_alvl;
 use d2r_core::engine::validation::{
     check_alvl_legitimacy, check_socket_legitimacy, check_staffmod_legitimacy,
 };
-use d2r_core::item::{Item, ItemProperty, ItemQuality};
+use d2r_core::item::{Item, ItemBitRange, ItemProperty, ItemQuality};
 
 #[test]
 fn calc_alvl_matches_expected_formula() {
@@ -106,6 +106,7 @@ fn test_staffmod_legitimacy_violation() {
         param: 0,
         raw_value: 25,
         value: 25,
+        range: ItemBitRange::default(),
     });
 
     let warnings = check_staffmod_legitimacy(&item);
@@ -133,6 +134,7 @@ fn test_staffmod_legitimacy_valid() {
         param: 0,
         raw_value: 25,
         value: 25,
+        range: ItemBitRange::default(),
     });
 
     let warnings = check_staffmod_legitimacy(&item);
@@ -256,6 +258,7 @@ fn test_ethereal_defense_violation() {
         param: 0,
         raw_value: 100,
         value: 100,
+        range: ItemBitRange::default(),
     });
 
     item.defense = Some(1000); // Way too low for ethereal + 100% ED

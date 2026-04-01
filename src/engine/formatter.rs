@@ -10,7 +10,7 @@ use crate::data::skills::SKILLS;
 use crate::data::stat_costs::STAT_COSTS;
 use crate::data::unique_items::UNIQUE_ITEMS;
 use crate::engine::validation::validate_item;
-use crate::item::{Item, ItemProperty, ItemQuality};
+use crate::item::{Item, ItemBitRange, ItemProperty, ItemQuality};
 
 use crate::data::char_stats::CHAR_STATS;
 
@@ -107,6 +107,7 @@ pub fn format_item(item: &Item, language: &str, active_set_count: usize, char_le
                                 param: bonus.stat.param,
                                 raw_value: bonus.stat.min,
                                 value: bonus.stat.min,
+                                range: ItemBitRange::default(),
                             };
                             lines.push(format_property(&prop, char_level, language));
                         }
@@ -130,6 +131,7 @@ pub fn format_item(item: &Item, language: &str, active_set_count: usize, char_le
                                 param: stat.param,
                                 raw_value: stat.min,
                                 value: stat.min,
+                                range: ItemBitRange::default(),
                             };
                             lines.push(format_property(&prop, char_level, language));
                         }
@@ -621,6 +623,7 @@ mod tests {
             param,
             raw_value: value,
             value,
+            range: ItemBitRange::default(),
         }
     }
 
@@ -746,6 +749,7 @@ mod tests {
             param: 0,
             raw_value: 12,
             value: 12,
+            range: ItemBitRange::default(),
         };
         // 12 * 80 / 8 = 120
         let formatted = format_property(&prop, 80, "en");
@@ -760,6 +764,7 @@ mod tests {
             param: 0,
             raw_value: 12,
             value: 12,
+            range: ItemBitRange::default(),
         };
         // 12 * 80 / 8 = 120
         let formatted = format_property(&prop, 80, "ko");

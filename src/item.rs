@@ -43,6 +43,12 @@ pub struct RecordedBit {
     pub offset: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+pub struct ItemBitRange {
+    pub start: u64,
+    pub end: u64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct BitSegment {
     pub start: u64,
@@ -545,6 +551,7 @@ pub struct Item {
     pub quantity: Option<u32>,
     pub sockets: Option<u8>,
     pub modules: Vec<ItemModule>,
+    pub range: ItemBitRange,
 }
 
 impl Item {
@@ -673,6 +680,7 @@ pub struct ItemProperty {
     pub param: u32,
     pub raw_value: i32,
     pub value: i32, // After applying save_add if needed
+    pub range: ItemBitRange,
 }
 
 fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTemplate> {
@@ -768,7 +776,7 @@ pub fn parse_single_property<R: BitRead>(
     _alpha_runeword: bool,
 ) -> ParsingResult<PropertyParseResult> {
     recorder.push_context("Single Property");
-    let _bit_pos = recorder.recorded_bits.len();
+    let start_bit = recorder.total_read;
 
     if version == 5 || version == 1 {
         let stat_id = match read_alpha_stat_id(recorder) {
@@ -813,12 +821,15 @@ pub fn parse_single_property<R: BitRead>(
              item_trace!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.total_read - val_bits as u64, 9 + val_bits);
         }
 
+        let end_bit = recorder.total_read;
+
         return Ok(PropertyParseResult::Property(ItemProperty {
             stat_id: effective_stat_id,
             name: stat_name,
             param: 0,
             raw_value: val as i32,
             value: (val as i32).wrapping_sub(save_add),
+            range: ItemBitRange { start: start_bit, end: end_bit },
         }));
     }
 
@@ -849,6 +860,7 @@ pub fn parse_single_property<R: BitRead>(
     };
 
     let val = recorder.read_bits(save_bits)?;
+    let end_bit = recorder.total_read;
 
     Ok(PropertyParseResult::Property(ItemProperty {
         stat_id: effective_stat_id,
@@ -856,6 +868,7 @@ pub fn parse_single_property<R: BitRead>(
         param: 0,
         raw_value: val as i32,
         value: (val as i32) - save_add,
+        range: ItemBitRange { start: start_bit, end: end_bit },
     }))
 }
 
@@ -1323,7 +1336,7 @@ impl Item {
         ctx: Option<(&[u8], u64)>,
         alpha_mode: bool,
     ) -> ParsingResult<Item> {
-        let _root_start = recorder.recorded_bits.len();
+        let start_bit = recorder.total_read;
         recorder.push_context("Item Root");
         
         recorder.push_context("Item Header");
@@ -1438,6 +1451,7 @@ impl Item {
         }
 
         if is_ear {
+            let end_bit = recorder.total_read;
             return Ok(Item {
                 bits: recorder.recorded_bits.clone(),
                 code,
@@ -1491,6 +1505,7 @@ impl Item {
                 quantity: None,
                 sockets: None,
                 modules: Vec::new(),
+                range: ItemBitRange { start: start_bit, end: end_bit },
             });
         }
         let trimmed_code = code.trim();
@@ -1577,6 +1592,8 @@ impl Item {
             );
         }
 
+        let end_bit = recorder.total_read;
+
         let item = Item {
             bits: recorder.recorded_bits.clone(),
             code,
@@ -1630,6 +1647,7 @@ impl Item {
             quantity,
             sockets,
             modules: Vec::new(),
+            range: ItemBitRange { start: start_bit, end: end_bit },
         };
         recorder.pop_context();
         Ok(item)
@@ -1754,6 +1772,7 @@ impl Item {
             quantity: None,
             sockets: None,
             modules: Vec::new(),
+            range: ItemBitRange::default(),
         }
     }
 
@@ -2110,7 +2129,8 @@ mod tests {
 
         assert_eq!(items.len(), top_level_count as usize);
         // Verified recovery via Forensic Scan (Alpha v105):
-        assert_eq!(items[0].code.trim(), "a7pw");
+        // Note: a7pw was an artifact of incorrect header width; hp1 is the correct retail-compatible code.
+        assert_eq!(items[0].code.trim(), "hp1");
         assert_eq!(items[15].code.trim(), "buc");
     }
 }

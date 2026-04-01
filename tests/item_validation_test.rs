@@ -1,5 +1,5 @@
 use d2r_core::engine::validation::{StatValidationStatus, validate_item};
-use d2r_core::item::{Item, ItemProperty, ItemQuality};
+use d2r_core::item::{Item, ItemBitRange, ItemProperty, ItemQuality};
 
 fn base_item() -> Item {
     let mut item = Item::empty_for_tests();
@@ -17,6 +17,7 @@ fn prop(stat_id: u32, param: u32, value: i32) -> ItemProperty {
         param,
         raw_value: value,
         value,
+        range: ItemBitRange::default(),
     }
 }
 

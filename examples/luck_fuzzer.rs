@@ -1,4 +1,4 @@
-use d2r_core::item::{HuffmanTree, Item, ItemProperty, ItemQuality};
+use d2r_core::item::{HuffmanTree, Item, ItemBitRange, ItemProperty, ItemQuality};
 use d2r_core::save::{
     AttributeEntry, AttributeSection, Save, finalize_save_bytes, map_core_sections,
 };
@@ -122,6 +122,7 @@ fn main() {
                     param: 0,
                     raw_value: value as i32,
                     value: value as i32,
+                    range: ItemBitRange::default(),
                 });
                 item.properties_complete = true;
                 item.bits.clear(); // FORCE RE-ENCODE

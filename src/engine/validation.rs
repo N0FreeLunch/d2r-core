@@ -742,9 +742,10 @@ mod tests {
         item.sockets = Some(3);
         
         let mut r31 = Item::empty_for_tests(); r31.code = "r31 ".to_string();
-        let mut r30 = Item::empty_for_tests(); r30.code = "r30 ".to_string();
         let mut r06 = Item::empty_for_tests(); r06.code = "r06 ".to_string();
+        let mut r30 = Item::empty_for_tests(); r30.code = "r30 ".to_string();
         
+        // Correct order is r31, r06, r30. Let's use an incorrect one.
         item.socketed_items = vec![r31, r30, r06];
         
         let warnings = check_runeword_legitimacy(&item);

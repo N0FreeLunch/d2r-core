@@ -1028,25 +1028,34 @@ pub fn rebuild_item_section(
     }
 
     let jm1 = jm_positions[0];
-    let jm2 = jm_positions[1];
+    let count_u16 = items.len() as u16;
+    
+    // Find the end of the item section based on the items' actual boundaries
+    let section_end = if let Some(last_item) = items.last() {
+        jm1 + 4 + (last_item.range.end as usize + 7) / 8
+    } else {
+        jm1 + 4
+    };
+
+    let section_start = jm1 + 4;
+    let original_section_len = section_end - section_start;
+    
+    if crate::item::item_trace_enabled() {
+        eprintln!("[DEBUG Rebuild] jm1: {}, section_end: {}, len: {}", jm1, section_end, original_section_len);
+        if let Some(last) = items.last() {
+            eprintln!("[DEBUG Rebuild] Last Item range.end: {}", last.range.end);
+        }
+    }
 
     let mut serialized_section = Item::serialize_section(items, huffman, alpha_mode)?;
 
-    if items.len() > u16::MAX as usize {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "item count exceeds 65535",
-        ));
-    }
-    let count_u16 = items.len() as u16;
-
     let section_start = jm1 + 4;
-    let original_section_len = jm2 - section_start;
-    let _original_section = &bytes[section_start..jm2];
+    let original_section_len = section_end - section_start;
+    let _original_section = &bytes[section_start..section_end];
     let serialized_len_before_padding = serialized_section.len();
     if serialized_len_before_padding < original_section_len {
         let missing_start = section_start + serialized_len_before_padding;
-        serialized_section.extend_from_slice(&bytes[missing_start..jm2]);
+        serialized_section.extend_from_slice(&bytes[missing_start..section_end]);
     }
     // Research Hack: Allow serialized section to differ from original.
     /*
@@ -1063,7 +1072,7 @@ pub fn rebuild_item_section(
     rebuilt.extend_from_slice(b"JM");
     rebuilt.extend_from_slice(&count_u16.to_le_bytes());
     rebuilt.extend_from_slice(&serialized_section);
-    rebuilt.extend_from_slice(&bytes[jm2..]);
+    rebuilt.extend_from_slice(&bytes[section_end..]);
 
     finalize_save_bytes(&mut rebuilt)?;
     Ok(rebuilt)

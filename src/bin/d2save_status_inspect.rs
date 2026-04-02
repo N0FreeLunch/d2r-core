@@ -61,16 +61,14 @@ fn main() {
         Err(e) => println!("  Failed to parse attributes: {}", e),
     }
 
-    // Skills (if section)
-    println!("\n--- Skills (if section at {}) ---", map.if_pos);
-    match d2r_core::save::parse_skill_section(&bytes, &map) {
-        Ok(skills) => {
-            for (i, &lvl) in skills.as_slice().iter().enumerate() {
-                if lvl > 0 {
-                    println!("  Skill Index {:>2}: Level {}", i, lvl);
-                }
-            }
-        }
-        Err(e) => println!("  Failed to parse skills: {}", e),
+    // Item Sections (JM markers)
+    println!("\n--- Item Sections (JM markers) ---");
+    for (i, &pos) in map.jm_positions.iter().enumerate() {
+        let count = if pos + 4 <= bytes.len() {
+            u16::from_le_bytes([bytes[pos + 2], bytes[pos + 3]])
+        } else {
+            0
+        };
+        println!("  JM[{}]: offset={} (0x{:04X}), count={}", i, pos, pos, count);
     }
 }

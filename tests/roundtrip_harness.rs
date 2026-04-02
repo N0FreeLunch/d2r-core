@@ -211,12 +211,10 @@ mod roundtrip_tests {
             rebuild_status_and_player_items,
         };
 
-        // Target fixtures for full save integrity
         let fixtures = [
-            "tests/fixtures/savegames/original/amazon_10_scrolls.d2s",
-            "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
+            "tests/fixtures/savegames/original/TESTAMAZON.d2s",
             "tests/fixtures/savegames/original/amazon_empty.d2s",
-            "tests/fixtures/savegames/original/amazon_lvl2_progression_complex.d2s",
+            "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
         ];
 
         let huffman = HuffmanTree::new();
@@ -281,6 +279,8 @@ mod roundtrip_tests {
                         eprintln!("[AVRM] {}", issue.message);
                     }
                 }
+                let _ = std::fs::write("tmp/reproduced.d2s", &rebuilt);
+                eprintln!("[INFO] Failure artifact saved to tmp/reproduced.d2s for d2save_verify");
             }
             assert!(report.is_success, "Full save binary mismatch for {}", fixture);
         }

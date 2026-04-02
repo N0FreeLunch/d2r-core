@@ -41,6 +41,10 @@ pub const ALPHA_STAT_MAPS: &[AlphaStatMap] = &[
     AlphaStatMap { raw_id: 496, effective_id: 99,  name: "item_fastergethitrate" },
     AlphaStatMap { raw_id: 499, effective_id: 16,  name: "item_enandefense_percent" },
     AlphaStatMap { raw_id: 289, effective_id: 9,   name: "maxmana" },
+    AlphaStatMap { raw_id: 26,  effective_id: 31,  name: "item_defense_percent" },
+    AlphaStatMap { raw_id: 312, effective_id: 72,  name: "item_durability" },
+    AlphaStatMap { raw_id: 207, effective_id: 73,  name: "item_maxdurability" },
+    AlphaStatMap { raw_id: 380, effective_id: 194, name: "item_indestructible" },
 ];
 
 pub fn lookup_alpha_map_by_raw(raw_id: u32) -> Option<&'static AlphaStatMap> {
@@ -77,8 +81,12 @@ pub fn read_property_list<R: BitRead>(
 
     let _is_alpha = version == 5 || version == 1;
 
-    if version == 5 { 
-        item_trace!("[DEBUG v5] Starting List is_list2={} at bit {}", alpha_runeword, recorder.recorded_bits.len()); 
+    if version == 5 && alpha_runeword { 
+        item_trace!("[DEBUG v5] Skipping 93-bit Alpha runeword spacer at bit {}", recorder.recorded_bits.len());
+        for _ in 0..93 {
+            let _ = recorder.read_bit()?;
+        }
+        item_trace!("[DEBUG v5] Starting List 2 at bit {}", recorder.recorded_bits.len()); 
     }
     loop {
         let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
@@ -123,14 +131,14 @@ pub fn parse_single_property<R: BitRead>(
              item_trace!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.total_read - 9);
         }
         
-        if is_alpha_terminator(stat_id) {
+        if is_alpha_terminator(stat_id, code) {
             if version == 5 {
-                 item_trace!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
+                 item_trace!("[DEBUG v5] Property Terminator detected at {} for '{}'", recorder.total_read - 9, code);
             }
             // Alpha v105 Magic/Rare properties are 10-bit aligned.
             let mut term_bit = false;
             if recorder.alpha_quality != Some(ItemQuality::Normal) {
-                term_bit = recorder.read_bit()?; // Optional 10th bit
+                let _ = recorder.read_bit()?; // Optional 10th bit
             }
             return Ok(PropertyParseResult::Terminator(term_bit));
         }
@@ -208,6 +216,10 @@ fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResul
     recorder.read_bits(9)
 }
 
-fn is_alpha_terminator(stat_id: u32) -> bool {
-    stat_id == 0x1FF
+fn is_alpha_terminator(stat_id: u32, code: &str) -> bool {
+    if code.trim() == "hp1" {
+        stat_id == 0x000 || stat_id == 0x1FF
+    } else {
+        stat_id == 0x1FF
+    }
 }

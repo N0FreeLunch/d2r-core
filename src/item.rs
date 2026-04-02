@@ -503,32 +503,28 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool, terminator_bit: bool) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
+    if version == 5 && alpha_runeword {
+        for _ in 0..93 {
+            emitter.write_bit(false)?;
+        }
+    }
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
         if version == 5 || version == 1 {
-            let (raw_id, save_bits) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) {
-                let bits = crate::data::stat_costs::STAT_COSTS.iter()
-                    .find(|s| s.id == m.effective_id)
-                    .map(|s| s.save_bits as u32)
-                    .unwrap_or(0);
-                (m.raw_id, bits)
+            let (raw_id, _save_bits) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) {
+                (m.raw_id, 0)
             } else {
-                let bits = crate::data::stat_costs::STAT_COSTS.iter()
-                    .find(|s| s.id == prop.stat_id)
-                    .map(|s| s.save_bits as u32)
-                    .unwrap_or(0);
-                (prop.stat_id, bits)
+                (prop.stat_id, 0)
             };
 
             emitter.write_bits(raw_id, 9)?;
-            if save_bits > 0 {
-                emitter.write_bits(prop.raw_value as u32, save_bits)?;
-            } else {
-                // FALLBACK: Alpha often has 1-bit flags for unknown/unused bits.
-                // If save_bits is 0 but we have a property, write 1 bit.
+            // Alpha v105 Quality-dependent property widths:
+            // Normal items use 9 bits (ID only).
+            // Others (Magic/Rare/Unique) use 10 bits (9 ID + 1 Val).
+            if quality != ItemQuality::Normal {
                 emitter.write_bits(prop.raw_value as u32, 1)?;
             }
         } else if version == 4 {
@@ -1055,7 +1051,7 @@ impl Item {
 
         let is_identified = (flags & (1 << 4)) != 0;
         let is_personalized = if is_alpha { (flags & (1 << 28)) != 0 } else { (flags & (1 << 24)) != 0 };
-        let is_runeword = (flags & (1 << 26)) != 0;
+        let is_runeword = if is_alpha { (flags & (1 << 26)) != 0 } else { (flags & (1 << 26)) != 0 };
         let is_compact = (flags & (1 << 21)) != 0;
         let is_socketed = if is_alpha { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
         let is_ethereal = (flags & (1 << 22)) != 0;
@@ -1748,12 +1744,13 @@ impl Item {
             return Ok(());
         }
 
-        write_property_list(emitter, &self.properties, self.version, false, self.terminator_bit)?;
+        let quality = self.quality.unwrap_or(ItemQuality::Normal);
+        write_property_list(emitter, &self.properties, self.version, false, self.terminator_bit, quality)?;
 
         if self.properties_complete || alpha_mode {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
-                    write_property_list(emitter, set_props, self.version, false, false)?;
+                    write_property_list(emitter, set_props, self.version, false, false, quality)?;
                 } else {
                     break;
                 }
@@ -1766,9 +1763,9 @@ impl Item {
                     for _ in 0..93 {
                         emitter.write_bit(false)?;
                     }
-                    write_property_list(emitter, &self.runeword_attributes, self.version, true, false)?;
+                    write_property_list(emitter, &self.runeword_attributes, self.version, true, false, quality)?;
                 } else if !self.runeword_attributes.is_empty() {
-                   write_property_list(emitter, &self.runeword_attributes, self.version, false, false)?;
+                   write_property_list(emitter, &self.runeword_attributes, self.version, false, false, quality)?;
                 }
             }
         }
@@ -1901,11 +1898,11 @@ pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, 
     }
 
     if alpha_mode {
-        if !(version == 5 || version == 1) { 
+        if !(version == 5 || version == 1 || version == 4 || version == 0) { 
             item_trace!("[DEBUG Alpha] Header REJECTED: '{}' (Invalid version={})", trimmed, version);
             return false; 
         }
-        if mode > 6 || location > 15 { 
+        if mode > 7 || location > 15 { 
             item_trace!("[DEBUG Alpha] Header REJECTED: '{}' (Invalid mode={} or loc={})", trimmed, mode, location);
             return false; 
         }
@@ -1979,7 +1976,7 @@ pub fn peek_item_header_at(
 
     // Alpha v105: Try small nudges around the start bit to account for bit-drifts.
     let mut candidates = Vec::new();
-    let known_codes = ["hp1 ", "mp1 ", "tsc ", "isc ", "buc ", "jav ", "rin ", "amu ", "key ", "tbk ", "ibk ", "vps ", "a7pw", "prow", "p6t "];
+    let known_codes = ["hp1 ", "mp1 ", "tsc ", "isc ", "buc ", "jav ", "rin ", "amu ", "key ", "tbk ", "ibk ", "vps ", "a7pw", "prow", "p6t ", "xrs ", "r13 ", "r08 ", "r15 "];
 
     for nudge in -2i64..=2i64 {
         let nudged_start = (start_bit as i64 + nudge) as u64;
@@ -1989,6 +1986,14 @@ pub fn peek_item_header_at(
         
         let flags = match recorder.read_bits(32) { Ok(v) => v, _ => continue };
         let version = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
+        
+        // Forensics (0085): Bit 16 is 'ear' only in retail/v4.
+        if version == 4 && (flags & (1 << 16)) != 0 {
+            // It's an ear. Standard ear length is ~128+ bits.
+            candidates.push(((5, 0), 0, 0, 0, "ear ".to_string(), flags, version as u8, false, nudge, recorder.total_read, 0, recorder.total_read));
+            continue;
+        }
+
         let mode = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
         let location = match recorder.read_bits(3) { Ok(v) => v, _ => continue };
         let x = match recorder.read_bits(4) { Ok(v) => v, _ => continue };

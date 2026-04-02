@@ -43,8 +43,11 @@ mod tests {
     fn load_player_items(relative: &str) -> Vec<Item> {
         let bytes = fs::read(repo_path(relative)).expect("fixture should be readable");
         let huffman = HuffmanTree::new();
-        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-        Item::read_player_items(&bytes, &huffman, version == 105).expect("item parse should succeed")
+        let version_le = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
+        // Alpha v105 is file version 6 (sometimes) or 105 (in others). 
+        // Our amazon_authority_runeword.d2s has 0x69 (105).
+        let is_alpha = version_le == 6 || version_le == 105;
+        Item::read_player_items(&bytes, &huffman, is_alpha).expect("item parse should succeed")
     }
 
     #[test]
@@ -139,11 +142,7 @@ mod tests {
         let truth: serde_json::Value = serde_json::from_str(&truth_json).expect("truth should be valid JSON");
         
         // Find the xrs item (Authority base)
-        for (idx, item) in items.iter().enumerate() {
-            println!("Item[{}]: code='{}', props={}, is_rw={}", idx, item.code, item.properties.len(), item.is_runeword);
-        }
-        let xrs = items.iter().find(|it| it.code.trim() == "xrs" && it.is_runeword).expect("xrs runeword item should be present");
-        println!("Selected XRS properties: {}", xrs.properties.len());
+        let xrs = items.iter().find(|it| it.code.trim() == "xrs" && it.is_runeword).expect("xrs item should be present");
         
         let truth_props = truth["properties"].as_array().expect("properties should be array");
         

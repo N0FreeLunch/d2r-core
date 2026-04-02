@@ -15,6 +15,41 @@ fn repo_path(relative: &str) -> PathBuf {
     base.join(relative)
 }
 
+fn assert_symmetry_integrity(
+    section_name: &str,
+    actual: &[u8],
+    expected: &[u8],
+    allowed_bit_ranges: &[(usize, usize)],
+) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "{} section length mismatch",
+        section_name
+    );
+
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        if a != e {
+            let diff = a ^ e;
+            for bit in 0..8 {
+                if (diff >> bit) & 1 == 1 {
+                    let bit_offset = i * 8 + bit;
+                    let is_allowed = allowed_bit_ranges
+                        .iter()
+                        .any(|&(start, end)| bit_offset >= start && bit_offset <= end);
+
+                    if !is_allowed {
+                        panic!(
+                            "Unintended drift in {} section at bit offset {} (byte {}, bit {}). Expected bit {}, got {}",
+                            section_name, bit_offset, i, bit, (e >> bit) & 1, (a >> bit) & 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     let path = repo_path("tests/fixtures/savegames/original/amazon_empty.d2s");
@@ -76,10 +111,12 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     // Normal starts at bit 80 (byte 10). bit 81 is byte 10, bit 1.
     // 0x01 (Act 1 Town) | 0x02 (Cold Plains) = 0x03
     assert_eq!(wps_section.raw_bytes[10], 0x03);
-    for i in 0..wps_section.raw_bytes.len() {
-        if i == 10 { continue; }
-        assert_eq!(wps_section.raw_bytes[i], wps_before[i], "Waypoint byte {} should not change", i);
-    }
+    assert_symmetry_integrity(
+        "Waypoint",
+        &wps_section.raw_bytes,
+        &wps_before,
+        &[(81, 81)], // Only bit 81 should change (Normal Cold Plains)
+    );
 
     // Quest: "Den of Evil" is at offset 12 in raw_bytes (415 - 403 = 12)
     // set_completed(true) sets bit 0 (byte 12) and bit 12 (0x10 in byte 13)
@@ -88,10 +125,20 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     
     // Quest Section Marker: "Woo!" (0x193 = 403)
     assert_eq!(quests_section.raw_bytes[0], 0x57); // 'W'
-    for i in 0..quests_section.raw_bytes.len() {
-        if i == 12 || i == 13 { continue; }
-        assert_eq!(quests_section.raw_bytes[i], quests_before[i], "Quest byte {} should not change", i);
-    }
+    assert_symmetry_integrity(
+        "Quest",
+        &quests_section.raw_bytes,
+        &quests_before,
+        &[(96, 96), (108, 108)], // Byte 12 bit 0, Byte 13 bit 4
+    );
+
+    // Expansion Mutation Verification
+    assert_symmetry_integrity(
+        "Expansion",
+        &expansion.raw_bytes,
+        &save.header.expansion.as_ref().unwrap().raw_bytes,
+        &[(40, 47)], // Byte 5 (8 * 5 = 40)
+    );
 
     // 4. Rebuild Save
     let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));

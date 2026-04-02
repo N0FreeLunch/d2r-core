@@ -13,15 +13,27 @@
 // limitations under the License.
 
 use std::io;
-use crate::save::{finalize_save_bytes, Save, recalculate_checksum};
+use crate::save::{finalize_save_bytes, CHECKSUM_OFFSET};
 
 /// Mode for mutation addressing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MutationMode {
     /// Absolute bit offset from the beginning of the file.
     Absolute,
-    /// Logical path addressing (e.g., "Items.Item[2].Flags") - TODO: Not yet implemented.
+    /// Logical path addressing (e.g., "Items.Item[2].Flags")
     Logical,
+}
+
+/// Resolves a logical address path to an absolute bit offset.
+/// Currently only supports "Header.Checksum".
+pub fn resolve_logical_address(path: &str) -> io::Result<usize> {
+    match path {
+        "Header.Checksum" => Ok(CHECKSUM_OFFSET * 8),
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("Unsupported logical address: {}", path),
+        )),
+    }
 }
 
 /// Options for a mutation operation.

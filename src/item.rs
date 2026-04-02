@@ -60,6 +60,8 @@ pub struct ParsingFailure {
     pub bit_offset: u64,
     /// The bit offset relative to the start of the current context.
     pub context_relative_offset: u64,
+    /// An optional hint for forensic recovery.
+    pub hint: Option<String>,
 }
 
 impl ParsingFailure {
@@ -71,7 +73,13 @@ impl ParsingFailure {
             context_stack: recorder.context_stack.clone(),
             bit_offset,
             context_relative_offset: bit_offset.saturating_sub(context_start),
+            hint: None,
         }
+    }
+
+    pub fn with_hint(mut self, hint: &str) -> Self {
+        self.hint = Some(hint.to_string());
+        self
     }
 }
 
@@ -116,12 +124,24 @@ impl From<ParsingFailure> for io::Error {
 
 pub type ParsingResult<T> = Result<T, ParsingFailure>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ItemSegmentType {
+    Root,
+    Header,
+    Code,
+    Stats,
+    ExtendedStats,
+    ItemIndex,
+    Unknown,
+}
+
 pub struct BitRecorder<'a, R: BitRead> {
     pub reader: &'a mut R,
     pub recorded_bits: Vec<RecordedBit>,
     pub total_read: u64,
     pub context_stack: Vec<String>,
     pub context_starts: Vec<u64>,
+    pub context_expected: Vec<Option<u64>>,
     pub segments: Vec<BitSegment>,
     pub trace_enabled: bool,
     pub alpha_quality: Option<ItemQuality>,
@@ -135,6 +155,7 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
             total_read: 0,
             context_stack: Vec::new(),
             context_starts: Vec::new(),
+            context_expected: Vec::new(),
             segments: Vec::new(),
             trace_enabled: false,
             alpha_quality: None,
@@ -156,11 +177,26 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
     pub fn push_context(&mut self, name: &str) {
         self.context_stack.push(name.to_string());
         self.context_starts.push(self.total_read);
+        self.context_expected.push(None);
     }
 
     pub fn pop_context(&mut self) {
         let label = self.context_stack.pop().unwrap_or_default();
         let start = self.context_starts.pop().unwrap_or(0);
+        let expected = self.context_expected.pop().flatten();
+
+        if let Some(expected_bits) = expected {
+            let actual_bits = self.total_read - start;
+            if actual_bits != expected_bits {
+                item_trace!(
+                    "[BitRecorder] Segment budget mismatch: {} expected {} bits, got {} bits",
+                    label,
+                    expected_bits,
+                    actual_bits
+                );
+            }
+        }
+
         if self.trace_enabled {
             self.segments.push(BitSegment {
                 start,
@@ -169,6 +205,18 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
                 depth: self.context_stack.len(),
             });
         }
+    }
+
+    pub fn begin_segment(&mut self, segment_type: ItemSegmentType, expected_bits: Option<u64>) {
+        let label = format!("{:?}", segment_type);
+        self.push_context(&label);
+        if let Some(last) = self.context_expected.last_mut() {
+            *last = expected_bits;
+        }
+    }
+
+    pub fn end_segment(&mut self) {
+        self.pop_context();
     }
 
     pub fn with_context<T, F>(&mut self, name: &str, mut f: F) -> ParsingResult<T>
@@ -520,7 +568,7 @@ impl Item {
         huffman: &HuffmanTree,
         _version: u8,
     ) -> ParsingResult<(String, Option<u8>, Option<u8>, Option<String>)> {
-        recorder.push_context("Item Code");
+        recorder.begin_segment(ItemSegmentType::Code, None);
         let mut ear_class = None;
         let mut ear_level = None;
         let mut ear_player_name = None;
@@ -540,7 +588,7 @@ impl Item {
             }
             decoded
         };
-        recorder.pop_context();
+        recorder.end_segment();
         Ok((code, ear_class, ear_level, ear_player_name))
     }
 
@@ -580,7 +628,7 @@ impl Item {
         Option<u8>,
         u8,
     )> {
-        recorder.push_context("Extended Stats");
+        recorder.begin_segment(ItemSegmentType::ExtendedStats, None);
         let trimmed_code = code.trim();
         let template = item_template(code);
         let is_alpha = alpha_mode;
@@ -746,6 +794,7 @@ impl Item {
                 sockets = Some(recorder.read_bits(4)? as u8);
             }
 
+            recorder.end_segment();
             return Ok((
                 item_id, item_level, item_quality,
                 has_multiple_graphics, multi_graphics_bits,
@@ -848,10 +897,11 @@ impl Item {
         _is_personalized: bool,
         ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
+        alpha_mode: bool,
     ) -> ParsingResult<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool, bool)> {
-        recorder.push_context("Item Stats");
+        recorder.begin_segment(ItemSegmentType::Stats, None);
         let trimmed_code = code.trim();
-        let is_alpha = version == 5 || version == 1;
+        let is_alpha = alpha_mode && (version == 5 || version == 1);
         let quality_val = quality.unwrap_or(ItemQuality::Normal);
 
         let (properties, properties_complete, terminator_bit) = if is_alpha && quality_val == ItemQuality::Normal {
@@ -894,7 +944,7 @@ impl Item {
 
         // For Alpha v5, we ONLY consider it complete if we found a terminator (or it's compact).
         // The boolean `complete` from read_property_list already handles this.
-        recorder.pop_context();
+        recorder.end_segment();
         Ok((properties, set_attributes, runeword_attributes, properties_complete, terminator_bit))
     }
 
@@ -905,9 +955,9 @@ impl Item {
         alpha_mode: bool,
     ) -> ParsingResult<Item> {
         let start_bit = recorder.total_read;
-        recorder.push_context("Item Root");
+        recorder.begin_segment(ItemSegmentType::Root, None);
         
-        recorder.push_context("Item Header");
+        recorder.begin_segment(ItemSegmentType::Header, None);
         // Peek/Read header info
         let mut flags = recorder.read_bits(32)?;
         let mut version = recorder.read_bits(3)? as u8;
@@ -920,7 +970,7 @@ impl Item {
             (m, l, x)
         } else {
             let m = recorder.read_bits(3)? as u8;
-            let l = recorder.read_bits(4)? as u8;
+            let l = recorder.read_bits(3)? as u8;
             let x = (recorder.read_bits(4)? & 0x0F) as u8;
             (m, l, x)
         };
@@ -934,6 +984,7 @@ impl Item {
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: 0,
                     context_relative_offset: 0,
+                    hint: None,
                 });
             };
             let Some((peek_m, peek_l, peek_x, peek_code, f, v, _c, header_bits, nudge)) = peek_item_header_at(section_bytes, start_bit, huffman, alpha_mode)
@@ -943,6 +994,7 @@ impl Item {
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: start_bit,
                     context_relative_offset: 0,
+                    hint: None,
                 });
             };
             
@@ -982,7 +1034,7 @@ impl Item {
             };
             (y, page, socket_hint, None)
         };
-        recorder.pop_context();
+        recorder.end_segment();
         
         let _header_end = recorder.recorded_bits.len();
         
@@ -993,7 +1045,7 @@ impl Item {
             (flags & (1 << 16)) != 0
         };
         
-        let is_alpha = version == 5 || version == 1;
+        let is_alpha = alpha_mode && (version == 5 || version == 1);
 
         if is_alpha && version == 5 {
              item_trace!("[DEBUG v5] Start parsing item header at {}", recorder.total_read);
@@ -1081,7 +1133,7 @@ impl Item {
                 gap_bits: Vec::new(),
                 terminator_bit: false,
                 segments: Vec::new(),
-                };            recorder.pop_context();
+                };            recorder.end_segment();
             item.segments = recorder.segments.clone();
             return Ok(item);
         }
@@ -1157,6 +1209,7 @@ impl Item {
                 is_personalized,
                 ctx,
                 huffman,
+                alpha_mode,
             )?
         } else {
             (Vec::new(), Vec::new(), Vec::new(), true, false)
@@ -1410,6 +1463,7 @@ impl Item {
                 context_stack: vec!["read_player_items".to_string()],
                 bit_offset: 0,
                 context_relative_offset: 0,
+                hint: None,
             })?;
         let top_level_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
         let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
@@ -1817,6 +1871,7 @@ fn parse_item_at(
         context_stack: vec![format!("Item[{}]", index)],
         bit_offset: start_bit,
         context_relative_offset: 0,
+        hint: None,
     })?;
     let mut recorder = BitRecorder::new(&mut reader);
     if item_trace_enabled() {
@@ -1907,7 +1962,7 @@ pub fn peek_item_header_at(
         let flags = recorder.read_bits(32).ok()?;
         let version = recorder.read_bits(3).ok()? as u8;
         let mode = recorder.read_bits(3).ok()? as u8;
-        let location = recorder.read_bits(4).ok()? as u8;
+        let location = recorder.read_bits(3).ok()? as u8;
         let x = recorder.read_bits(4).ok()? as u8;
         let is_compact = (flags & (1 << 21)) != 0;
         if !is_compact {

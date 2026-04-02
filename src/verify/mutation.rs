@@ -1,0 +1,75 @@
+// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use std::io;
+use crate::save::{finalize_save_bytes, Save, recalculate_checksum};
+
+/// Flips a single bit at the given absolute bit offset in the provided byte slice.
+/// bit_offset 0 is the LSB (least significant bit) of bytes[0].
+pub fn flip_bit(bytes: &mut [u8], bit_offset: usize) {
+    let byte_index = bit_offset / 8;
+    let bit_index = bit_offset % 8;
+    if byte_index < bytes.len() {
+        bytes[byte_index] ^= 1 << bit_index;
+    }
+}
+
+/// Mutates a single bit at the given absolute bit offset and finalizes the save bytes
+/// (recalculating file size and checksum).
+/// Returns a new Vec<u8> with the mutation applied and finalized.
+pub fn mutate_absolute_bit_and_finalize(bytes: &[u8], bit_offset: usize) -> io::Result<Vec<u8>> {
+    let mut mutated = bytes.to_vec();
+    flip_bit(&mut mutated, bit_offset);
+    finalize_save_bytes(&mut mutated)?;
+    Ok(mutated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+
+    fn fixture_bytes() -> Vec<u8> {
+        let repo_root = env!("CARGO_MANIFEST_DIR");
+        let path = Path::new(repo_root).join("tests/fixtures/savegames/original/amazon_empty.d2s");
+        fs::read(path).expect("fixture should exist")
+    }
+
+    #[test]
+    fn test_absolute_bit_flip_and_finalize() -> io::Result<()> {
+        let original_bytes = fixture_bytes();
+        
+        // Choose a bit that is safe to flip. 
+        // 299 is CHAR_NAME_OFFSET, which is typically a safe character string.
+        let bit_offset = 299 * 8; 
+        
+        let mutated_bytes = mutate_absolute_bit_and_finalize(&original_bytes, bit_offset)?;
+        
+        // 1. Verify the bit flip actually happened in the mutated buffer
+        assert_ne!(original_bytes[299], mutated_bytes[299]);
+        
+        // 2. Reparse with Save::from_bytes
+        let save = Save::from_bytes(&mutated_bytes)?;
+        
+        // 3. Assert header file size matches actual length
+        assert_eq!(save.header.file_size as usize, mutated_bytes.len());
+        
+        // 4. Assert stored checksum equals recalculate_checksum
+        let calculated = recalculate_checksum(&mutated_bytes)?;
+        assert_eq!(save.header.checksum, calculated);
+        
+        Ok(())
+    }
+}

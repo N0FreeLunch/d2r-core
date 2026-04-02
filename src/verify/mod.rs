@@ -1,4 +1,5 @@
 pub mod bit_diff;
+pub mod mutation;
 
 pub trait Verifier {
     fn verify(&self, fixture: &[u8], reproduced: &[u8]) -> VerificationReport;

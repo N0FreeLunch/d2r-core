@@ -1284,7 +1284,7 @@ impl Item {
             let mut gap_bits = Vec::new();
             if is_alpha {
                 let lookahead_limit = 64; 
-                let lookahead_start = start + 40;
+                let lookahead_start = start + 72;
                 if let Some(next_match) = find_next_item_match(section_bytes, lookahead_start, huffman, is_alpha) {
                     if next_match < end || (next_match > end && (next_match - end) < lookahead_limit) {
                         if next_match > end {
@@ -1323,6 +1323,7 @@ impl Item {
 
             // Deep Recording: Capture raw bits for perfect reconstruction
             if is_alpha {
+                final_item.bits.clear();
                 let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
                 if reader.skip(start as u32).is_ok() {
                     for _ in 0..(end - start) {

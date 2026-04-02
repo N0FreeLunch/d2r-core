@@ -45,6 +45,10 @@ pub enum ParsingError {
     InvalidStatId { bit_offset: u64, stat_id: u32 },
     UnexpectedSegmentEnd { bit_offset: u64 },
     BitSymmetryFailure { bit_offset: u64 },
+    /// A value was read that violates a structural invariant (e.g., a magic number mismatch).
+    InvariantViolation { field: String, expected: String, actual: String },
+    /// A value was read that is technically valid but unexpected in the current context.
+    UnexpectedValue { field: String, value: String, reason: String },
     Io(String), 
     Generic(String),
 }
@@ -54,14 +58,19 @@ pub struct ParsingFailure {
     pub error: ParsingError,
     pub context_stack: Vec<String>,
     pub bit_offset: u64,
+    /// The bit offset relative to the start of the current context.
+    pub context_relative_offset: u64,
 }
 
 impl ParsingFailure {
     pub fn new<R: BitRead>(error: ParsingError, recorder: &BitRecorder<R>) -> Self {
+        let bit_offset = recorder.total_read;
+        let context_start = recorder.context_starts.last().cloned().unwrap_or(0);
         ParsingFailure {
             error,
             context_stack: recorder.context_stack.clone(),
-            bit_offset: recorder.total_read,
+            bit_offset,
+            context_relative_offset: bit_offset.saturating_sub(context_start),
         }
     }
 }
@@ -73,6 +82,12 @@ impl std::fmt::Display for ParsingError {
             ParsingError::InvalidStatId { bit_offset, stat_id } => write!(f, "Invalid stat_id {} at offset {}", stat_id, bit_offset),
             ParsingError::UnexpectedSegmentEnd { bit_offset } => write!(f, "Unexpected segment end at offset {}", bit_offset),
             ParsingError::BitSymmetryFailure { bit_offset } => write!(f, "Bit symmetry failure at offset {}", bit_offset),
+            ParsingError::InvariantViolation { field, expected, actual } => {
+                write!(f, "Invariant violation in '{}': expected {}, found {}", field, expected, actual)
+            }
+            ParsingError::UnexpectedValue { field, value, reason } => {
+                write!(f, "Unexpected value for '{}': {} ({})", field, value, reason)
+            }
             ParsingError::Io(s) => write!(f, "IO error: {}", s),
             ParsingError::Generic(s) => write!(f, "Parsing error: {}", s),
         }
@@ -82,7 +97,14 @@ impl std::fmt::Display for ParsingError {
 impl std::fmt::Display for ParsingFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let ctx = self.context_stack.join(" -> ");
-        write!(f, "[Bit {}] [{}] {}", self.bit_offset, ctx, self.error)
+        write!(
+            f, 
+            "[Bit {}] [Rel +{}] [{}] {}", 
+            self.bit_offset, 
+            self.context_relative_offset,
+            ctx, 
+            self.error
+        )
     }
 }
 
@@ -911,6 +933,7 @@ impl Item {
                     error: ParsingError::Generic("Alpha v105 requires context for heuristic sync".to_string()),
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: 0,
+                    context_relative_offset: 0,
                 });
             };
             let Some((peek_m, peek_l, peek_x, peek_code, f, v, _c, header_bits, nudge)) = peek_item_header_at(section_bytes, start_bit, huffman, alpha_mode)
@@ -919,6 +942,7 @@ impl Item {
                     error: ParsingError::Generic("Alpha heuristic probe failed".to_string()),
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: start_bit,
+                    context_relative_offset: 0,
                 });
             };
             
@@ -1290,11 +1314,25 @@ impl Item {
             if is_alpha {
                 item_trace!("[DEBUG Alpha] Item '{}' ended at bit {}. Next search from {}", item.code, end, bit_pos);
             }
+            
             let mut final_item = item;
             final_item.range.start = start;
             final_item.range.end = end;
             final_item.total_bits = end - start;
             final_item.gap_bits = gap_bits;
+
+            // Deep Recording: Capture raw bits for perfect reconstruction
+            if is_alpha {
+                let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                if reader.skip(start as u32).is_ok() {
+                    for _ in 0..(end - start) {
+                        if let Ok(bit) = reader.read_bit() {
+                            final_item.bits.push(RecordedBit { bit, ..Default::default() });
+                        }
+                    }
+                }
+            }
+
             items.push(final_item);
         }
         Ok(items)
@@ -1370,6 +1408,7 @@ impl Item {
                 error: ParsingError::Io("JM header not found".to_string()),
                 context_stack: vec!["read_player_items".to_string()],
                 bit_offset: 0,
+                context_relative_offset: 0,
             })?;
         let top_level_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
         let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
@@ -1385,36 +1424,32 @@ impl Item {
         alpha_mode: bool,
     ) -> io::Result<Vec<u8>> {
         let mut emitter = BitEmitter::new();
-        let mut current_bit = 0u64;
         for item in items {
-            if alpha_mode && item.range.start > current_bit {
-                let gap = item.range.start - current_bit;
-                for _ in 0..gap {
+            // 1. Pad to the absolute start position of this item
+            if alpha_mode && item.range.start > emitter.written_bits() {
+                let pad_count = item.range.start - emitter.written_bits();
+                for _ in 0..pad_count {
                     emitter.write_bit(false)?;
                 }
-                current_bit = item.range.start;
             }
-            if alpha_mode && !item.bits.is_empty() {
+
+            // 2. Write item data (prefer Deep Recording)
+            let used_deep_recording = if alpha_mode && !item.bits.is_empty() {
                 for rb in &item.bits {
                     emitter.write_bit(rb.bit)?;
                 }
+                true
             } else {
                 item.write_recursive(&mut emitter, huffman, alpha_mode)?;
-            }
+                false
+            };
             
-            if alpha_mode && !item.gap_bits.is_empty() {
+            // 3. Write gap data (captured trailing bits) - ONLY if not already included in deep recording
+            if alpha_mode && !used_deep_recording && !item.gap_bits.is_empty() {
                 for &bit in &item.gap_bits {
                     emitter.write_bit(bit)?;
                 }
-            } else if alpha_mode && item.total_bits > 0 {
-                let written = emitter.written_bits() - current_bit;
-                if item.total_bits > written {
-                    for _ in 0..(item.total_bits - written) {
-                        emitter.write_bit(false)?;
-                    }
-                }
             }
-            current_bit = emitter.written_bits();
         }
         emitter.byte_align()?;
         Ok(emitter.into_bytes())
@@ -1780,6 +1815,7 @@ fn parse_item_at(
         error: ParsingError::Io(e.to_string()),
         context_stack: vec![format!("Item[{}]", index)],
         bit_offset: start_bit,
+        context_relative_offset: 0,
     })?;
     let mut recorder = BitRecorder::new(&mut reader);
     if item_trace_enabled() {

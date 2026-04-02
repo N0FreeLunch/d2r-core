@@ -2,7 +2,7 @@ use serde::Serialize;
 use super::quality::ItemQuality;
 use super::stat_list::{ItemProperty, ItemStats};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecordedBit {
     pub bit: bool,
     pub offset: u64,
@@ -120,6 +120,7 @@ pub struct Item {
     pub socketed_items: Vec<Item>,
     pub timestamp_flag: bool,
     pub properties_complete: bool,
+    pub terminator_bit: bool,
     pub set_list_count: u8,
     pub tbk_ibk_teleport: Option<u8>,
     pub defense: Option<u32>,
@@ -129,6 +130,8 @@ pub struct Item {
     pub sockets: Option<u8>,
     pub modules: Vec<ItemModule>,
     pub range: ItemBitRange,
+    pub total_bits: u64,
+    pub gap_bits: Vec<bool>,
     pub segments: Vec<BitSegment>,
 }
 

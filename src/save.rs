@@ -31,6 +31,8 @@ pub const CHAR_LEVEL_OFFSET: usize = 27;
 pub const LAST_PLAYED_OFFSET: usize = 32;
 pub const CHAR_NAME_OFFSET: usize = 299;
 pub const CHAR_NAME_LEN: usize = 48;
+pub const ACTIVE_ACT_OFFSET: usize = 21;
+pub const PROGRESS_FLAG_OFFSET: usize = 108;
 
 const MIN_HEADER_LEN: usize = CHAR_NAME_OFFSET + CHAR_NAME_LEN;
 pub const SKILL_SECTION_LEN: usize = 30;
@@ -50,6 +52,8 @@ pub struct Header {
     pub char_name: String,
     pub char_class: u8,
     pub char_level: u8,
+    pub active_act: u8,
+    pub progress_flag: u8,
     pub last_played: u32,
     pub raw_prefix: Vec<u8>,
     pub quests: Option<QuestSection>,
@@ -175,15 +179,19 @@ pub struct AttributeSection {
 impl AttributeSection {
     pub fn parse(bytes: &[u8], map: &SaveSectionMap) -> io::Result<Self> {
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-        let is_alpha = version == 105 || version == 0x69; // 105 is dec, 0x69 is hex
-        let payload_range = gf_payload_range(map);
+        let is_alpha = version == 105 || version == 0x69;
+        
+        // Skip the 'gf' marker (2 bytes) before parsing the bitstream
+        let bitstream_start = map.gf_pos + 2;
+        let bitstream_end = map.if_pos;
+        
         let mut reader = BitReader::endian(
-            Cursor::new(&bytes[payload_range.start..payload_range.end]),
+            Cursor::new(&bytes[bitstream_start..bitstream_end]),
             LittleEndian,
         );
         let raw_bytes = bytes[map.gf_pos..map.if_pos].to_vec();
         let mut entries = Vec::new();
-        let total_bits = ((payload_range.end - payload_range.start) * 8) as u64;
+        let total_bits = ((bitstream_end - bitstream_start) * 8) as u64;
         loop {
             let pos = reader.position_in_bits()?;
             if total_bits.saturating_sub(pos) < 9 {
@@ -244,30 +252,27 @@ impl AttributeSection {
 
     pub fn to_bytes_from_entries(&self, is_alpha: bool) -> io::Result<Vec<u8>> {
         let mut buf = Vec::new();
+        // The 'gf' marker must be RAW bytes, not bit-packed.
+        buf.push(b'g');
+        buf.push(b'f');
+
         let mut writer = BitWriter::endian(&mut buf, LittleEndian);
 
-        // 'gf' marker (2 bytes)
-        write_bits_dynamic(&mut writer, 8, b'g' as u32)?;
-        write_bits_dynamic(&mut writer, 8, b'f' as u32)?;
-
         for entry in &self.entries {
-            // Alpha v5 Research Mode: Guards disabled for fuzzing.
-            if is_alpha && entry.stat_id >= 512 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!("Alpha v105: ID {} exceeds 9-bit space.", entry.stat_id)
-                ));
+            // Forensic Absolute Exclusion: Stat ID 5 must NEVER be in the bitstream 
+            // until the DLC editor's metadata conflict is resolved.
+            if entry.stat_id == 5 {
+                continue;
             }
 
             if let Some(ref bits) = entry.opaque_bits {
-                // Alpha v5 Research Mode: Width guards disabled.
-                
                 write_bits_dynamic(&mut writer, 9, entry.stat_id)?;
                 for &bit in bits {
                     writer.write_bit(bit)?;
                 }
                 continue;
             }
+
             let bits = char_stat_save_bits(entry.stat_id, is_alpha);
             if bits == 0 {
                 continue;
@@ -323,25 +328,28 @@ pub fn char_stat_save_add(stat_id: u32, is_alpha: bool) -> i32 {
 }
 
 fn char_stat_save_bits(stat_id: u32, is_alpha: bool) -> u32 {
-    let bits = match stat_id {
-        0 | 1 | 2 | 3 | 4 => 10,
-        5 => 8,
-        6 | 7 | 8 | 9 | 10 | 11 => 21,
-        12 => 7,
-        13 => 32,
-        14 | 15 => 25,
-        _ => {
-            // Pass-through fallback: if we have it in stat_costs, use that.
-            // This is for DLC/expansion stats that might appear.
-            stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
-        }
-    };
-
     if is_alpha {
-        // Special Alpha overrides could go here if reality-check fails
-        bits
+        // Alpha v105 Research: Core stats 0-3 and 12-13 are present, but 4-5 are often undefined/skipped.
+        // We exclude 4 and 5 to prevent DLC Editor 'Undefined' crashes.
+        match stat_id {
+            0 | 1 | 2 | 3 => 10,
+            4 | 5 => 0, // Explicitly Excluded in Alpha v105 gf section
+            6 | 7 | 8 | 9 | 10 | 11 => 21,
+            12 => 7,
+            13 => 32,
+            14 | 15 => 25,
+            _ => stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
+        }
     } else {
-        bits
+        match stat_id {
+            0 | 1 | 2 | 3 | 4 => 10,
+            5 => 8,
+            6 | 7 | 8 | 9 | 10 | 11 => 21,
+            12 => 7,
+            13 => 32,
+            14 | 15 => 25,
+            _ => stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
+        }
     }
 }
 
@@ -444,6 +452,15 @@ pub fn rebuild_status_and_player_items(
             let len = slice.len().min(833 - offset); // Up to header end (Stats start at 833)
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            }
+        }
+    }
+
+    // Synchronize Header Level with Stat Section (id 12) to prevent engine-level reset.
+    if let Some(attr) = attributes {
+        if let Some(lv) = attr.actual_value(12, version == 105) {
+            if header_bytes.len() > CHAR_LEVEL_OFFSET {
+                header_bytes[CHAR_LEVEL_OFFSET] = lv as u8;
             }
         }
     }
@@ -847,6 +864,8 @@ impl Save {
         );
         let char_class = bytes[CHAR_CLASS_OFFSET];
         let char_level = bytes[CHAR_LEVEL_OFFSET];
+        let active_act = bytes[ACTIVE_ACT_OFFSET];
+        let progress_flag = bytes[PROGRESS_FLAG_OFFSET];
         let last_played = u32::from_le_bytes(
             bytes[LAST_PLAYED_OFFSET..LAST_PLAYED_OFFSET + 4]
                 .try_into()
@@ -863,6 +882,8 @@ impl Save {
             char_name,
             char_class,
             char_level,
+            active_act,
+            progress_flag,
             last_played,
             raw_prefix: bytes[..match version {
                 105 => 833, // Alpha v105 Fixed Header
@@ -966,6 +987,8 @@ impl Header {
             ));
         }
         bytes[CHAR_LEVEL_OFFSET] = self.char_level;
+        bytes[ACTIVE_ACT_OFFSET] = self.active_act;
+        bytes[PROGRESS_FLAG_OFFSET] = self.progress_flag;
 
         write_u32_le(&mut bytes, LAST_PLAYED_OFFSET, self.last_played)?;
         write_ascii_nul_padded(&mut bytes, CHAR_NAME_OFFSET, CHAR_NAME_LEN, &self.char_name)?;

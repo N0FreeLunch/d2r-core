@@ -164,6 +164,8 @@ mod roundtrip_tests {
         assert_eq!(new_stat.value, 300);
     }
 
+
+
     #[test]
     fn test_10scrolls_full_roundtrip() {
         let path = repo_path("tests/fixtures/savegames/original/amazon_10_scrolls.d2s");

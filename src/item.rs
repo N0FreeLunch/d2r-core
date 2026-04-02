@@ -210,23 +210,27 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
 
 pub struct BitEmitter {
     writer: BitWriter<Vec<u8>, LittleEndian>,
+    written: u64,
 }
 
 impl BitEmitter {
     pub fn new() -> Self {
         BitEmitter {
             writer: BitWriter::endian(Vec::new(), LittleEndian),
+            written: 0,
         }
     }
 
     pub fn write_bit(&mut self, bit: bool) -> io::Result<()> {
-        self.writer.write_bit(bit)
+        self.writer.write_bit(bit)?;
+        self.written += 1;
+        Ok(())
     }
 
     pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
         for i in 0..count {
             let bit = (value >> i) & 1 != 0;
-            self.writer.write_bit(bit)?;
+            self.write_bit(bit)?;
         }
         Ok(())
     }
@@ -236,13 +240,20 @@ impl BitEmitter {
         I: IntoIterator<Item = bool>,
     {
         for bit in bits {
-            self.writer.write_bit(bit)?;
+            self.write_bit(bit)?;
         }
         Ok(())
     }
 
     pub fn byte_align(&mut self) -> io::Result<()> {
-        self.writer.byte_align()
+        let padding = (8 - (self.written % 8)) % 8;
+        self.writer.byte_align()?;
+        self.written += padding;
+        Ok(())
+    }
+
+    pub fn written_bits(&self) -> u64 {
+        self.written
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
@@ -422,7 +433,7 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool, terminator_bit: bool) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
@@ -474,7 +485,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     }
     emitter.write_bits(terminator, id_bits)?;
     if version == 5 || version == 1 {
-        emitter.write_bits(0, 1)?; // 9-bit Terminator (0x1FF) + 1-bit 0 = 10-bit terminator
+        emitter.write_bit(terminator_bit)?; // 9-bit Terminator (0x1FF) + 1-bit preserved extra bit
     }
     Ok(())
 }
@@ -815,15 +826,15 @@ impl Item {
         _is_personalized: bool,
         ctx: Option<(&[u8], u64)>,
         huffman: &HuffmanTree,
-    ) -> ParsingResult<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool)> {
+    ) -> ParsingResult<(Vec<ItemProperty>, Vec<Vec<ItemProperty>>, Vec<ItemProperty>, bool, bool)> {
         recorder.push_context("Item Stats");
         let trimmed_code = code.trim();
         let is_alpha = version == 5 || version == 1;
         let quality_val = quality.unwrap_or(ItemQuality::Normal);
 
-        let (properties, properties_complete) = if is_alpha && quality_val == ItemQuality::Normal {
+        let (properties, properties_complete, terminator_bit) = if is_alpha && quality_val == ItemQuality::Normal {
             // Alpha v105 Normal items (potions, scrolls, javelins) usually lack property lists.
-            (Vec::new(), true)
+            (Vec::new(), true, false)
         } else {
             read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?
         };
@@ -834,7 +845,7 @@ impl Item {
         let mut parse_property_lists = properties_complete;
         if parse_property_lists && quality == Some(ItemQuality::Set) && set_list_count > 0 {
             for _ in 0..set_list_count {
-                let (set_props, complete) =
+                let (set_props, complete, _term_bit) =
                     read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?;
                 set_attributes.push(set_props);
                 if !complete {
@@ -851,7 +862,7 @@ impl Item {
                 // This was previously added but might be causing desync in amazon_10_scrolls.
                 // for _ in 0..93 { let _ = recorder.read_bit()?; }
             }
-            let (rw_props, complete) =
+            let (rw_props, complete, _term_bit) =
                 read_property_list(recorder, trimmed_code, version, ctx, huffman, true)?;
             runeword_attributes = rw_props;
             if !complete {
@@ -862,7 +873,7 @@ impl Item {
         // For Alpha v5, we ONLY consider it complete if we found a terminator (or it's compact).
         // The boolean `complete` from read_property_list already handles this.
         recorder.pop_context();
-        Ok((properties, set_attributes, runeword_attributes, properties_complete))
+        Ok((properties, set_attributes, runeword_attributes, properties_complete, terminator_bit))
     }
 
     pub fn from_reader_with_context<R: BitRead>(
@@ -921,6 +932,7 @@ impl Item {
             // Forensics (0085): After JM, non-compact items have a gap before code.
             // peek_item_header_at accounts for this in header_bits.
             if skip_amount > 0 {
+                item_trace!("[DEBUG Alpha] Skipping {} bits (nudge={}, gap={})", skip_amount, nudge, target_header_bits as i64 - 45);
                 recorder.skip_and_record(skip_amount as u32)?;
             }
 
@@ -1041,9 +1053,11 @@ impl Item {
                 sockets: None,
                 modules: Vec::new(),
                 range: ItemBitRange { start: start_bit, end: end_bit },
+                total_bits: 0,
+                gap_bits: Vec::new(),
+                terminator_bit: false,
                 segments: Vec::new(),
-            };
-            recorder.pop_context();
+                };            recorder.pop_context();
             item.segments = recorder.segments.clone();
             return Ok(item);
         }
@@ -1108,7 +1122,7 @@ impl Item {
         let sockets = stats.23;
         let set_list_count = stats.24;
 
-        let (properties, set_attributes, runeword_attributes, properties_complete) = if !is_compact {
+        let (properties, set_attributes, runeword_attributes, properties_complete, terminator_bit) = if !is_compact {
             Self::read_item_stats(
                 recorder,
                 &code,
@@ -1121,7 +1135,7 @@ impl Item {
                 huffman,
             )?
         } else {
-            (Vec::new(), Vec::new(), Vec::new(), true)
+            (Vec::new(), Vec::new(), Vec::new(), true, false)
         };
 
         if !properties_complete {
@@ -1178,6 +1192,7 @@ impl Item {
             socketed_items: Vec::new(),
             timestamp_flag,
             properties_complete,
+            terminator_bit,
             set_list_count,
             tbk_ibk_teleport,
             defense,
@@ -1187,6 +1202,8 @@ impl Item {
             sockets,
             modules: Vec::new(),
             range: ItemBitRange { start: start_bit, end: end_bit },
+            total_bits: 0,
+            gap_bits: Vec::new(),
             segments: Vec::new(),
         };
         recorder.pop_context();
@@ -1240,11 +1257,31 @@ impl Item {
             };
             
             let mut end = start + consumed_bits;
-            if is_alpha && items.len() < (top_level_count as usize - 1) {
+            let mut gap_bits = Vec::new();
+            if is_alpha {
+                let lookahead_limit = 64; 
                 let lookahead_start = start + 40;
                 if let Some(next_match) = find_next_item_match(section_bytes, lookahead_start, huffman, is_alpha) {
-                    if next_match < end || (next_match > end && (next_match - end) < 16) {
+                    if next_match < end || (next_match > end && (next_match - end) < lookahead_limit) {
+                        if next_match > end {
+                             let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                             let _ = reader.skip(end as u32);
+                             for _ in 0..(next_match - end) {
+                                 gap_bits.push(reader.read_bit().unwrap_or(false));
+                             }
+                             item_trace!("[DEBUG Alpha] Gap at {}-{}: {:?}", end, next_match, gap_bits);
+                        }
                         end = next_match;
+                    }
+                } else if items.len() == (top_level_count as usize - 1) {
+                    end = section_bits;
+                    if end > start + consumed_bits {
+                         let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                         let _ = reader.skip((start + consumed_bits) as u32);
+                         for _ in 0..(end - (start + consumed_bits)) {
+                             gap_bits.push(reader.read_bit().unwrap_or(false));
+                         }
+                         item_trace!("[DEBUG Alpha] Tail Gap at {}-{}: {:?}", start + consumed_bits, end, gap_bits);
                     }
                 }
             }
@@ -1253,7 +1290,12 @@ impl Item {
             if is_alpha {
                 item_trace!("[DEBUG Alpha] Item '{}' ended at bit {}. Next search from {}", item.code, end, bit_pos);
             }
-            items.push(item);
+            let mut final_item = item;
+            final_item.range.start = start;
+            final_item.range.end = end;
+            final_item.total_bits = end - start;
+            final_item.gap_bits = gap_bits;
+            items.push(final_item);
         }
         Ok(items)
     }
@@ -1314,6 +1356,9 @@ impl Item {
             sockets: None,
             modules: Vec::new(),
             range: ItemBitRange { start: 0, end: 0 },
+            total_bits: 0,
+            gap_bits: Vec::new(),
+            terminator_bit: false,
             segments: Vec::new(),
         }
     }
@@ -1337,11 +1382,39 @@ impl Item {
     pub fn serialize_section(
         items: &[Item],
         huffman: &HuffmanTree,
-        _alpha_mode: bool,
+        alpha_mode: bool,
     ) -> io::Result<Vec<u8>> {
         let mut emitter = BitEmitter::new();
+        let mut current_bit = 0u64;
         for item in items {
-            item.write_recursive(&mut emitter, huffman, _alpha_mode)?;
+            if alpha_mode && item.range.start > current_bit {
+                let gap = item.range.start - current_bit;
+                for _ in 0..gap {
+                    emitter.write_bit(false)?;
+                }
+                current_bit = item.range.start;
+            }
+            if alpha_mode && !item.bits.is_empty() {
+                for rb in &item.bits {
+                    emitter.write_bit(rb.bit)?;
+                }
+            } else {
+                item.write_recursive(&mut emitter, huffman, alpha_mode)?;
+            }
+            
+            if alpha_mode && !item.gap_bits.is_empty() {
+                for &bit in &item.gap_bits {
+                    emitter.write_bit(bit)?;
+                }
+            } else if alpha_mode && item.total_bits > 0 {
+                let written = emitter.written_bits() - current_bit;
+                if item.total_bits > written {
+                    for _ in 0..(item.total_bits - written) {
+                        emitter.write_bit(false)?;
+                    }
+                }
+            }
+            current_bit = emitter.written_bits();
         }
         emitter.byte_align()?;
         Ok(emitter.into_bytes())
@@ -1389,17 +1462,20 @@ impl Item {
         emitter.write_bits(self.flags, 32)?;
         emitter.write_bits(self.version as u32, 3)?;
         emitter.write_bits(self.mode as u32, 3)?;
-        emitter.write_bits(self.location as u32, 4)?;
+        if alpha_mode {
+            emitter.write_bits(self.location as u32, 3)?;
+        } else {
+            emitter.write_bits(self.location as u32, 4)?;
+        }
         emitter.write_bits(self.x as u32, 4)?;
 
         if alpha_mode {
-            // Alpha v105: Dynamic header (y and page only if loc == 0)
-            if self.location == 0 {
-                emitter.write_bits(self.y as u32, 4)?;
-                emitter.write_bits(self.page as u32, 3)?;
-            }
-            // Note: read_item_header doesn't read socket_hint for v5.
+            // Alpha v105: Preservation of y, page and 8th bit in the header gap.
+            emitter.write_bits(self.y as u32, 4)?;
+            emitter.write_bits(self.page as u32, 3)?;
+            emitter.write_bits(self.header_socket_hint as u32, 1)?;
         } else {
+            // Retail: Dynamic header (y and page always, socket_hint always)
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
             emitter.write_bits(self.header_socket_hint as u32, 3)?;
@@ -1454,7 +1530,19 @@ impl Item {
             emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
             let quality = self.quality.unwrap_or(ItemQuality::Normal);
             emitter.write_bits(quality as u32, 4)?;
-            emitter.write_bits(0x01, 5)?; 
+            emitter.write_bits(0x00, 5)?;
+
+            // Order must match read_extended_stats (L562+)
+            emitter.write_bit(self.has_multiple_graphics)?; 
+            emitter.write_bit(self.has_class_specific_data)?;
+            emitter.write_bit(self.timestamp_flag)?;
+
+            if self.has_multiple_graphics {
+                emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
+            }
+            if self.has_class_specific_data {
+                emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u16 as u32, 3)?;
+            }
 
             if quality == ItemQuality::Magic {
                 // Alpha v105: Magic affixes appear to be 7 bits each (matches 89-bit property start)
@@ -1462,12 +1550,6 @@ impl Item {
                 emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 7)?;
             }
 
-            emitter.write_bit(self.has_multiple_graphics)?; 
-            emitter.write_bit(self.has_class_specific_data)?;
-            emitter.write_bit(self.timestamp_flag)?;
-            
-            // In Alpha v105 v5, Defense/Durability/Sockets are NOT in header,
-            // they are stored as properties. Property List 1 starts at bit 89.
             return Ok(());
         } else {
             emitter.write_bits(self.id.unwrap_or(0), 32)?;
@@ -1567,16 +1649,21 @@ impl Item {
         huffman: &HuffmanTree,
         alpha_mode: bool,
     ) -> io::Result<()> {
-        if self.is_ear {
+        if self.is_ear || self.is_compact {
             return Ok(());
         }
 
-        write_property_list(emitter, &self.properties, self.version, false)?;
+        if alpha_mode && self.quality.unwrap_or(ItemQuality::Normal) == ItemQuality::Normal {
+            // Alpha v105: Normal quality items lack property lists and terminators.
+            return Ok(());
+        }
+
+        write_property_list(emitter, &self.properties, self.version, false, self.terminator_bit)?;
 
         if self.properties_complete || alpha_mode {
             for idx in 0..(self.set_list_count as usize) {
                 if let Some(set_props) = self.set_attributes.get(idx) {
-                    write_property_list(emitter, set_props, self.version, false)?;
+                    write_property_list(emitter, set_props, self.version, false, false)?;
                 } else {
                     break;
                 }
@@ -1589,9 +1676,9 @@ impl Item {
                     for _ in 0..93 {
                         emitter.write_bit(false)?;
                     }
-                    write_property_list(emitter, &self.runeword_attributes, self.version, true)?;
+                    write_property_list(emitter, &self.runeword_attributes, self.version, true, false)?;
                 } else if !self.runeword_attributes.is_empty() {
-                   write_property_list(emitter, &self.runeword_attributes, self.version, false)?;
+                   write_property_list(emitter, &self.runeword_attributes, self.version, false, false)?;
                 }
             }
         }

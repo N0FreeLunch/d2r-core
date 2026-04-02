@@ -27,7 +27,7 @@ fn main() {
     let result =
         d2r_core::item::read_property_list(&mut recorder, "xrs ", 5, None, &huffman, false);
     match result {
-        Ok((props, _)) => {
+        Ok((props, _, _)) => {
             println!("Props: {}", props.len());
             for p in props {
                 println!("  ID {}: Val {}", p.stat_id, p.value);

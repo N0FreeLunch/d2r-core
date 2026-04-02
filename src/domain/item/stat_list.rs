@@ -60,7 +60,7 @@ pub fn stat_save_bits(stat_id: u32) -> Option<u32> {
 
 pub enum PropertyParseResult {
     Property(ItemProperty),
-    Terminator,
+    Terminator(bool),
     Recovered,
 }
 
@@ -71,7 +71,7 @@ pub fn read_property_list<R: BitRead>(
     section_recovery: PropertyReaderContext,
     huffman: &HuffmanTree,
     alpha_runeword: bool,
-) -> ParsingResult<(Vec<ItemProperty>, bool)> {
+) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
     recorder.push_context("Property List");
     let mut props = Vec::new();
 
@@ -87,11 +87,11 @@ pub fn read_property_list<R: BitRead>(
                 item_trace!("  [Property] parsed ID={}, val={}" , prop.stat_id , prop.value);
                 props.push(prop)
             },
-            Ok(PropertyParseResult::Terminator) => return Ok((props, true)),
-            Ok(PropertyParseResult::Recovered) => return Ok((props, false)),
+            Ok(PropertyParseResult::Terminator(bit)) => return Ok((props, true, bit)),
+            Ok(PropertyParseResult::Recovered) => return Ok((props, false, false)),
             Err(e) if version == 5 && matches!(e.error, ParsingError::Io(ref msg) if msg.contains("unexpected end of file")) => {
                 item_trace!("  [Alpha v5] Property list reached EOF without terminator.");
-                return Ok((props, false));
+                return Ok((props, false, false));
             }
             Err(e) => return Err(e),
         }
@@ -114,7 +114,7 @@ pub fn parse_single_property<R: BitRead>(
             Ok(id) => id,
             Err(_) if version == 5 => {
                 item_trace!("[DEBUG v5] Property stream ended abruptly, assuming terminator.");
-                return Ok(PropertyParseResult::Terminator);
+                return Ok(PropertyParseResult::Terminator(false));
             }
             Err(e) => return Err(e),
         };
@@ -128,10 +128,11 @@ pub fn parse_single_property<R: BitRead>(
                  item_trace!("[DEBUG v5] Property Terminator detected at {}", recorder.total_read - 9);
             }
             // Alpha v105 Magic/Rare properties are 10-bit aligned.
+            let mut term_bit = false;
             if recorder.alpha_quality != Some(ItemQuality::Normal) {
-                let _ = recorder.read_bit(); // Optional 10th bit
+                term_bit = recorder.read_bit()?; // Optional 10th bit
             }
-            return Ok(PropertyParseResult::Terminator);
+            return Ok(PropertyParseResult::Terminator(term_bit));
         }
 
         let (effective_stat_id, stat_name, save_add) = if let Some(m) = lookup_alpha_map_by_raw(stat_id) {
@@ -180,7 +181,7 @@ pub fn parse_single_property<R: BitRead>(
     };
 
     if stat_id == terminator {
-        return Ok(PropertyParseResult::Terminator);
+        return Ok(PropertyParseResult::Terminator(false));
     }
 
     let (effective_stat_id, save_bits, save_add, stat_name) = {

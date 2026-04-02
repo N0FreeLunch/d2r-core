@@ -15,6 +15,22 @@
 use std::io;
 use crate::save::{finalize_save_bytes, Save, recalculate_checksum};
 
+/// Mode for mutation addressing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationMode {
+    /// Absolute bit offset from the beginning of the file.
+    Absolute,
+    /// Logical path addressing (e.g., "Items.Item[2].Flags") - TODO: Not yet implemented.
+    Logical,
+}
+
+/// Options for a mutation operation.
+#[derive(Debug, Clone)]
+pub struct MutationOptions {
+    pub bit_offset: usize,
+    pub mode: MutationMode,
+}
+
 /// Flips a single bit at the given absolute bit offset in the provided byte slice.
 /// bit_offset 0 is the LSB (least significant bit) of bytes[0].
 pub fn flip_bit(bytes: &mut [u8], bit_offset: usize) {

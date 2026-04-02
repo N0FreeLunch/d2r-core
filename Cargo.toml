@@ -195,3 +195,7 @@ path = "src/bin/verify/symmetry_bit_diff.rs"
 [[bin]]
 name = "BitNudgeExplorer"
 path = "src/bin/verify/bit_nudge_explorer.rs"
+
+[[bin]]
+name = "bsmt_mutate"
+path = "src/bin/verify/bsmt_mutate.rs"

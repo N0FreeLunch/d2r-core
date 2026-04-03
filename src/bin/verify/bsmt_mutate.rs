@@ -18,6 +18,7 @@ use std::path::Path;
 use std::process;
 use d2r_core::verify::mutation::{mutate_absolute_bit_and_finalize, MutationMode, resolve_logical_address};
 use d2r_core::save::Save;
+use d2r_core::item::{Item, HuffmanTree};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -102,9 +103,50 @@ fn main() {
         }
     };
 
-    // 3. Validation and Save
-    if let Err(e) = Save::from_bytes(&mutated_bytes) {
-        eprintln!("Warning: Mutated bytes failed basic save validation: {}", e);
+    // 3. Validation and Diagnostic Reporting
+    let mut diagnostic_failed = false;
+    let mut report = String::new();
+
+    match Save::from_bytes(&mutated_bytes) {
+        Ok(save) => {
+            let huffman = HuffmanTree::new();
+            // Alpha v105 detection
+            let is_alpha = save.header.version == 6 || save.header.version == 105;
+            
+            match Item::read_player_items(&mutated_bytes, &huffman, is_alpha) {
+                Ok(items) => {
+                    // Find JM #0 to get the expected count from the header
+                    if let Some(jm_pos) = mutated_bytes.windows(2).position(|w| w == b"JM") {
+                        let expected_count = u16::from_le_bytes([mutated_bytes[jm_pos + 2], mutated_bytes[jm_pos + 3]]) as usize;
+                        if items.len() != expected_count {
+                            diagnostic_failed = true;
+                            report = format!(
+                                "[Bit {}] [Rel +16] [read_player_items] Item count mismatch: expected {}, found {}",
+                                jm_pos * 8 + 16,
+                                expected_count,
+                                items.len()
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    diagnostic_failed = true;
+                    report = format!("{}", e);
+                }
+            }
+        }
+        Err(e) => {
+            diagnostic_failed = true;
+            report = format!("Basic save validation failed: {}", e);
+        }
+    }
+
+    if diagnostic_failed {
+        println!("\n--- Diagnostic Report ---");
+        println!("{}", report);
+        println!("-------------------------\n");
+    } else {
+        println!("Parse check: ok");
     }
 
     if let Err(e) = fs::write(&dest_path, &mutated_bytes) {

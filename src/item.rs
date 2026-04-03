@@ -49,6 +49,12 @@ pub enum ParsingError {
     InvariantViolation { field: String, expected: String, actual: String },
     /// A value was read that is technically valid but unexpected in the current context.
     UnexpectedValue { field: String, value: String, reason: String },
+    /// A specific marker (e.g., "JM") was expected but not found.
+    MissingMarker { marker: String, bit_offset: u64 },
+    /// A potential bit shift or drift was detected based on alignment rules.
+    BitDriftDetected { expected_offset: u64, actual_offset: u64 },
+    /// Alignment requirement not met (e.g., not byte-aligned when expected).
+    AlignmentError { bit_offset: u64, reason: String },
     Io(String), 
     Generic(String),
 }
@@ -96,6 +102,15 @@ impl std::fmt::Display for ParsingError {
             ParsingError::UnexpectedValue { field, value, reason } => {
                 write!(f, "Unexpected value for '{}': {} ({})", field, value, reason)
             }
+            ParsingError::MissingMarker { marker, bit_offset } => {
+                write!(f, "Missing marker '{}' at bit offset {}", marker, bit_offset)
+            }
+            ParsingError::BitDriftDetected { expected_offset, actual_offset } => {
+                write!(f, "Potential bit drift: expected {}, actual {}", expected_offset, actual_offset)
+            }
+            ParsingError::AlignmentError { bit_offset, reason } => {
+                write!(f, "Alignment error at bit {}: {}", bit_offset, reason)
+            }
             ParsingError::Io(s) => write!(f, "IO error: {}", s),
             ParsingError::Generic(s) => write!(f, "Parsing error: {}", s),
         }
@@ -112,7 +127,11 @@ impl std::fmt::Display for ParsingFailure {
             self.context_relative_offset,
             ctx, 
             self.error
-        )
+        )?;
+        if let Some(hint) = &self.hint {
+            write!(f, " | Hint: {}", hint)?;
+        }
+        Ok(())
     }
 }
 
@@ -241,7 +260,10 @@ impl<'a, R: BitRead> BitRecorder<'a, R> {
     }
 
     pub fn read_bit(&mut self) -> ParsingResult<bool> {
-        let bit = self.reader.read_bit().map_err(|e| self.io_err(e))?;
+        let bit = self.reader.read_bit().map_err(|e| {
+            self.fail(ParsingError::Generic(format!("Bit-level read failure: {}", e)))
+                .with_hint("Possible end of bitstream reached unexpectedly.")
+        })?;
         let offset = self.total_read;
         self.recorded_bits.push(RecordedBit { bit, offset });
         self.total_read += 1;
@@ -435,7 +457,10 @@ impl HuffmanTree {
 
     pub fn decode_recorded<R: BitRead>(&self, recorder: &mut BitRecorder<R>) -> ParsingResult<char> {
         self.decode_internal(|| recorder.read_bit().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e))))
-            .map_err(|_| recorder.fail(ParsingError::InvalidHuffmanBit { bit_offset: recorder.total_read }))
+            .map_err(|_| {
+                recorder.fail(ParsingError::InvalidHuffmanBit { bit_offset: recorder.total_read })
+                    .with_hint("Huffman bit pattern does not match Alpha v105 table. Possible bit drift or misalignment.")
+            })
     }
 
     pub fn decode<R: BitRead>(&self, reader: &mut R) -> io::Result<char> {
@@ -980,7 +1005,7 @@ impl Item {
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: 0,
                     context_relative_offset: 0,
-                    hint: None,
+                    hint: Some("Pass section bytes context when parsing Alpha v105 items.".to_string()),
                 });
             };
             let Some((peek_m, peek_l, peek_x, peek_code, f, v, _c, header_bits, nudge)) = peek_item_header_at(section_bytes, start_bit, huffman, alpha_mode)
@@ -990,7 +1015,7 @@ impl Item {
                     context_stack: vec!["AlphaSync".to_string()],
                     bit_offset: start_bit,
                     context_relative_offset: 0,
-                    hint: None,
+                    hint: Some("Ensure the item bitstream starts with a valid Alpha v105 header or check for bit drift.".to_string()),
                 });
             };
             
@@ -1455,11 +1480,11 @@ impl Item {
         let jm_pos = (0..bytes.len().saturating_sub(1))
             .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
             .ok_or_else(|| ParsingFailure {
-                error: ParsingError::Io("JM header not found".to_string()),
+                error: ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: 0 },
                 context_stack: vec!["read_player_items".to_string()],
                 bit_offset: 0,
                 context_relative_offset: 0,
-                hint: None,
+                hint: Some("Verify save file integrity or correct JM marker position.".to_string()),
             })?;
         let top_level_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
         let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
@@ -1863,12 +1888,11 @@ fn parse_item_at(
     alpha_mode: bool,
 ) -> ParsingResult<(Item, u64)> {
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    reader.skip(start_bit as u32).map_err(|e| ParsingFailure {
-        error: ParsingError::Io(e.to_string()),
-        context_stack: vec![format!("Item[{}]", index)],
-        bit_offset: start_bit,
-        context_relative_offset: 0,
-        hint: None,
+    reader.skip(start_bit as u32).map_err(|e| {
+        ParsingFailure::new(
+            ParsingError::AlignmentError { bit_offset: start_bit, reason: format!("Failed to skip to start bit: {}", e) },
+            &BitRecorder::new(&mut reader) 
+        ).with_hint("Ensure the start_bit is within the section bounds.")
     })?;
     let mut recorder = BitRecorder::new(&mut reader);
     if item_trace_enabled() {

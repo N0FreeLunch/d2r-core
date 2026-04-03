@@ -734,18 +734,7 @@ pub fn parse_quest_section(bytes: &[u8], map: &SaveSectionMap) -> io::Result<Que
     Ok(QuestSection::from_slice(&bytes[skill_end..jm0]))
 }
 
-pub fn recalculate_checksum(bytes: &[u8]) -> io::Result<u32> {
-    if bytes.len() < 16 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Save file is too small for checksum recalculation.",
-        ));
-    }
-
-    let mut calc_bytes = bytes.to_vec();
-    calc_bytes[12..16].copy_from_slice(&[0, 0, 0, 0]);
-    Ok(crate::item::Checksum::calculate(&calc_bytes) as u32)
-}
+use crate::engine::checksum::{finalize_save_bytes, recalculate_checksum};
 
 fn parse_ascii_field(bytes: &[u8], offset: usize, len: usize) -> io::Result<String> {
     let end = offset + len;
@@ -810,27 +799,6 @@ fn write_ascii_nul_padded(
 
     bytes[offset..end].fill(0);
     bytes[offset..offset + bytes_value.len()].copy_from_slice(bytes_value);
-    Ok(())
-}
-
-pub fn finalize_save_bytes(bytes: &mut Vec<u8>) -> io::Result<()> {
-    if bytes.len() < 16 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Save bytes must be at least 16 bytes to finalize.",
-        ));
-    }
-
-    let len = bytes.len();
-    if len > u32::MAX as usize {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "Save file is too large to store in u32 file_size.",
-        ));
-    }
-
-    write_u32_le(bytes, FILE_SIZE_OFFSET, len as u32)?;
-    Checksum::fix(bytes);
     Ok(())
 }
 

@@ -468,30 +468,7 @@ impl HuffmanTree {
     }
 }
 
-pub struct Checksum;
-impl Checksum {
-    pub fn calculate(bytes: &[u8]) -> i32 {
-        let mut checksum: i32 = 0;
-        for &byte in bytes {
-            let carry = if checksum < 0 { 1 } else { 0 };
-            checksum = (byte as i32)
-                .wrapping_add(checksum.wrapping_mul(2))
-                .wrapping_add(carry);
-        }
-        checksum
-    }
-    pub fn fix(bytes: &mut [u8]) {
-        if bytes.len() < 16 {
-            return;
-        }
-        bytes[12] = 0;
-        bytes[13] = 0;
-        bytes[14] = 0;
-        bytes[15] = 0;
-        let cs = Self::calculate(bytes);
-        bytes[12..16].copy_from_slice(&cs.to_le_bytes());
-    }
-}
+pub use crate::engine::checksum::Checksum;
 
 pub use crate::domain::item::{
     ItemQuality, map_item_quality, CharmBagData, CursedItemData,

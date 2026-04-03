@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use std::io;
-use crate::save::{finalize_save_bytes, CHECKSUM_OFFSET, Save, recalculate_checksum};
+use crate::engine::checksum::{finalize_save_bytes, recalculate_checksum};
+use crate::save::{CHECKSUM_OFFSET, Save};
 
 /// Mode for mutation addressing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

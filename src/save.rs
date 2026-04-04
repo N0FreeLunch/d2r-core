@@ -734,7 +734,7 @@ pub fn parse_quest_section(bytes: &[u8], map: &SaveSectionMap) -> io::Result<Que
     Ok(QuestSection::from_slice(&bytes[skill_end..jm0]))
 }
 
-use crate::engine::checksum::{finalize_save_bytes, recalculate_checksum};
+pub use crate::engine::checksum::{finalize_save_bytes, recalculate_checksum};
 
 fn parse_ascii_field(bytes: &[u8], offset: usize, len: usize) -> io::Result<String> {
     let end = offset + len;

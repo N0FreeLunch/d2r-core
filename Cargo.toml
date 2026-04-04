@@ -13,6 +13,9 @@ serde_yaml = "0.9"
 serde_json = "1.0"
 dotenvy = "0.15"
 thiserror = "2.0.18"
+syn = { version = "2.0", features = ["full", "extra-traits", "visit"] }
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+pulldown-cmark = "0.12"
 
 [[bin]]
 name = "d2save_status_inspect"
@@ -199,3 +202,7 @@ path = "src/bin/verify/bit_nudge_explorer.rs"
 [[bin]]
 name = "bsmt_mutate"
 path = "src/bin/verify/bsmt_mutate.rs"
+
+[[bin]]
+name = "ast_probe"
+path = "src/bin/verify/ast_probe.rs"

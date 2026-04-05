@@ -35,3 +35,6 @@ d2r-data/
 .agents/tasks/
 
 .aider*
+
+# AST Navigation Artifacts
+.agents/navigation/

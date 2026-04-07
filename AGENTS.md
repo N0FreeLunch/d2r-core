@@ -32,6 +32,10 @@ Before execution, evaluate complexity. Pause and report if:
 - **Reasoning for Models**: Ensure that the spec provides enough deterministic context for high-reasoning models (Pro/o1) to prevent hallucinations and maintain architectural alignment.
 - **Delta Planning Default**: If a parent task already exists, do not rewrite it by default. Start with a lightweight code reality check against a small set of relevant files, then make only minimal corrections to assumptions, verifier commands, or file boundaries.
 - **Divide & Conquer**: Implement in atomic units. Verify (Test/Lint) after each step. Do not attempt massive features in a single pass.
+- **Edit Integrity Protocol (Read-Normalize-Read-Replace)**:
+    - **Replace-first, Rewrite-last**: Partial edits using `replace` are mandatory over full file rewrites for existing documents.
+    - **Normalize with cause**: If `replace` fails repeatedly due to EOL mismatch or byte drift, or when performing a large edit on a major document, perform pre-normalization.
+    - **Re-read is Mandatory**: After any normalization (e.g., `dprint fmt`, `git add --renormalize`), you MUST re-read the file to sync your context with the new byte reality before attempting the next `replace`.
 - **Reality-First Rewrite**: If the provided specification (Logic Blueprint/Anchors) conflicts with the actual code structure, do not force the change. Stop immediately and trigger a replanning pass. Full parent-task replanning is also required when verifier truth is broken or the real scope has expanded materially.
 - **Task File Integrity Gate**: Before executing a parent task file, verify required template markers exist (`EXECUTION TRIGGER`, `Metadata`, `Task Slices`, `Execution Rules`, `Final Response Format`). If any are missing, stop implementation and normalize the task file first.
 
@@ -194,4 +198,8 @@ To prevent amnesia and ensure project-wide knowledge preservation, all agents MU
    - "Did I accidentally delete a [CRITICAL] marker?"
    - "Did I silently drop a previous strategic insight?"
    - "Is this replacement actually necessary, or am I just paraphrasing?"
-4. **Shadow Registry (Future Integration)**: Once the Shadow Blob Registry system (Discussion 0138) is operational, all file modifications MUST be preceded by a `snapshot` and followed by a `verify-integrity` call to ensure zero-loss operations.
+4. **Shadow Registry (Active Integrity Enforcement)**: The Shadow Blob Registry (Discussion 0138) is OPERATIONAL. To ensure zero-loss operations, all file modifications MUST follow this protocol:
+   - **Before Edit**: `cargo run --manifest-path d2r-spec/tools/shadow-registry/Cargo.toml -- integrity snapshot <path>`
+   - **After Edit**: `cargo run --manifest-path d2r-spec/tools/shadow-registry/Cargo.toml -- integrity verify <path>`
+   - **Turning Completion**: A turn is only complete when the `verify` call confirms no unauthorized deletions or accidental drift.
+

@@ -44,9 +44,11 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 - **No Automatic Push**: Never execute `git push` without an explicit, direct command from the user. Automatic pushing as part of a workflow or "finished" state is strictly prohibited.
 
 ## System Directive Update Protocol ([CRITICAL])
-You are the top administrator responsible for managing the system's core instructions (AGENTS.md or constitution files). When updating or adding directives, preserving the historical context and architectural integrity of the system is the highest priority.
+You are the top administrator responsible for managing the system's core instructions (AGENTS.md or constitution files). When updating or adding directives, **preserving the historical context and architectural integrity of the system is the highest priority**. You MUST NOT silently drop, summarize, or abbreviate existing directives to save tokens or fit context.
 
-When reflecting new instructions, you MUST strictly adhere to the **[3 Update Principles]** below to prevent arbitrary deletion or damage to existing directives.
+1. **No Silent Truncation**: Do not delete existing directives or historical context without explicit user approval.
+2. **Unnecessary Replacement Prohibited**: Do not paraphrase or rewrite existing content for "style" or "clarity" alone. Every replacement must have a functional or strategic reason.
+3. **Unjustified Deletion**: Deleting sections, comments, or decision history that do not directly contradict the new request is PROHIBITED.
 
 ### [3 Update Principles]
 1.  **Preservation Principle (Default to Preserve)**: Unless there is a clear reason why the new directive perfectly overlaps with an existing one or must completely replace it, **do not modify or delete a single character** of the existing directive. Maintain it as is. New content should be **Appended** to the bottom or an appropriate section as a default action.
@@ -69,7 +71,7 @@ Final updated directive documents should only be written after this review is co
   - For complex PowerShell logic, prefer temporary `tmp/` script harness execution; purge temporary artifacts before completion.
   - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, you MUST adhere to the standards defined in the **`powershell-safe-file-ops`** skill (`d2r-spec/.agents/skills/powershell-safe-file-ops/SKILL.md`) to prevent encoding hazards and shell syntax failures.
 - **Response Contract for Meaningful Deliverables**:
-  - Include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line whenever the output contains substantive analysis or planning artifacts.
+  - Include `Outcome`, `Verification`, and `Residual Risk` whenever the output contains substantive analysis or planning artifacts.
 
 
 
@@ -86,13 +88,13 @@ Final updated directive documents should only be written after this review is co
   - `discussion-to-task-hardening`: Mandatory before marking any task draft as `Ready`.
 
 
+## Post-Action Integrity Gate (Tail Hook) ([CRITICAL])
+Every TURN that modifies a document (Discussion, Skill, Spec, or Guideline) MUST conclude with an active integrity check:
+- **Marker Preservation**: Did I accidentally delete a [CRITICAL], [MANDATORY], or core safety marker?
+- **Historical Continuity**: Did I silently drop a previous strategic decision or discussion evolution?
+- **Replacement Validity**: Is this replacement actually necessary based on a logical contradiction, or am I just paraphrasing?
+- **Shadow Record (Future)**: Once the Shadow Blob Registry system (Discussion 0138) is built, all modifications MUST be preceded by a snapshot and followed by a verification call.
+
 ## Required Final Field
-End meaningful outputs with:
-`Recommended Next Model: <model> - <short reason>`
-
-For Gemini recommendations, use only these canonical labels in that field:
-- `Gemini Flash`
-- `Gemini Pro`
-
-Do not include versioned variants such as `Gemini 2.0 Flash` or `Gemini 2.5 Pro` unless a separate non-workflow document explicitly requires exact version pinning.
+End meaningful outputs with a short summary of the outcome, verification status, and any remaining risks.
 

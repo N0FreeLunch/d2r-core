@@ -107,10 +107,11 @@ When reflecting new instructions, you MUST strictly adhere to the **[3 Update Pr
 3.  **Explicit Replacement Validation**: A directive may be deleted only if a new directive is a clear, evolved replacement. Before any deletion, you MUST internally verify: *"Does removing this directive cause side effects, loss of context, or ambiguity for any other rule in this file or in related directive files?"* If the answer is yes or uncertain, preserve both and annotate the relationship.
 
 ### [Prohibited Behaviors]
--   **Silent Truncation**: Removing existing directives to reduce file length without explicit user approval.
--   **Paraphrasing Replacement**: Rewriting an existing directive in different words under the guise of "improvement" without preserving the original intent verbatim.
+-   **Silent Truncation**: Removing existing directives or historical context to reduce file length without explicit user approval.
+-   **Paraphrasing Replacement**: Rewriting an existing directive or strategic insight in different words under the guise of "improvement" without preserving the original intent verbatim. Do not replace content that is still valid or provides useful historical context.
+-   **Unjustified Deletion**: Deleting sections, comments, or decision history that do not directly contradict the new request. If a deletion is necessary, it MUST be explicitly justified in the turn's response.
 -   **Context-Window Optimization**: Dropping or summarizing existing rules to fit within a model's context window.
--   **Scope Creep Edits**: Modifying directives beyond the scope of the current update request.
+-   **Scope Creep Edits**: Modifying directives or unrelated sections beyond the scope of the current update request.
 
 ### [Execution Process: Mandatory Reasoning Before Change]
 Before modifying any directive document, you MUST complete the following review steps **in order**:
@@ -182,3 +183,15 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
   - Stop/escalation gates
   - Verification step
 - Skill updates MUST follow Section 6 (`Conflict Check -> Action Plan -> Side-Effect Scan -> Output`) before edits are applied.
+
+## 11. General Content Integrity & Tail Hook ([CRITICAL])
+
+To prevent amnesia and ensure project-wide knowledge preservation, all agents MUST adhere to these integrity gates for ALL document updates (Source, Discussion, Skill, Spec):
+
+1. **Self-Correction over Replacement**: If the existing content is not factually incorrect, prefer appending or modifying specific lines rather than replacing large blocks.
+2. **Historical Decision Anchoring**: Historical strategic decisions (e.g., ADRs, Discussion Evolution) MUST BE PRESERVED. If a new decision contradicts a previous one, it MUST be documented as an "Evolution" or "Supersession" rather than a deletion of the original context.
+3. **Tail Hook Verification**: EveryTURN that modifies a document MUST conclude with an active verification check:
+   - "Did I accidentally delete a [CRITICAL] marker?"
+   - "Did I silently drop a previous strategic insight?"
+   - "Is this replacement actually necessary, or am I just paraphrasing?"
+4. **Shadow Registry (Future Integration)**: Once the Shadow Blob Registry system (Discussion 0138) is operational, all file modifications MUST be preceded by a `snapshot` and followed by a `verify-integrity` call to ensure zero-loss operations.

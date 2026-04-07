@@ -1,5 +1,5 @@
 use crate::data::item_specs::{Affix, ItemStatRange, Runeword, SetItem, UniqueItem, BASE_ITEM_SPECS};
-use crate::data::{affixes, runewords, set_items, unique_items};
+use crate::data::{affixes, runes, runewords, set_items, unique_items};
 use crate::data::item_codes::ITEM_TEMPLATES;
 use crate::data::item_types::ITEM_TYPES;
 use crate::data::legitimacy::{SOCKET_RULES, calc_alvl, STAFFMOD_ENTRIES};
@@ -49,7 +49,7 @@ impl ItemSpec {
         match self {
             ItemSpec::Unique(ui) => ui.index,
             ItemSpec::Set(si) => si.index,
-            ItemSpec::Runeword(rw) => rw.name,
+            ItemSpec::Runeword(rw) => runeword_display_name(rw),
             ItemSpec::Affix(a) => a.name,
         }
     }
@@ -61,6 +61,47 @@ pub fn lookup_prefix(id: u16) -> Option<&'static Affix> {
 
 pub fn lookup_suffix(id: u16) -> Option<&'static Affix> {
     affixes::SUFFIXES.iter().find(|a| a.id == id as u32)
+}
+
+fn lookup_runeword_rune_data(rw: &'static Runeword) -> Option<&'static runes::RuneData> {
+    runes::RUNES.iter().find(|entry| entry.name == rw.name)
+}
+
+fn runeword_display_name(rw: &'static Runeword) -> &'static str {
+    lookup_runeword_rune_data(rw)
+        .map(|entry| entry.rune_name)
+        .filter(|name: &&str| !name.is_empty())
+        .unwrap_or(rw.name)
+}
+
+fn runeword_expected_runes(rw: &'static Runeword) -> Vec<&'static str> {
+    if !rw.runes.is_empty() {
+        return rw.runes.to_vec();
+    }
+
+    lookup_runeword_rune_data(rw)
+        .map(|entry| {
+            [entry.rune1, entry.rune2, entry.rune3, entry.rune4, entry.rune5, entry.rune6]
+                .into_iter()
+                .filter(|rune: &&str| !rune.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn runeword_expected_item_types(rw: &'static Runeword) -> Vec<&'static str> {
+    if !rw.item_types.is_empty() {
+        return rw.item_types.to_vec();
+    }
+
+    lookup_runeword_rune_data(rw)
+        .map(|entry| {
+            [entry.itype1, entry.itype2, entry.itype3, entry.itype4, entry.itype5, entry.itype6]
+                .into_iter()
+                .filter(|item_type: &&str| !item_type.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub fn lookup_spec(item: &Item) -> Option<ItemSpec> {
@@ -107,7 +148,7 @@ pub fn validate_item(item: &Item) -> Option<ValidationResult> {
                 &item.properties,
             )),
             ItemSpec::Runeword(rw_spec) => Some(validate_item_properties(
-                rw_spec.name,
+                runeword_display_name(rw_spec),
                 rw_spec.stats,
                 &item.runeword_attributes,
             )),
@@ -435,41 +476,48 @@ pub fn check_runeword_legitimacy(item: &Item) -> Vec<String> {
         _ => return warnings,
     };
 
+    let rw_name = runeword_display_name(rw);
+    let expected_item_types = runeword_expected_item_types(rw);
+
     // 1. Type Eligibility
     let item_types = get_all_item_types(&item.code);
-    let is_eligible = rw.item_types.iter().any(|&t| item_types.contains(&t));
+    let is_eligible = expected_item_types
+        .iter()
+        .any(|&item_type| item_types.contains(&item_type));
     if !is_eligible {
         warnings.push(format!(
             "Runeword '{}' is not eligible for item type '{}'",
-            rw.name,
+            rw_name,
             item.code.trim()
         ));
     }
 
+    let expected_runes = runeword_expected_runes(rw);
+
     // 2. Socket Count
     if let Some(sockets) = item.sockets {
-        if sockets as usize != rw.runes.len() {
+        if !expected_runes.is_empty() && sockets as usize != expected_runes.len() {
             warnings.push(format!(
                 "Runeword '{}' requires {} sockets, but item has {}",
-                rw.name,
-                rw.runes.len(),
+                rw_name,
+                expected_runes.len(),
                 sockets
             ));
         }
     }
 
     // 3. Rune Sequence
-    if item.socketed_items.len() == rw.runes.len() {
+    if !expected_runes.is_empty() && item.socketed_items.len() == expected_runes.len() {
         for (i, socketed) in item.socketed_items.iter().enumerate() {
-            if socketed.code.trim() != rw.runes[i] {
-                warnings.push(format!("Runeword '{}' has incorrect rune sequence", rw.name));
+            if socketed.code.trim() != expected_runes[i] {
+                warnings.push(format!("Runeword '{}' has incorrect rune sequence", rw_name));
                 break;
             }
         }
-    } else if !item.socketed_items.is_empty() {
+    } else if !expected_runes.is_empty() && !item.socketed_items.is_empty() {
         warnings.push(format!(
             "Runeword '{}' has incorrect number of socketed items",
-            rw.name
+            rw_name
         ));
     }
 

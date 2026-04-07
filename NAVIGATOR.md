@@ -1,4 +1,4 @@
-This is the public bootstrap index for AI agents to locate implementation files, verification tools, and the private overlay entrypoints. **Read this first if you are lost.**
+This is the public bootstrap index for AI agents to locate implementation files, verification tools, and the private Strategy Hub entrypoints resolved from `D2R_SPEC_PATH`. **Read this first if you are lost.**
 
 ## 🌐 Tripartite Navigation Map
 
@@ -6,17 +6,17 @@ This is the public bootstrap index for AI agents to locate implementation files,
 | :--- | :--- | :--- |
 | **`d2r-core`** | **Implementation** (Public Logic) | [NAVIGATOR.md](./NAVIGATOR.md) |
 | **`d2r-data`** | **Game Data** (Extracted Tables) | [NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
-| **`d2r-spec`** | **Specification** (Private Overlay) | [NAVIGATOR.md](./d2r-spec/NAVIGATOR.md) |
+| **`d2r-spec`** | **Specification** (Private Overlay) | [NAVIGATOR.md](../d2r-spec/NAVIGATOR.md) |
 
 ## 0. Navigation Precedence (Read Order)
 1. `AGENTS.md` (global safety + operational constraints)
 2. `NAVIGATOR.md` (this file: public bootstrap map)
 3. Model entrypoint (`gemini.md` or `CLAUDE.md`)
 4. Private overlay when available:
-   - `d2r-spec/NAVIGATOR.md`
-   - `d2r-spec/AGENTS.md`
-   - `d2r-spec/AI_WORKFLOW.md`
-   - active `d2r-spec/.agents/tasks/*.md`
+   - `../d2r-spec/NAVIGATOR.md`
+   - `../d2r-spec/AGENTS.md`
+   - `../d2r-spec/AI_WORKFLOW.md`
+   - active `../d2r-spec/.agents/tasks/*.md`
 
 If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, data boundary, anti-loop, verification-first) as non-negotiable.
 
@@ -35,16 +35,16 @@ If rules conflict, keep `AGENTS.md` safety constraints (`No Automatic Push`, dat
 
 | Domain | Specification (Truth) | Primary Implementation | Verification Tool |
 | :--- | :--- | :--- | :--- |
-| **Bitstream / Save Header** | `d2r-spec/NAVIGATOR.md` -> Bitstream / Save Header domain (private overlay, if present) | `src/save.rs` | `src/bin/verify/d2save_map.rs`, `src/bin/verify/d2save_verify.rs` |
-| **Item parsing / Decrypt** | `d2r-spec/NAVIGATOR.md` -> Item parsing / Decrypt domain (private overlay, if present) | `src/item.rs` | `src/bin/verify/d2item_inspect.rs` |
-| **Inventory / Grid** | `d2r-spec/NAVIGATOR.md` -> Inventory / Grid domain (private overlay, if present) | `src/inventory.rs` | `src/bin/verify/d2save_inventory_check.rs` |
-| **Status (Attrs/Skills)** | `d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
-| **Save Verification** | `d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
-| **UI / Orchestration** | `d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
-| **Game Data Access / Copyright Boundary** | `d2r-spec/discussion/0035`, `0104` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
-| **Item Validation**      | `d2r-spec/discussion/0034-item-option-interpretation.md`, `0079` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
-| **Environment / Paths** | `d2r-spec/discussion/0036-environment-path-normalization.md` | `.env` | `tests/common.rs` |
-| **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md` (private overlay) | `d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
+| **Bitstream / Save Header** | `../d2r-spec/NAVIGATOR.md` -> Bitstream / Save Header domain (private overlay, if present) | `src/save.rs` | `src/bin/verify/d2save_map.rs`, `src/bin/verify/d2save_verify.rs` |
+| **Item parsing / Decrypt** | `../d2r-spec/NAVIGATOR.md` -> Item parsing / Decrypt domain (private overlay, if present) | `src/item.rs` | `src/bin/verify/d2item_inspect.rs` |
+| **Inventory / Grid** | `../d2r-spec/NAVIGATOR.md` -> Inventory / Grid domain (private overlay, if present) | `src/inventory.rs` | `src/bin/verify/d2save_inventory_check.rs` |
+| **Status (Attrs/Skills)** | `../d2r-spec/NAVIGATOR.md` -> Status (Attrs/Skills) domain (private overlay, if present) | `src/save.rs` | `src/bin/d2save_status_inspect.rs` |
+| **Save Verification** | `../d2r-spec/NAVIGATOR.md` -> Save Verification domain (private overlay, if present) | - | `src/bin/verify/d2save_verify.rs` |
+| **UI / Orchestration** | `../d2r-spec/NAVIGATOR.md` -> UI / Orchestration domain (private overlay, if present) | `src/main.rs` | Elm-rs generated types |
+| **Game Data Access / Copyright Boundary** | `../d2r-spec/discussion/0035`, `0104` | `src/data/mod.rs`, `d2r-data/` | [d2r-data/NAVIGATOR.md](./d2r-data/NAVIGATOR.md) |
+| **Item Validation**      | `../d2r-spec/discussion/0034-item-option-interpretation.md`, `0079` | `src/engine/validation.rs` | `tests/item_validation_test.rs` |
+| **Environment / Paths** | `../d2r-spec/discussion/0036-environment-path-normalization.md` | `.env` | `tests/common.rs` |
+| **Workflow / Rules**   | `AGENTS.md` (public bootstrap), `../d2r-spec/AGENTS.md`, `../d2r-spec/AI_WORKFLOW.md` (private overlay) | `../d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` public-safe fallback | - |
 
 ## 2. Recent Architectural Decisions (Must Know)
 - **Rust + Elm**: Core logic is in Rust; UI is in Elm.
@@ -64,11 +64,11 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 - **Tip**: Our commit messages are in English for core logic, and Korean for specific d2r-spec discussions.
 
 ## 4. Important Paths
-- **Specs/Discussions**: `./d2r-spec/discussion/` (Private design context and internal reasoning, if the local overlay exists)
-- **Private Navigator**: `./d2r-spec/NAVIGATOR.md` (Private domain-to-research map)
-- **Private Overlay**: `./d2r-spec/AGENTS.md` (Private extension for internal reasoning and workflow)
-- **Private Workflow**: `./d2r-spec/AI_WORKFLOW.md` (Private operational workflow, if present)
-- **Agent Tasks**: `./d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` only as a sanitized public-safe fallback
+- **Specs/Discussions**: `../d2r-spec/discussion/` (Private design context and internal reasoning, if the local overlay exists)
+- **Private Navigator**: `../d2r-spec/NAVIGATOR.md` (Private domain-to-research map)
+- **Private Overlay**: `../d2r-spec/AGENTS.md` (Private extension for internal reasoning and workflow)
+- **Private Workflow**: `../d2r-spec/AI_WORKFLOW.md` (Private operational workflow, if present)
+- **Agent Tasks**: `../d2r-spec/.agents/tasks/` preferred, `./.agents/tasks/` only as a sanitized public-safe fallback
 - **Fixtures**: `./tests/fixtures/savegames/` (Reference binary files)
 - **Verification Tools**: `./src/bin/verify/` (Standalone CLI tools for testing)
 - **Data Gateway (Core)**: `./src/data/mod.rs` (thin `#[path]` gateway into external data repo)
@@ -76,8 +76,8 @@ When you need to know **why** a specific byte offset or bit width was chosen:
 
 ## 5. How to Research (Agentic Loop)
 1.  **Check `NAVIGATOR.md`**: Find the logical domain and matching implementation file.
-2.  **Locate Specification**: If `d2r-spec/NAVIGATOR.md` exists, find the matching internal document for that domain and continue into the private overlay.
-3.  **Check Private Task Specs**: Prefer `d2r-spec/.agents/tasks/` for active execution plans; use `./.agents/tasks/` only for sanitized public-safe fallbacks.
+2.  **Locate Specification**: If `../d2r-spec/NAVIGATOR.md` exists, find the matching internal document for that domain and continue into the private overlay.
+3.  **Check Private Task Specs**: Prefer `../d2r-spec/.agents/tasks/` for active execution plans; use `./.agents/tasks/` only for sanitized public-safe fallbacks.
 4.  **Read Spec**: Always read the corresponding domain specification before coding.
 5.  **Git Research**: Use `git log -p` if the "why" behind existing code is unclear.
 6.  **Locate Patterns**: Search `src/` for similar implementation patterns.
@@ -106,7 +106,7 @@ This catalog includes **public verification tools** residing in the `d2r-core` r
 
 ### 🔍 Related Toolsets
 - **Game Data & Extraction**: See [`d2r-data/NAVIGATOR.md`](./d2r-data/NAVIGATOR.md) for `d2r-data-extractor` and `probe`.
-- **Forensic Research**: See [`d2r-spec/NAVIGATOR.md`](./d2r-spec/NAVIGATOR.md) for `d2item_oracle_mapper`, `v5_peek`, and `chunk_verify`.
+- **Forensic Research**: See [`d2r-spec/NAVIGATOR.md`](../d2r-spec/NAVIGATOR.md) for `d2item_oracle_mapper`, `v5_peek`, and `chunk_verify`.
 
 ### 🚀 Common Verification Commands
 
@@ -122,7 +122,7 @@ cargo run --bin d2save_status_inspect -- path/to/save.d2s
 ```
 
 ## 7. Navigation Routing Gate (Fast Classification)
-Consult the [`navigation-classification` skill](./d2r-spec/.agents/skills/navigation-classification/SKILL.md) for rules on organizing code and tools across the tripartite structure.
+Consult the [`navigation-classification` skill](../d2r-spec/.agents/skills/navigation-classification/SKILL.md) for rules on organizing code and tools across the tripartite structure.
 Before implementing, classify the request:
 - `Core-only`: implementation/verifier updates in `d2r-core` only.
 - `Data-only`: table/extraction updates in `d2r-data` only.

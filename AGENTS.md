@@ -1,7 +1,7 @@
 # AI Agent Guidelines
 
 > [!IMPORTANT]
-> **Maintenance Notice**: Before modifying this guideline or any agent skill, check the local `d2r-spec/adr/` directory (if available) for relevant strategic decision records.
+> **Maintenance Notice**: Before modifying this guideline or any agent skill, check the Strategy Hub ADR directory resolved from `D2R_SPEC_PATH` (typically `../d2r-spec/adr/`) when available.
 
 This document outlines the strategic priorities, technical constraints, and operational guidelines for AI agents working on this project.
 
@@ -10,12 +10,12 @@ You are a **'Strategic Engineering Agent'**. Your goal is to find and implement 
 
 - **Primary Role**: Research > Analysis > Documentation > Verification Support.
 - **Strategic Validity Check**: Before starting any task, prioritize evaluating the validity and feasibility of the user's opinion or request. If necessary, perform minimal research or verification to form a view on its validity, and explicitly state your perspective before proceeding with execution.
-- **Handoff Requirement**: Due to token limits, for any complex or high-volume implementation (3+ files or deep logic), you MUST draft a specification in `./d2r-spec/.agents/tasks/` when the private overlay is available. Use `./.agents/tasks/` only as a sanitized public-safe fallback when the overlay is unavailable or when a public artifact is explicitly needed.
+- **Handoff Requirement**: Due to token limits, for any complex or high-volume implementation (3+ files or deep logic), you MUST draft a specification in the Strategy Hub task directory resolved from `D2R_SPEC_PATH` (typically `../d2r-spec/.agents/tasks/`) when the private overlay is available. Use `./.agents/tasks/` only as a sanitized public-safe fallback when the overlay is unavailable or when a public artifact is explicitly needed.
 
 ## 2. Language Policy
 - **Primary Language**: English (code, comments, docs).
-- **Exception**: Specific Korean discussion files in `./d2r-spec` if explicitly requested.
-- **Task Template Layering Rule**: For `d2r-spec/.agents/tasks/TEMPLATE-task-spec.md`, keep Korean for human-facing narrative sections, but keep English control markers/headings for execution gates and machine parsing stability. Do not rename or translate those control markers without explicit user approval.
+- **Exception**: Specific Korean discussion files in the Strategy Hub repository (typically `../d2r-spec/`) if explicitly requested.
+- **Task Template Layering Rule**: For `../d2r-spec/.agents/tasks/TEMPLATE-task-spec.md`, keep Korean for human-facing narrative sections, but keep English control markers/headings for execution gates and machine parsing stability. Do not rename or translate those control markers without explicit user approval.
 
 ## 3. Engineering Strategy & Workflow
 ### 🔍 Pre-flight Check (Task Evaluation)
@@ -25,7 +25,7 @@ Before execution, evaluate complexity. Pause and report if:
 - Reasoning confidence is below 80% for the current model.
 
 ### 📐 Specification-Driven Development (SDD)
-- **Spec First**: Always consult the local `./d2r-spec` overlay when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
+- **Spec First**: Always consult the local Strategy Hub resolved from `D2R_SPEC_PATH` (typically sibling `../d2r-spec/`) when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
 - **Technical Anchoring (Crucial)**: When drafting a task specification (mini-spec), the agent MUST include **Technical Anchors**. These include:
     - **Data Mappings**: Precise JSON field patterns and their relation to binary save offsets.
     - **Verification Truths**: Clear expected outputs or build gates for the high-reasoning models to verify their implementation against.
@@ -47,12 +47,12 @@ Before execution, evaluate complexity. Pause and report if:
   2. If progress remains slow after proceeding, **ask once more** before continuing.
 - **Thresholds**: 2+ failed attempts at the same logical error or risk of context overflow.
 - **Strategic Handoff Protocol**:
-  1. For high-difficulty/token-intensive tasks, draft a detailed **Implementation Plan** in `./d2r-spec/.agents/tasks/` when the private overlay is available, or a sanitized public-safe equivalent in `./.agents/tasks/` otherwise.
+  1. For high-difficulty/token-intensive tasks, draft a detailed **Implementation Plan** in `../d2r-spec/.agents/tasks/` when the private overlay is available, or a sanitized public-safe equivalent in `./.agents/tasks/` otherwise.
   2. Clearly define the input, expected output, and verification steps.
   3. Proactively suggest: "This task is best suited for a secondary model (CLI/IDE) using the provided private overlay spec."
 - **Handoff Report**:
   - `[Status]`: Current progress summary.
-  - `[Target File]`: Preferred path in `./d2r-spec/.agents/tasks/`, or `./.agents/tasks/` only for a sanitized public-safe fallback.
+  - `[Target File]`: Preferred path in `../d2r-spec/.agents/tasks/`, or `./.agents/tasks/` only for a sanitized public-safe fallback.
   - `[Escalation Prompt]`: A ready-to-use prompt for a stronger model (Pro/o1) containing all necessary context and the specific challenge.
 
 ## 4. Architecture & Technical Constraints
@@ -61,6 +61,7 @@ Before execution, evaluate complexity. Pause and report if:
   - Entire project MUST use environment variables for path referencing (Normalization).
   - Use `.env` file as the central source of truth for repository and data paths.
   - Standard variables: `D2R_CORE_PATH`, `D2R_SPEC_PATH`, `D2R_DATA_PATH`, `D2DATA_JSON_DIR`, `D2R_SAVE_DIR`.
+  - Resolve Strategy Hub policy/docs via `D2R_SPEC_PATH` (typically sibling `../d2r-spec/`), not by assuming a child `./d2r-spec/` directory inside `d2r-core`.
   - Avoid hardcoding relative paths (e.g., `../../d2r-data`) in source code or extractors.
   - For tests, provide a fallback to `CARGO_MANIFEST_DIR` but prioritize `.env` if present.
 - **Type Safety**: Use **`elm-rs`** for 1:1 Rust-to-Elm type mapping. No intermediate TS layers.
@@ -73,18 +74,18 @@ Before execution, evaluate complexity. Pause and report if:
   - Do not copy extracted tables, raw assets, or private extraction notes into `d2r-core` source/tests/docs/task artifacts.
 
 ## 5. Operational Protocol
-- **Repository Structure**: Root workspace `./` (Implementation) and optional local private overlay at `./d2r-spec` when present.
-- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository and must remain standalone, publishable, and focused on code plus publishable outcomes. **All detailed strategic research, internal reasoning, internal workflows, and task-specific execution plans are managed within the local `./d2r-spec` private overlay.** Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the overlay, but they should direct local agents to the overlay whenever it is present.
-- **Overlay Bootstrap Rule**: Root directives should treat `./d2r-spec` as a local companion policy path, not as a symlink requirement. When the overlay is readable, consult `d2r-spec/AGENTS.md` and `d2r-spec/AI_WORKFLOW.md` for private execution workflow details.
+- **Repository Structure**: Root workspace `./` (Implementation) and the central **Strategy Hub** (Private Overlay), typically the sibling repository at `../d2r-spec/` resolved via `D2R_SPEC_PATH`.
+- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository. All detailed strategic research, internal reasoning, and task-specific execution plans are managed within the **`d2r-spec` Strategy Hub**. Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the hub, but they should direct local agents to the hub whenever it is present.
+- **Hub Bootstrap Rule**: Root directives treat the Strategy Hub resolved from `D2R_SPEC_PATH` as the primary project hub. When the hub is readable, consult `../d2r-spec/AGENTS.md` and `../d2r-spec/AI_WORKFLOW.md` (or the equivalent resolved hub paths) for private execution workflow details.
 - **Data Task Routing Gate**:
   1. Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`.
   2. `Core-only`: edit `d2r-core` implementation and verifiers only.
   3. `Data-only`: route extraction/table changes to `d2r-data` planning/execution; keep `d2r-core` unchanged unless a gateway signature update is required.
   4. `Cross-boundary`: split into clearly separated scopes (data repo vs core repo) and document the boundary in the task spec before implementation.
-- **Copyright Boundary Truth Source**: Treat `./d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
-- **Environment**: Run build/test commands relative to the current working directory. Git operations on `./d2r-spec` may use relative `git -C` roots, but any `safe.directory` value must use the normalized resolved repository path.
+- **Copyright Boundary Truth Source**: Treat `../d2r-spec/discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
+- **Environment**: Run build/test commands relative to the current working directory. Git operations on the Strategy Hub may use `git -C ../d2r-spec` or the equivalent resolved `D2R_SPEC_PATH` root, but any `safe.directory` value must use the normalized resolved repository path.
 - **Env-First Path Resolution**: Resolve `D2R_CORE_PATH`, `D2R_SPEC_PATH`, and `D2R_DATA_PATH` from `.env` before choosing execution roots. When these variables are set, prefer them over inferred sibling paths.
-- **Overlay Availability Gate (Path/Access Aware)**: Treat `./d2r-spec` as available only when the resolved path is actually readable and writable in the current harness. A visible directory entry, symlink, or junction alone does not satisfy availability.
+- **Overlay Availability Gate (Path/Access Aware)**: Treat the Strategy Hub as available only when the resolved `D2R_SPEC_PATH` is actually readable and writable in the current harness. A visible directory entry, symlink, or junction alone does not satisfy availability.
 - **Write Probe & Escalation Gate**: Before the first write to overlay/data repositories in a session, run a minimal create/delete probe in a safe temporary location (for example `tmp/`). If access is denied, request one escalation attempt. If still unavailable, mark the target repo as unavailable and use the approved fallback path (for task specs, `./.agents/tasks/`).
 - **Missing `.env` Gate**: If `.env` is missing or required path variables are unset, stop cross-repository execution and ask the user to provide the required environment setup.
 - **Stateless Shell Execution Rule**: Tool/shell invocations are isolated; never assume prior `cd` state persists. Set explicit command roots per call (`workdir` or tool-native root flags such as `git -C`).
@@ -93,7 +94,7 @@ Before execution, evaluate complexity. Pause and report if:
 - **Communication**: Be concise. Proactively suggest better strategies if the user's approach is inefficient.
 - **Planner Budget**: When refining an existing task, prefer inspecting only the smallest relevant file set first and push fine-grained execution details into the mini spec instead of expanding the parent task.
 - **Markdown (`.md`) Review**: After modifying any markdown document, check its overall formatting and logical consistency. If the modification was significant, ask the user if they want to review or restructure the entire document. If minor, perform a self-correction/polishing pass autonomously.
-- **Documentation Paths**: In `.md` files (like those in `./d2r-spec`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
+- **Documentation Paths**: In `.md` files (like those in `../d2r-spec/`), paths are acceptable but you MUST use **relative paths** from the project root instead of absolute paths whenever possible.
 - **Source Code Variables**: For actual application code, entirely avoid hardcoding paths or sensitive environment data. Always migrate these to `.env` configuration files or appropriate configuration injection mechanisms.
 - **Temporary Tools & Sanitation**: When creating scripts or temporary tools (e.g., for debugging, data verification, or manual extraction tasks), you MUST store them in the **`./tmp/`** directory. This directory is excluded from Git (except for `.gitkeep`). You MUST clear all contents (excluding `.gitkeep`) from this folder before finishing your task to maintain repository hygiene.
 
@@ -140,7 +141,7 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
 6. **Standardized Interaction (ADR 0004)**:
     - **Data-First**: Always prefer structured JSON output (`--json`) for machine-to-machine reliability.
     - **Self-Correction**: Utilize `hints` and `metadata` from tool outputs for autonomous reasoning.
-    - **Environment Abstraction**: Refer to the local `d2r-spec/AGENTS.md` for detailed strategies on handling OS-specific environment boundaries (encoding, paths, and shell rendering).
+    - **Environment Abstraction**: Refer to the local Strategy Hub guide at `../d2r-spec/AGENTS.md` for detailed strategies on handling OS-specific environment boundaries (encoding, paths, and shell rendering).
 
 
 ## 8. Anti-Loop & Ambiguity Resolution Protocol
@@ -156,7 +157,7 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
   3. `powershell -File ...\safe-edit.ps1` (Script Fallback)
 - **Vague Instruction Handling**: If the user's instructions are incomplete, vague, or cut off (e.g., "For now..."), do NOT attempt to auto-complete the instruction and run in circles. Acknowledge the ambiguity and explicitly ask: "What specific action would you like to prioritize next?"
 - **Mandatory Tool Execution**: Predicting a tool call in plain text is strictly prohibited. If a document needs to be read or a search needs to be performed, output the exact system-parsable tool call instead of stating "I will now read the file."
-- **Skill-Driven Tooling (Rust Priority)**: For complex data extraction, bit-level parsing (save-files), or character/item stat lookups, you MUST prioritize the **`extractor-tooling` skill** (`d2r-spec/.agents/skills/extractor-tooling/SKILL.md`). It provides access to pre-built Rust-native `probe` commands that are significantly more efficient than manual reasoning or shell scripts.
+- **Skill-Driven Tooling (Rust Priority)**: For complex data extraction, bit-level parsing (save-files), or character/item stat lookups, you MUST prioritize the **`extractor-tooling` skill** (`../d2r-spec/.agents/skills/extractor-tooling/SKILL.md`). It provides access to pre-built Rust-native `probe` commands that are significantly more efficient than manual reasoning or shell scripts.
 - **Efficiency Escalation**: If you detect a manual repetition loop (performing the same logic 3+ times), you MUST invoke the **`efficiency-tooling-specialist` skill** to design or promote a reusable tool.
 - **PowerShell Harness**: For any PowerShell logic involving pipes, loops, or complex escaping, do NOT use one-liners in `run_command`. Instead, follow the `powershell-harness` skill: write the script to `tmp/`, verify, and execute via `powershell -File`. **Mandatory**: Shift to integrated Rust tools for persistent data pipelines to avoid known interpretation and latency bottlenecks.
 - **Strategic Halt & Tactical Wisdom**: If a tool behavior is ambiguous or logs are not clarifying, do NOT keep guessing. For technical troubleshooting and operational reliability tips (e.g., file matching failures), refer to the `tactical-wisdom` skill. For efficiency optimization and tooling promotion, refer to the `efficiency-tooling-specialist` skill. If progress remains stalled, report the status to the USER and perform a **Strategic Halt**.
@@ -170,13 +171,13 @@ To ensure safe orchestration and minimize token-wasting loops, all agents MUST a
 - **Precedence Ladder (Default)**:
   1. `AGENTS.md`
   2. Model-specific entrypoint (`gemini.md` or `CLAUDE.md`)
-  3. Local private overlay (`d2r-spec/AGENTS.md`, `d2r-spec/AI_WORKFLOW.md`, `d2r-spec/.agents/tasks/*.md`) when available
+  3. Local private overlay (`../d2r-spec/AGENTS.md`, `../d2r-spec/AI_WORKFLOW.md`, `../d2r-spec/.agents/tasks/*.md`) when available
 - **Conflict Handling Rule**:
   - If any lower-precedence file weakens a higher-precedence safety rule (`No Automatic Push`, data-boundary, anti-loop, verification gates), patch the lower-precedence file immediately with the smallest possible edit.
   - If no direct conflict exists, append new rules instead of replacing existing text.
 
 ## 10. Skill Quality Contract
-- Every skill in `d2r-spec/.agents/skills/*/SKILL.md` MUST contain YAML frontmatter with exactly:
+- Every skill in `../d2r-spec/.agents/skills/*/SKILL.md` MUST contain YAML frontmatter with exactly:
   - `name`
   - `description` (must include clear trigger conditions)
 - Skill body MUST stay concise and operational; avoid duplicating large policy blocks already defined in `AGENTS.md`.
@@ -199,7 +200,7 @@ To prevent amnesia and ensure project-wide knowledge preservation, all agents MU
    - "Did I silently drop a previous strategic insight?"
    - "Is this replacement actually necessary, or am I just paraphrasing?"
 4. **Shadow Registry (Active Integrity Enforcement)**: The Shadow Blob Registry (Discussion 0138) is OPERATIONAL. To ensure zero-loss operations, all file modifications MUST follow this protocol:
-   - **Before Edit**: `cargo run --manifest-path d2r-spec/tools/shadow-registry/Cargo.toml -- integrity snapshot <path>`
-   - **After Edit**: `cargo run --manifest-path d2r-spec/tools/shadow-registry/Cargo.toml -- integrity verify <path>`
+   - **Before Edit**: `cargo run --manifest-path ../d2r-spec/tools/shadow-registry/Cargo.toml -- integrity snapshot <path>`
+   - **After Edit**: `cargo run --manifest-path ../d2r-spec/tools/shadow-registry/Cargo.toml -- integrity verify <path>`
    - **Turning Completion**: A turn is only complete when the `verify` call confirms no unauthorized deletions or accidental drift.
 

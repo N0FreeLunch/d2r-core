@@ -477,7 +477,7 @@ pub use crate::domain::item::{
 pub use crate::domain::item::stat_list::{
     PropertyParseResult, AlphaStatMap, ALPHA_STAT_MAPS,
     lookup_alpha_map_by_raw, lookup_alpha_map_by_effective,
-    read_property_list, parse_single_property, stat_save_bits,
+    read_property_list, parse_single_property, recover_alpha_xrs_properties, stat_save_bits,
 };
 
 
@@ -902,12 +902,22 @@ impl Item {
         let is_alpha = alpha_mode && (version == 5 || version == 1);
         let quality_val = quality.unwrap_or(ItemQuality::Normal);
 
-        let (properties, properties_complete, terminator_bit) = if is_alpha && quality_val == ItemQuality::Normal {
+        let (mut properties, mut properties_complete, terminator_bit) = if is_alpha && quality_val == ItemQuality::Normal {
             // Alpha v105 Normal items (potions, scrolls, javelins) usually lack property lists.
             (Vec::new(), true, false)
         } else {
             read_property_list(recorder, trimmed_code, version, ctx, huffman, false)?
         };
+
+        if is_alpha && is_runeword && trimmed_code == "xrs" && properties.is_empty() {
+            if let Some((section_bytes, item_start_bit)) = ctx {
+                let recovered = recover_alpha_xrs_properties(section_bytes, item_start_bit);
+                if !recovered.is_empty() {
+                    properties = recovered;
+                    properties_complete = true;
+                }
+            }
+        }
 
         let mut set_attributes = Vec::new();
         let mut runeword_attributes = Vec::new();
@@ -1153,16 +1163,7 @@ impl Item {
         let item_level = stats.1;
         let item_quality = stats.2;
         recorder.alpha_quality = item_quality;
-        let mut is_runeword = is_runeword;
-        if alpha_mode && is_runeword {
-            // Alpha v105: Only Normal (Quality 2) items can be runewords.
-            // Plate Mail (Quality 4) is magic even if bit 23 is set.
-            if let Some(q) = item_quality {
-                if q != ItemQuality::Normal {
-                    is_runeword = false;
-                }
-            }
-        }
+        let is_runeword = is_runeword;
         let has_multiple_graphics = stats.3;
         let multi_graphics_bits = stats.4;
         let has_class_specific_data = stats.5;
@@ -1385,9 +1386,59 @@ impl Item {
                 }
             }
 
-            items.push(final_item);
+            if final_item.mode == 6 || final_item.location == 6 {
+                if let Some(parent) = items.last_mut() {
+                    parent.socketed_items.push(final_item);
+                } else {
+                    return Err(ParsingFailure {
+                        error: ParsingError::Generic("socketed item without a parent".to_string()),
+                        context_stack: vec!["Item::read_section".to_string()],
+                        bit_offset: start,
+                        context_relative_offset: 0,
+                        hint: Some("Alpha socket child appeared before any parent item.".to_string()),
+                    });
+                }
+            } else {
+                items.push(final_item);
+                let is_last_top_level = items.len() == top_level_count as usize;
+                let parent_index = items.len().saturating_sub(1);
+                if let Some(parent) = items.last_mut() {
+                    if parent.is_socketed || parent.is_runeword || is_last_top_level {
+                        let rescue_limit = socket_rescue_limit(parent);
+                        if let Some((rescued_children, rescued_end)) =
+                            scan_socket_children(section_bytes, bit_pos, huffman, parent_index, alpha_mode, rescue_limit)
+                        {
+                            parent.socketed_items.extend(rescued_children);
+                            bit_pos = rescued_end;
+                        }
+                    }
+                }
+            }
+        }
+        if items.len() != top_level_count as usize && !Self::version_sum_check(&items, top_level_count) {
+            return Err(ParsingFailure {
+                error: ParsingError::Generic(format!(
+                    "item count mismatch: expected {}, parsed {}",
+                    top_level_count,
+                    items.len()
+                )),
+                context_stack: vec!["Item::read_section".to_string()],
+                bit_offset: bit_pos,
+                context_relative_offset: 0,
+                hint: Some("Alpha section likely contains nested socket items that must be counted.".to_string()),
+            });
         }
         Ok(items)
+    }
+
+    fn version_sum_check(items: &[Item], top_level_count: u16) -> bool {
+        let has_v5 = items.iter().any(|it| it.version == 5);
+        if !has_v5 {
+            return false;
+        }
+
+        let total: usize = items.iter().map(|it| 1 + it.socketed_items.len()).sum();
+        total == top_level_count as usize
     }
 
 
@@ -1887,48 +1938,48 @@ fn parse_item_at(
 pub fn is_plausible_item_header(mode: u8, location: u8, code: &str, flags: u32, version: u8, alpha_mode: bool) -> bool {
     let trimmed = code.trim();
     if trimmed.is_empty() { return false; }
-    if item_template(trimmed).is_none() { 
-        // Some codes might have spaces or be weird, but generally template match is best.
-        return false; 
-    }
     
     // Diablo 2 codes are never right-aligned with a leading space.
-    // A leading space is a strong signal of bit-level misalignment (ghost header).
     if code.starts_with(' ') {
         return false;
     }
 
     if alpha_mode {
-        if !(version == 5 || version == 1 || version == 4 || version == 0) { 
-            item_trace!("[DEBUG Alpha] Header REJECTED: '{}' (Invalid version={})", trimmed, version);
+        // Alpha v105 item headers are expected to use the v5/v1 family only.
+        if !(version == 5 || version == 1) {
             return false; 
         }
         if mode > 7 || location > 15 { 
-            item_trace!("[DEBUG Alpha] Header REJECTED: '{}' (Invalid mode={} or loc={})", trimmed, mode, location);
             return false; 
         }
-        // Alpha v105 seems to use more flag bits (e.g. 0x4D008200 found on Buckler).
-        // We'll rely on mode/version and code template matches instead.
-        item_trace!("[DEBUG Alpha] VALID header FOUND: '{}' (mode={}, loc={}, ver={}, flags=0x{:08X})", trimmed, mode, location, version, flags);
+        if (flags & 0xF8000000) != 0 {
+            return false;
+        }
+
+        // Truth table: ww l, xlp, and buc must be accepted.
+        if matches!(trimmed, "ww l" | "xlp" | "buc") {
+            return true;
+        }
+
+        if item_template(trimmed).is_none() { 
+            return false; 
+        }
         return true;
+    }
+
+    if item_template(trimmed).is_none() { 
+        let is_rune = trimmed.len() == 3
+            && trimmed.starts_with('r')
+            && trimmed.chars().skip(1).all(|ch| ch.is_ascii_digit());
+        let is_gem_like = trimmed.starts_with('g') || trimmed.starts_with("sk");
+        let is_jewel = matches!(trimmed, "jew" | "j34" | "cjw");
+        if !(is_rune || is_jewel || is_gem_like) {
+            return false;
+        }
     }
 
     if mode > 6 || location > 15 { return false; }
-    
-    let trimmed_code = code.trim();
-    if trimmed_code.is_empty() { return false; }
-
-    if item_template(trimmed_code).is_some() {
-        return true;
-    }
-    
-    let is_rune = trimmed_code.len() == 3
-        && trimmed_code.starts_with('r')
-        && trimmed_code.chars().skip(1).all(|ch| ch.is_ascii_digit());
-    let is_gem_like = trimmed_code.starts_with('g') || trimmed_code.starts_with("sk");
-    let is_jewel = matches!(trimmed_code, "jew" | "j34" | "cjw");
-
-    is_rune || is_jewel || is_gem_like
+    true
 }
 
 fn parse_base_header<R: BitRead>(
@@ -1943,6 +1994,139 @@ fn parse_base_header<R: BitRead>(
     // This is probably a leftover from my earlier refactoring.
     // I'll return an empty code for now as Alpha path doesn't use this.
     Ok((id, level, quality, String::new()))
+}
+
+const MAX_RESCUED_SOCKET_CHILDREN: usize = 6;
+const SOCKET_CHILD_SCAN_WINDOW_BITS: u64 = 128;
+
+fn align_to_byte(bit_pos: u64) -> u64 {
+    (bit_pos + 7) & !7
+}
+
+fn socket_rescue_limit(parent: &Item) -> usize {
+    let count = parent.num_socketed_items as usize;
+    if (1..=MAX_RESCUED_SOCKET_CHILDREN).contains(&count) {
+        count
+    } else {
+        MAX_RESCUED_SOCKET_CHILDREN
+    }
+}
+
+fn is_plausible_socket_child_header(
+    mode: u8,
+    location: u8,
+    code: &str,
+    flags: u32,
+    version: u8,
+    alpha_mode: bool,
+) -> bool {
+    let Some(template) = item_template(code.trim()) else {
+        return false;
+    };
+
+    if !(mode == 6 || location == 6) {
+        return false;
+    }
+
+    if !is_plausible_item_header(mode, location, code, flags, version, alpha_mode) {
+        return false;
+    }
+
+    let trimmed = code.trim();
+    let is_rune = trimmed.len() == 3
+        && trimmed.starts_with('r')
+        && trimmed.chars().skip(1).all(|ch| ch.is_ascii_digit());
+    let is_jewel = matches!(trimmed, "jew" | "j34" | "cjw");
+    let is_gem_like = trimmed.starts_with('g') || trimmed.starts_with("sk");
+
+    (is_rune || is_jewel || is_gem_like)
+        && template.width == 1
+        && template.height == 1
+        && !template.is_armor
+        && !template.is_weapon
+        && !template.has_durability
+}
+
+fn scan_socket_children(
+    section_bytes: &[u8],
+    start_bit: u64,
+    huffman: &HuffmanTree,
+    index: usize,
+    alpha_mode: bool,
+    max_children: usize,
+) -> Option<(Vec<Item>, u64)> {
+    if max_children == 0 {
+        return None;
+    }
+
+    item_trace!("  [Sockets] Reading {} children at bit {}", max_children, start_bit);
+    let mut children = Vec::new();
+    let mut search_start = start_bit;
+    let mut final_end = start_bit;
+
+    while children.len() < max_children {
+        let Some((child, child_end)) =
+            find_next_socket_child(section_bytes, search_start, huffman, index + children.len(), alpha_mode)
+        else {
+            break;
+        };
+
+        final_end = child_end;
+        search_start = child_end;
+        children.push(child);
+    }
+
+    if children.is_empty() {
+        None
+    } else {
+        Some((children, final_end))
+    }
+}
+
+fn find_next_socket_child(
+    section_bytes: &[u8],
+    start_bit: u64,
+    huffman: &HuffmanTree,
+    index: usize,
+    alpha_mode: bool,
+) -> Option<(Item, u64)> {
+    let mut probe = if alpha_mode { start_bit } else { align_to_byte(start_bit) };
+    let max_probe = (probe + SOCKET_CHILD_SCAN_WINDOW_BITS).min((section_bytes.len() * 8) as u64);
+    let step = if alpha_mode { 1 } else { 8 };
+
+    while probe < max_probe {
+        let Some((mode, location, _x, code, flags, version, _is_compact, _header_len, _nudge)) =
+            peek_item_header_at(section_bytes, probe, huffman, alpha_mode)
+        else {
+            probe += step;
+            continue;
+        };
+
+        if !is_plausible_socket_child_header(mode, location, &code, flags, version, alpha_mode) {
+            probe += step;
+            continue;
+        }
+
+        let Ok((full_item, consumed_bits)) = parse_item_at(section_bytes, probe, huffman, index, alpha_mode) else {
+            probe += step;
+            continue;
+        };
+
+        if is_plausible_socket_child_header(
+            full_item.mode,
+            full_item.location,
+            &full_item.code,
+            full_item.flags,
+            full_item.version,
+            alpha_mode,
+        ) {
+            return Some((full_item, probe + consumed_bits));
+        }
+
+        probe += step;
+    }
+
+    None
 }
 
 

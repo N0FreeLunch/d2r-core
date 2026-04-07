@@ -1,0 +1,17 @@
+{
+  "markdown": {
+  },
+  "json": {
+  },
+  "projectType": "openSource",
+  "excludes": [
+    "**/node_modules",
+    "**/*-lock.json",
+    "target",
+    "tmp"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/markdown-0.17.8.wasm",
+    "https://plugins.dprint.dev/json-0.19.3.wasm"
+  ]
+}

@@ -1,5 +1,5 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use d2r_core::item::BitRecorder;
+use d2r_core::data::bit_cursor::BitCursor;
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -45,13 +45,13 @@ fn main() {
 }
 
 fn check(start: usize, bytes: &[u8]) -> bool {
-    let mut reader = IoBitReader::endian(Cursor::new(bytes), LittleEndian);
-    if reader.skip(start as u32).is_err() {
+    let reader = IoBitReader::endian(Cursor::new(bytes), LittleEndian);
+    let mut recorder = BitCursor::new(reader);
+    if recorder.skip_and_record(start as u32).is_err() {
         return false;
     }
 
-    let mut recorder = BitRecorder::new(&mut reader);
-    match recorder.read_bits(9) {
+    match recorder.read_bits::<u32>(9) {
         Ok(511) => true,
         _ => false,
     }

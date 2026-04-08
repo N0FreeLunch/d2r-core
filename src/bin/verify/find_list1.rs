@@ -1,38 +1,33 @@
-use bitstream_io::{BitReader, LittleEndian};
-use d2r_core::item::{BitRecorder, HuffmanTree};
+use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use d2r_core::data::bit_cursor::BitCursor;
+use d2r_core::item::HuffmanTree;
+use std::env;
 use std::fs;
 use std::io::Cursor;
 
 fn main() {
-    let bytes =
-        fs::read("tests/fixtures/savegames/original/amazon_authority_runeword.d2s").unwrap();
-    let item_start_bit = 7560;
-    let huffman = HuffmanTree::new();
-
-    // Offset 230 is at 7790
-    let bit_pos = 7790;
-    let byte_offset = bit_pos / 8;
-    let bit_offset = bit_pos % 8;
-
-    let mut reader = BitReader::endian(Cursor::new(&bytes[byte_offset as usize..]), LittleEndian);
-    let mut recorder = BitRecorder::new(&mut reader);
-    for _ in 0..bit_offset {
-        recorder.read_bit().ok();
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 3 {
+        eprintln!("Usage: find_list1 <save_file> <item_start_bit>");
+        return;
     }
+    let bytes = fs::read(&args[1]).expect("failed to read save file");
+    let start_bit = args[2].parse::<u64>().expect("invalid start bit");
 
-    let id_bits = 9;
-    let stat_id = recorder.read_bits(id_bits).unwrap();
-    println!("Stat ID read at 7790 with 9 bits: {}", stat_id);
+    let mut reader = IoBitReader::endian(Cursor::new(&bytes[(start_bit / 8) as usize..]), LittleEndian);
+    let mut recorder = BitCursor::new(&mut reader);
+    let _ = recorder.skip_and_record((start_bit % 8) as u32);
 
-    let result =
-        d2r_core::item::read_property_list(&mut recorder, "xrs ", 5, None, &huffman, false);
-    match result {
-        Ok((props, _, _)) => {
-            println!("Props: {}", props.len());
-            for p in props {
-                println!("  ID {}: Val {}", p.stat_id, p.value);
-            }
+    println!("Scanning for List 1 properties (9-bit IDs) after header/code at {}:", start_bit);
+    // Assume header + code is roughly 100-150 bits
+    for skip in (80..200).step_by(1) {
+        let checkpoint = recorder.checkpoint();
+        let _ = recorder.skip_and_record(skip as u32);
+        
+        let id: u32 = recorder.read_bits::<u32>(9).unwrap_or(0);
+        if id < 511 && id > 0 {
+             println!("  [Skip {}] Potential Stat ID: {} at bit {}", skip, id, start_bit + skip as u64);
         }
-        Err(e) => println!("Error: {:?}", e),
+        recorder.rollback(checkpoint);
     }
 }

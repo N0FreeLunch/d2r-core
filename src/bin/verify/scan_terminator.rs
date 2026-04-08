@@ -1,61 +1,32 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use d2r_core::item::{BitRecorder, HuffmanTree};
+use d2r_core::data::bit_cursor::BitCursor;
+use d2r_core::item::HuffmanTree;
 use std::env;
 use std::fs;
 use std::io::Cursor;
-use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 5 {
-        eprintln!(
-            "Usage: d2item_bit_search <save_file> <base_bit> <pattern_length_bits> <pattern_value> [window_bits]"
-        );
-        eprintln!("Example: d2item_bit_search char.d2s 8349 9 511 300");
-        process::exit(1);
+    if args.len() < 3 {
+        eprintln!("Usage: scan_terminator <save_file> <offset_bits>");
+        return;
     }
+    let bytes = fs::read(&args[1]).expect("failed to read save file");
+    let start_bit = args[2].parse::<u64>().expect("invalid offset");
 
-    let path = &args[1];
-    let base_bit: usize = args[2].parse().expect("base_bit must be a number");
-    let bits: u32 = args[3]
-        .parse()
-        .expect("pattern_length_bits must be a number");
-    let value: u32 = args[4].parse().expect("pattern_value must be a number");
-    let window: usize = args.get(5).and_then(|s| s.parse().ok()).unwrap_or(300);
-
-    let bytes = fs::read(path).expect("failed to read save file");
-
-    println!(
-        "Scanning for pattern (Length: {} bits, Value: {}) starting from {}...",
-        bits, value, base_bit
-    );
-    println!("Scan Window: {} bits", window);
-
-    let mut found = 0;
-    for offset in 0..=window {
-        let mut reader = IoBitReader::endian(Cursor::new(&bytes), LittleEndian);
-        let target = base_bit + offset;
-
-        if reader.skip(target as u32).is_err() {
-            break;
+    println!("Scanning for property terminator (0x1FF) around bit {}:", start_bit);
+    
+    for nudge in -32i64..=128i64 {
+        let current = (start_bit as i64 + nudge) as u64;
+        if current >= (bytes.len() * 8) as u64 { continue; }
+        
+        let mut reader = IoBitReader::endian(Cursor::new(&bytes[(current / 8) as usize..]), LittleEndian);
+        let mut recorder = BitCursor::new(&mut reader);
+        let _ = recorder.skip_and_record((current % 8) as u32);
+        
+        let id: u32 = recorder.read_bits::<u32>(9).unwrap_or(0);
+        if id == 0x1FF {
+            println!("  [Bit {}] Terminator found! (nudge {})", current, nudge);
         }
-
-        let mut recorder = BitRecorder::new(&mut reader);
-        match recorder.read_bits(bits) {
-            Ok(v) if v == value => {
-                println!(
-                    "  [FOUND] Value {} at Bit Offset {} (Distance: {} bits from base)",
-                    value, target, offset
-                );
-                found += 1;
-            }
-            _ => {}
-        }
-    }
-
-    if found == 0 {
-        println!("No matching pattern found in the specified window.");
-    } else {
-        println!("Scan complete. Found {} occurrences.", found);
     }
 }

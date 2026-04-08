@@ -397,18 +397,19 @@ fn main() {
             println!("  [OK]    Player item count: {}", item_count);
 
             let huffman = d2r_core::item::HuffmanTree::new();
-            let scanned = d2r_core::item::Item::scan_items(&bytes, &huffman);
+            let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
+            let scanned = d2r_core::item::Item::read_player_items(&bytes, &huffman, is_alpha).unwrap_or_default();
             println!(
-                "  [INFO]  Scanned {} items via pattern match:",
+                "  [INFO]  Parsed {} player items:",
                 scanned.len()
             );
-            for (bit_pos, code) in scanned.iter().take(20) {
+            for (idx, item) in scanned.iter().take(20).enumerate() {
                 println!(
-                    "    - Bit {:>5}: code '{}' (byte {}, bit offset {})",
-                    bit_pos,
-                    code,
-                    bit_pos / 8,
-                    bit_pos % 8
+                    "    - Item {:>2}: code '{}' (start bit {}, bits {})",
+                    idx,
+                    item.code,
+                    item.range.start,
+                    item.total_bits
                 );
             }
         }

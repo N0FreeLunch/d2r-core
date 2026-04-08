@@ -1,5 +1,6 @@
-use bitstream_io::{BitReader as IoBitReader, LittleEndian};
-use d2r_core::item::{BitRecorder, HuffmanTree, Item};
+use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use d2r_core::data::bit_cursor::BitCursor;
+use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -21,11 +22,9 @@ fn main() {
     if offset > 0 {
         let mut reader =
             IoBitReader::endian(Cursor::new(&bytes[(offset / 8) as usize..]), LittleEndian);
-        let mut recorder = BitRecorder::new(&mut reader);
-        for _ in 0..(offset % 8) {
-            recorder.read_bit().unwrap();
-        }
-        let val = recorder.read_bits_u64(count_bits).unwrap_or(0);
+        let _ = reader.skip((offset % 8) as u32);
+        let mut cursor = BitCursor::new(reader);
+        let val: u64 = cursor.read_bits::<u64>(count_bits).unwrap_or(0);
         println!(
             "Bits at offset {}: {:0width$b}",
             offset,
@@ -42,14 +41,12 @@ fn main() {
     println!("JM at byte {}, item count {}", jm_pos, count);
 
     let huffman = HuffmanTree::new();
-    let mut reader = IoBitReader::endian(Cursor::new(&bytes[jm_pos + 4..]), LittleEndian);
-    let mut recorder = BitRecorder::new(&mut reader);
-    recorder.set_trace(true);
+    let reader = IoBitReader::endian(Cursor::new(&bytes[jm_pos + 4..]), LittleEndian);
+    let mut recorder = BitCursor::new(reader);
 
     let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
     for i in 0..count {
-        let bit_start = (jm_pos + 4) * 8 + recorder.total_read as usize;
-        recorder.recorded_bits.clear();
+        let bit_start = (jm_pos + 4) * 8 + recorder.pos() as usize;
         match Item::from_reader_with_context(
             &mut recorder,
             &huffman,
@@ -74,13 +71,13 @@ fn main() {
                 }
 
                 println!("  BSLV Layout Tree:");
-                let mut segments = recorder.segments.clone();
+                let mut segments = recorder.segments().to_vec();
                 // Sort by start bit (asc) and then by length (desc) to keep parents outside children
                 segments.sort_by(|a, b| {
                     a.start.cmp(&b.start).then_with(|| b.end.cmp(&a.end))
                 });
 
-                for seg in &segments {
+                for seg in segments {
                     if seg.start == seg.end && seg.label == "Item Code" {
                         continue; // Skip noise from empty codes
                     }
@@ -88,11 +85,10 @@ fn main() {
                     let len = seg.end - seg.start;
                     println!("  {}[{:>4}..{:>4}] (len={:>2}) {}", indent, seg.start, seg.end, len, seg.label);
                 }
-                recorder.segments.clear();
 
                 if i == 0 {
                     // Peek at next bits using recorder
-                    let next = recorder.read_bits_u64(64).unwrap_or(0);
+                    let next: u64 = recorder.read_bits::<u64>(64).unwrap_or(0);
                     println!("Next 64 bits from here: {:064b}", next);
                 }
             }

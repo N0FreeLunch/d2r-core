@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::data::stat_costs::{StatCostData, STAT_COSTS};
-use crate::item::{Checksum, HuffmanTree, Item};
+use crate::item::{HuffmanTree, Item};
+use crate::engine::checksum::Checksum;
 use crate::domain::progression::{Quest, QuestSet, Waypoint, WaypointSet};
 use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
 use std::io::{self, Cursor};

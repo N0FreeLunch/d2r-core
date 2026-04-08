@@ -32,18 +32,8 @@ pub struct CursedItemData {
     pub curse_id: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ItemHeader {
-    pub id: Option<u32>,
-    pub quality: Option<ItemQuality>,
-    pub version: u8,
-    pub is_compact: bool,
-    pub is_identified: bool,
-    pub is_socketed: bool,
-    pub is_personalized: bool,
-    pub is_runeword: bool,
-    pub is_ethereal: bool,
-}
+pub use crate::domain::header::entity::ItemHeader;
+
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemBody {

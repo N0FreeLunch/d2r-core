@@ -128,15 +128,23 @@ pub struct Item {
 impl Item {
     pub fn header_view(&self) -> ItemHeader {
         ItemHeader {
+            flags: self.flags,
+            version: self.version,
+            mode: self.mode,
+            location: self.location,
+            x: self.x,
+            y: self.y,
+            page: self.page,
+            socket_hint: self.header_socket_hint,
             id: self.id,
             quality: self.quality,
-            version: self.version,
             is_compact: self.is_compact,
             is_identified: self.is_identified,
             is_socketed: self.is_socketed,
             is_personalized: self.is_personalized,
             is_runeword: self.is_runeword,
             is_ethereal: self.is_ethereal,
+            is_ear: self.is_ear,
         }
     }
 

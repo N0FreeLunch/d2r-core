@@ -2,7 +2,8 @@ use bitstream_io::BitRead;
 use bitstream_io::{BitReader, LittleEndian};
 use super::quality::ItemQuality;
 use super::entity::ItemBitRange;
-use crate::item::{BitRecorder, HuffmanTree, ParsingResult, ParsingError, PropertyReaderContext};
+use crate::data::bit_cursor::BitCursor;
+use crate::item::{HuffmanTree, ParsingResult, ParsingError, PropertyReaderContext};
 use crate::data::stat_costs::STAT_COSTS;
 use std::io::Cursor;
 
@@ -71,7 +72,7 @@ pub enum PropertyParseResult {
 }
 
 pub fn read_property_list<R: BitRead>(
-    recorder: &mut BitRecorder<R>,
+    recorder: &mut BitCursor<R>,
     code: &str,
     version: u8,
     section_recovery: PropertyReaderContext,
@@ -84,11 +85,11 @@ pub fn read_property_list<R: BitRead>(
     let _is_alpha = version == 5 || version == 1;
 
     if version == 5 && alpha_runeword { 
-        item_trace!("[DEBUG v5] Skipping 93-bit Alpha runeword spacer at bit {}", recorder.recorded_bits.len());
+        item_trace!("[DEBUG v5] Skipping 93-bit Alpha runeword spacer at bit {}", recorder.pos());
         for _ in 0..93 {
             let _ = recorder.read_bit()?;
         }
-        item_trace!("[DEBUG v5] Starting List 2 at bit {}", recorder.recorded_bits.len()); 
+        item_trace!("[DEBUG v5] Starting List 2 at bit {}", recorder.pos()); 
     }
     loop {
         let result = parse_single_property(recorder, code, version, section_recovery, huffman, alpha_runeword);
@@ -97,19 +98,29 @@ pub fn read_property_list<R: BitRead>(
                 item_trace!("  [Property] parsed ID={}, val={}" , prop.stat_id , prop.value);
                 props.push(prop)
             },
-            Ok(PropertyParseResult::Terminator(bit)) => return Ok((props, true, bit)),
-            Ok(PropertyParseResult::Recovered) => return Ok((props, false, false)),
+            Ok(PropertyParseResult::Terminator(bit)) => {
+                recorder.end_segment();
+                return Ok((props, true, bit));
+            },
+            Ok(PropertyParseResult::Recovered) => {
+                recorder.end_segment();
+                return Ok((props, false, false));
+            },
             Err(e) if version == 5 && matches!(e.error, ParsingError::Io(ref msg) if msg.contains("unexpected end of file")) => {
                 item_trace!("  [Alpha v5] Property list reached EOF without terminator.");
+                recorder.end_segment();
                 return Ok((props, false, false));
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                recorder.end_segment();
+                return Err(e);
+            },
         }
     }
 }
 
 pub fn parse_single_property<R: BitRead>(
-    recorder: &mut BitRecorder<R>,
+    recorder: &mut BitCursor<R>,
     code: &str,
     version: u8,
     section_recovery: PropertyReaderContext,
@@ -117,30 +128,35 @@ pub fn parse_single_property<R: BitRead>(
     _alpha_runeword: bool,
 ) -> ParsingResult<PropertyParseResult> {
     recorder.push_context("Single Property");
-    let start_bit = recorder.total_read;
+    let start_bit = recorder.pos();
 
     if version == 5 || version == 1 {
         let stat_id = match read_alpha_stat_id(recorder) {
             Ok(id) => id,
             Err(_) if version == 5 => {
                 item_trace!("[DEBUG v5] Property stream ended abruptly, assuming terminator.");
+                recorder.end_segment();
                 return Ok(PropertyParseResult::Terminator(false));
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                recorder.end_segment();
+                return Err(e);
+            },
         };
         
         if version == 5 {
-             item_trace!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.total_read - 9);
+             item_trace!("[DEBUG v5] Property Stat ID: {} (0x{:03X}) at {}", stat_id, stat_id, recorder.pos() - 9);
         }
         
         if is_alpha_terminator(stat_id, code) {
             if version == 5 {
-                 item_trace!("[DEBUG v5] Property Terminator detected at {} for '{}'", recorder.total_read - 9, code);
+                 item_trace!("[DEBUG v5] Property Terminator detected at {} for '{}'", recorder.pos() - 9, code);
             }
             let mut term_bit = false;
             if recorder.alpha_quality != Some(ItemQuality::Normal) {
                 let _ = recorder.read_bit()?; // Optional 10th bit
             }
+            recorder.end_segment();
             return Ok(PropertyParseResult::Terminator(term_bit));
         }
 
@@ -156,13 +172,14 @@ pub fn parse_single_property<R: BitRead>(
         // Normal items use 9 bits (ID only).
         // Others (Magic/Rare/Unique) use 10 bits (9 ID + 1 Val).
         let val_bits = if recorder.alpha_quality == Some(ItemQuality::Normal) { 0 } else { 1 };
-        let val = if val_bits > 0 { recorder.read_bits(val_bits)? } else { 0 };
+        let val = if val_bits > 0 { recorder.read_bits::<u32>(val_bits)? } else { 0 };
         
         if version == 5 {
-             item_trace!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.total_read - val_bits as u64, 9 + val_bits);
+             item_trace!("[DEBUG v5] Property ID {} Value: {} at {} ({}-bit quality-based)", stat_id, val, recorder.pos() - val_bits as u64, 9 + val_bits);
         }
 
-        let end_bit = recorder.total_read;
+        let end_bit = recorder.pos();
+        recorder.end_segment();
 
         return Ok(PropertyParseResult::Property(ItemProperty {
             stat_id: effective_stat_id,
@@ -177,31 +194,35 @@ pub fn parse_single_property<R: BitRead>(
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
-    let stat_id = match recorder.read_bits(id_bits) {
+    let stat_id = match recorder.read_bits::<u32>(id_bits) {
         Ok(stat_id) => stat_id,
         Err(err) => {
             if let Some((section_bytes, item_start_bit)) = section_recovery {
                 if crate::item::recover_property_reader(recorder, code, section_bytes, item_start_bit, huffman)? {
+                    recorder.end_segment();
                     return Ok(PropertyParseResult::Recovered);
                 }
             }
+            recorder.end_segment();
             return Err(err);
         }
     };
 
     if stat_id == terminator {
+        recorder.end_segment();
         return Ok(PropertyParseResult::Terminator(false));
     }
 
     let (effective_stat_id, save_bits, save_add, stat_name) = {
         let cost = STAT_COSTS.iter().find(|s| s.id == stat_id).ok_or_else(|| {
-             recorder.fail(ParsingError::InvalidStatId { bit_offset: recorder.total_read, stat_id })
+             recorder.fail(ParsingError::InvalidStatId { bit_offset: recorder.pos(), stat_id })
         })?;
         (stat_id, cost.save_bits as u32, cost.save_add, cost.name.to_string())
     };
 
-    let val = recorder.read_bits(save_bits)?;
-    let end_bit = recorder.total_read;
+    let val = recorder.read_bits::<u32>(save_bits)?;
+    let end_bit = recorder.pos();
+    recorder.end_segment();
 
     Ok(PropertyParseResult::Property(ItemProperty {
         stat_id: effective_stat_id,
@@ -213,8 +234,8 @@ pub fn parse_single_property<R: BitRead>(
     }))
 }
 
-fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitRecorder<R>) -> ParsingResult<u32> {
-    recorder.read_bits(9)
+fn read_alpha_stat_id<R: BitRead>(recorder: &mut BitCursor<R>) -> ParsingResult<u32> {
+    recorder.read_bits::<u32>(9)
 }
 
 fn is_alpha_terminator(stat_id: u32, code: &str) -> bool {
@@ -238,25 +259,27 @@ pub fn recover_alpha_xrs_properties(
         return Vec::new();
     }
 
-    let mut recorder = BitRecorder::new(&mut reader);
+    let mut recorder = BitCursor::new(reader);
     let mut props = Vec::new();
     let mut saw_terminator = false;
 
     for _ in 0..MAX_PROPERTY_SLOTS {
-        let entry_start = anchor_bit + recorder.total_read;
-        let Ok(raw_id) = recorder.read_bits(9) else {
-            break;
+        let entry_start = anchor_bit + recorder.pos();
+        let raw_id = match recorder.read_bits::<u32>(9) {
+            Ok(id) => id,
+            _ => break,
         };
 
         if raw_id == 0x1FF {
-            if recorder.read_bits(8).is_ok() {
+            if recorder.read_bits::<u32>(8).is_ok() {
                 saw_terminator = true;
             }
             break;
         }
 
-        let Ok(raw_value_bits) = recorder.read_bits(8) else {
-            break;
+        let raw_value_bits = match recorder.read_bits::<u32>(8) {
+            Ok(v) => v,
+            _ => break,
         };
         let raw_value = raw_value_bits as i32;
 
@@ -277,7 +300,7 @@ pub fn recover_alpha_xrs_properties(
             )
         };
 
-        let entry_end = anchor_bit + recorder.total_read;
+        let entry_end = anchor_bit + recorder.pos();
         props.push(ItemProperty {
             stat_id: effective_id,
             name,

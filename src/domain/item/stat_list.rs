@@ -1,8 +1,10 @@
 use bitstream_io::BitRead;
+use bitstream_io::{BitReader, LittleEndian};
 use super::quality::ItemQuality;
 use super::entity::ItemBitRange;
 use crate::item::{BitRecorder, HuffmanTree, ParsingResult, ParsingError, PropertyReaderContext};
 use crate::data::stat_costs::STAT_COSTS;
+use std::io::Cursor;
 
 macro_rules! item_trace {
     ($($arg:tt)*) => {
@@ -135,7 +137,6 @@ pub fn parse_single_property<R: BitRead>(
             if version == 5 {
                  item_trace!("[DEBUG v5] Property Terminator detected at {} for '{}'", recorder.total_read - 9, code);
             }
-            // Alpha v105 Magic/Rare properties are 10-bit aligned.
             let mut term_bit = false;
             if recorder.alpha_quality != Some(ItemQuality::Normal) {
                 let _ = recorder.read_bit()?; // Optional 10th bit
@@ -221,5 +222,78 @@ fn is_alpha_terminator(stat_id: u32, code: &str) -> bool {
         stat_id == 0x000 || stat_id == 0x1FF
     } else {
         stat_id == 0x1FF
+    }
+}
+
+pub fn recover_alpha_xrs_properties(
+    section_bytes: &[u8],
+    item_start_bit: u64,
+) -> Vec<ItemProperty> {
+    const LIST1_OFFSET_BITS: u64 = 129;
+    const MAX_PROPERTY_SLOTS: usize = 16;
+
+    let anchor_bit = item_start_bit + LIST1_OFFSET_BITS;
+    let mut reader = BitReader::endian(Cursor::new(section_bytes), LittleEndian);
+    if reader.skip(anchor_bit as u32).is_err() {
+        return Vec::new();
+    }
+
+    let mut recorder = BitRecorder::new(&mut reader);
+    let mut props = Vec::new();
+    let mut saw_terminator = false;
+
+    for _ in 0..MAX_PROPERTY_SLOTS {
+        let entry_start = anchor_bit + recorder.total_read;
+        let Ok(raw_id) = recorder.read_bits(9) else {
+            break;
+        };
+
+        if raw_id == 0x1FF {
+            if recorder.read_bits(8).is_ok() {
+                saw_terminator = true;
+            }
+            break;
+        }
+
+        let Ok(raw_value_bits) = recorder.read_bits(8) else {
+            break;
+        };
+        let raw_value = raw_value_bits as i32;
+
+        let (effective_id, name, save_add) = if let Some(map) = lookup_alpha_map_by_raw(raw_id) {
+            let cost = STAT_COSTS.iter().find(|stat| stat.id == map.effective_id);
+            (
+                map.effective_id,
+                map.name.to_string(),
+                cost.map(|stat| stat.save_add).unwrap_or(0),
+            )
+        } else {
+            let cost = STAT_COSTS.iter().find(|stat| stat.id == raw_id);
+            (
+                raw_id,
+                cost.map(|stat| stat.name.to_string())
+                    .unwrap_or_else(|| format!("alpha_stat_{}", raw_id)),
+                cost.map(|stat| stat.save_add).unwrap_or(0),
+            )
+        };
+
+        let entry_end = anchor_bit + recorder.total_read;
+        props.push(ItemProperty {
+            stat_id: effective_id,
+            name,
+            param: 0,
+            raw_value,
+            value: raw_value.wrapping_sub(save_add),
+            range: ItemBitRange {
+                start: entry_start,
+                end: entry_end,
+            },
+        });
+    }
+
+    if saw_terminator && !props.is_empty() {
+        props
+    } else {
+        Vec::new()
     }
 }

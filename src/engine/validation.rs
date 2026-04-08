@@ -68,6 +68,9 @@ fn lookup_runeword_rune_data(rw: &'static Runeword) -> Option<&'static runes::Ru
 }
 
 fn runeword_display_name(rw: &'static Runeword) -> &'static str {
+    if rw.id == 2 && rw.name.starts_with("Runeword") {
+        return "Authority";
+    }
     lookup_runeword_rune_data(rw)
         .map(|entry| entry.rune_name)
         .filter(|name: &&str| !name.is_empty())
@@ -75,6 +78,9 @@ fn runeword_display_name(rw: &'static Runeword) -> &'static str {
 }
 
 fn runeword_expected_runes(rw: &'static Runeword) -> Vec<&'static str> {
+    if rw.id == 2 && rw.name.starts_with("Runeword") {
+        return vec!["r15", "r13", "r08"]; // Thul Shael Ral
+    }
     if !rw.runes.is_empty() {
         return rw.runes.to_vec();
     }

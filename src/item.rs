@@ -23,10 +23,45 @@ pub use crate::domain::stats::{
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult, BackingBitCursor};
 pub use crate::domain::header::entity::ItemSegmentType;
 
-pub use crate::domain::item::stat_list::{
-    PropertyParseResult,
-    read_property_list, parse_single_property, recover_alpha_xrs_properties,
-};
+pub use crate::domain::stats::parser::{PropertyParseResult, recover_alpha_xrs_properties};
+
+pub fn read_property_list<R: BitRead>(
+    recorder: &mut BitCursor<R>,
+    code: &str,
+    version: u8,
+    section_recovery: PropertyReaderContext,
+    huffman: &HuffmanTree,
+    alpha_runeword: bool,
+) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
+    crate::domain::stats::parser::read_property_list(
+        recorder,
+        code,
+        version,
+        section_recovery,
+        huffman,
+        alpha_runeword,
+        recover_property_reader,
+    )
+}
+
+pub fn parse_single_property<R: BitRead>(
+    recorder: &mut BitCursor<R>,
+    code: &str,
+    version: u8,
+    section_recovery: PropertyReaderContext,
+    huffman: &HuffmanTree,
+    alpha_runeword: bool,
+) -> ParsingResult<PropertyParseResult> {
+    crate::domain::stats::parser::parse_single_property(
+        recorder,
+        code,
+        version,
+        section_recovery,
+        huffman,
+        alpha_runeword,
+        recover_property_reader,
+    )
+}
 
 pub use crate::engine::checksum::Checksum;
 

@@ -1,6 +1,5 @@
 pub mod quality;
 pub mod entity;
-pub mod stat_list;
 pub mod serialization;
 
 pub use quality::{ItemQuality, map_item_quality};

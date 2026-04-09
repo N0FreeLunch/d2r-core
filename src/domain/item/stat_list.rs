@@ -1,6 +1,9 @@
 use bitstream_io::{BitRead, BitReader, LittleEndian};
 use crate::domain::item::{ItemQuality, ItemBitRange};
-pub use crate::domain::stats::{ItemProperty, ItemStats, ALPHA_STAT_MAPS, AlphaStatMap, lookup_alpha_map_by_raw, lookup_alpha_map_by_effective};
+pub use crate::domain::stats::{
+    lookup_alpha_map_by_effective, lookup_alpha_map_by_raw, stat_save_bits, AlphaStatMap,
+    ItemProperty, ItemStats, ALPHA_STAT_MAPS,
+};
 use crate::data::bit_cursor::BitCursor;
 use crate::item::{HuffmanTree, ParsingResult, ParsingError, PropertyReaderContext};
 use crate::data::stat_costs::STAT_COSTS;
@@ -14,12 +17,6 @@ macro_rules! item_trace {
     };
 }
 
-pub fn stat_save_bits(stat_id: u32) -> Option<u32> {
-    STAT_COSTS
-        .iter()
-        .find(|stat| stat.id == stat_id)
-        .map(|stat| stat.save_bits as u32)
-}
 
 pub enum PropertyParseResult {
     Property(ItemProperty),

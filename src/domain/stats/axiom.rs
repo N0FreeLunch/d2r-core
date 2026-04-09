@@ -42,11 +42,7 @@ impl StatsAxiom {
             }
         } else {
             // Standard behavior: lookup in STAT_COSTS
-            STAT_COSTS
-                .iter()
-                .find(|s| s.id == stat_id)
-                .map(|s| s.save_bits as u32)
-                .unwrap_or(0)
+            super::stat_save_bits(stat_id).unwrap_or(0)
         }
     }
 

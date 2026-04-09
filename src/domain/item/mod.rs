@@ -8,5 +8,5 @@ pub use entity::{
     ItemHeader, ItemBody, Item, ItemModule, CharmBagData, CursedItemData,
     RecordedBit, ItemBitRange, BitSegment
 };
-pub use stat_list::{ItemProperty, ItemStats};
+pub use crate::domain::stats::{ItemProperty, ItemStats};
 pub use serialization::{BitEmitter, HuffmanTree};

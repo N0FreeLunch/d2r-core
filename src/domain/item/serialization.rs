@@ -2,7 +2,8 @@ use bitstream_io::{BitRead, BitWrite, BitWriter, LittleEndian};
 use std::io;
 use crate::domain::item::{Item, ItemProperty, RecordedBit, ItemBitRange};
 use crate::domain::item::quality::ItemQuality;
-use crate::domain::item::stat_list::{lookup_alpha_map_by_effective, stat_save_bits};
+use crate::domain::stats::lookup_alpha_map_by_effective;
+use crate::domain::item::stat_list::stat_save_bits;
 use crate::data::bit_cursor::BitCursor;
 use crate::error::{ParsingResult, ParsingError};
 

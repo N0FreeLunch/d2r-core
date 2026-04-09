@@ -31,7 +31,8 @@ fn main() {
         
         match Item::from_reader_with_context(&mut cursor, &huffman, Some((&bytes, bit_start as u64)), is_alpha) {
             Ok(item) => {
-                println!("  [Shift {:+3}] SUCCESS: '{}' (len={} bits)", shift, item.code, cursor.pos());
+                println!("  [Shift {:+3}] SUCCESS: '{}' (len={} bits, flags=0x{:08X}, compact={})", 
+                    shift, item.code, cursor.pos(), item.flags, item.is_compact);
             }
             Err(_) => {}
         }

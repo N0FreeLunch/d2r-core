@@ -124,6 +124,17 @@ mod tests {
         );
     }
     #[test]
+    fn test_item_template_lookup() {
+        use crate::item::Item;
+        // This is a bit of a hack since item_template is private, 
+        // but we can test it indirectly or make it pub(crate).
+        // For now, let's just check if ITEM_TEMPLATES has what we need.
+        let templates = crate::data::item_codes::ITEM_TEMPLATES;
+        assert!(templates.iter().any(|t| t.code == "hp1"), "hp1 should be in templates");
+        assert!(templates.iter().any(|t| t.code == "xrs"), "xrs should be in templates");
+        assert!(templates.iter().any(|t| t.code == "r15"), "r15 should be in templates");
+    }
+    #[test]
     fn test_calc_alvl() {
         use crate::data::legitimacy::calc_alvl;
         // ilvl=50, qlvl=30, magic_lvl=0 -> temp=50, 50 < 99-30/2=84, alvl=50-15=35

@@ -1,6 +1,6 @@
 use serde::Serialize;
 use super::quality::ItemQuality;
-use super::stat_list::{ItemProperty, ItemStats};
+use crate::domain::stats::{ItemProperty, ItemStats};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecordedBit {

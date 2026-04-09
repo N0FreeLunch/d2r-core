@@ -14,7 +14,8 @@ macro_rules! item_trace {
     };
 }
 
-pub use crate::domain::item::{RecordedBit, ItemBitRange, BitSegment, ItemHeader, ItemBody, ItemStats, ItemModule, Item, ItemProperty, ItemQuality, map_item_quality, CharmBagData, CursedItemData, BitEmitter, HuffmanTree};
+pub use crate::domain::item::{RecordedBit, ItemBitRange, BitSegment, ItemHeader, ItemBody, ItemModule, Item, ItemQuality, map_item_quality, CharmBagData, CursedItemData, BitEmitter, HuffmanTree};
+pub use crate::domain::stats::{ItemProperty, ItemStats};
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult, BackingBitCursor};
 pub use crate::domain::header::entity::ItemSegmentType;
 
@@ -239,10 +240,12 @@ impl Item {
                 defense = Some(cursor.read_bits::<u32>(11)?);
             }
             if reads_durability {
-                let m_dur = cursor.read_bits::<u32>(8)?;
+                let max_dur_bits = stat_save_bits(73).unwrap_or(8);
+                let cur_bits = stat_save_bits(72).unwrap_or(9);
+                let m_dur = cursor.read_bits::<u32>(max_dur_bits)?;
                 max_durability = Some(m_dur);
                 if m_dur > 0 {
-                    current_durability = Some(cursor.read_bits::<u32>(9)?);
+                    current_durability = Some(cursor.read_bits::<u32>(cur_bits)?);
                     let _extra = cursor.read_bit()?;
                 }
             }
@@ -578,7 +581,7 @@ impl Item {
                 let is_last_top_level = items.len() == top_level_count as usize;
                 let parent_index = items.len().saturating_sub(1);
                 if let Some(parent) = items.last_mut() {
-                    if parent.is_socketed || parent.is_runeword || is_last_top_level {
+                    if parent.is_socketed || parent.is_runeword || is_last_top_level || alpha_mode {
                         let rescue_limit = socket_rescue_limit(parent);
                         if let Some((rescued_children, rescued_end)) = scan_socket_children(section_bytes, bit_pos, huffman, parent_index, alpha_mode, rescue_limit) {
                             parent.socketed_items.extend(rescued_children);
@@ -637,35 +640,41 @@ pub fn peek_item_header_at(
     if reader.skip(start_bit as u32).is_err() { return None; }
     let mut cursor = BitCursor::new(reader);
 
+    let flags = cursor.read_bits::<u32>(32).ok()?;
+    let version = cursor.read_bits::<u32>(3).ok()? as u8;
+    let mode = cursor.read_bits::<u32>(3).ok()? as u8;
+    let loc = cursor.read_bits::<u32>(3).ok()? as u8;
+    let x = cursor.read_bits::<u32>(4).ok()? as u8;
+    let is_compact = (flags & (1 << 21)) != 0;
+
+    let mut header_len = 45;
+    if !is_compact {
+        // y (4), page (3), socket_hint (3)
+        let _ = cursor.read_bits::<u32>(10).ok()?;
+        header_len += 10;
+    }
+
     if !alpha_mode {
-        let flags = cursor.read_bits::<u32>(32).ok()?;
-        let version = cursor.read_bits::<u32>(3).ok()? as u8;
-        let mode = cursor.read_bits::<u32>(3).ok()? as u8;
-        let loc = cursor.read_bits::<u32>(4).ok()? as u8;
-        let x = cursor.read_bits::<u32>(4).ok()? as u8;
-        let y = cursor.read_bits::<u32>(4).ok()? as u8;
-        let page = cursor.read_bits::<u32>(3).ok()? as u8;
-        let is_compact = (flags & (1 << 21)) != 0;
-        
         let mut code = String::new();
+        let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+        let n_start = start_bit + header_len as u64;
+        if n_reader.skip(n_start as u32).is_err() { return None; }
+        let mut n_cursor = BitCursor::new(n_reader);
         for _ in 0..4 {
-            if let Ok(ch) = huffman.decode_recorded(&mut cursor) {
+            if let Ok(ch) = huffman.decode_recorded(&mut n_cursor) {
                 code.push(ch);
             } else { return None; }
         }
-        return Some((mode, loc, x, code, flags, version, is_compact, cursor.pos(), 0));
+        // Return bits read to code start
+        return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, 0));
     } else {
-        // Alpha v105 minimal peek
-        let flags = cursor.read_bits::<u32>(32).ok()?;
-        let version = cursor.read_bits::<u32>(3).ok()? as u8;
-        let mode = cursor.read_bits::<u32>(3).ok()? as u8;
-        let loc = cursor.read_bits::<u32>(3).ok()? as u8;
-        let x = cursor.read_bits::<u32>(4).ok()? as u8;
-        let is_compact = (flags & (1 << 21)) != 0;
-
-        for nudge in -2..=2 {
+        // Alpha v105 nudge search
+        // Prioritize nudge 8 (common gap) then search outwards.
+        let nudges = [8, 0, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15, -1, 16, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, -13, -14, -15, -16];
+        for nudge in nudges {
             let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-            let n_start = (start_bit as i64 + 45 + nudge as i64) as u64;
+            let n_start = (start_bit as i64 + header_len as i64 + nudge as i64) as u64;
+            if n_start >= (section_bytes.len() * 8) as u64 { continue; }
             if n_reader.skip(n_start as u32).is_err() { continue; }
             let mut n_cursor = BitCursor::new(n_reader);
             let mut code = String::new();
@@ -675,8 +684,11 @@ pub fn peek_item_header_at(
                     code.push(ch);
                 } else { ok = false; break; }
             }
-            if ok && code.chars().all(|c| c.is_alphanumeric() || c == ' ') {
-                return Some((mode, loc, x, code, flags, version, is_compact, n_cursor.pos(), nudge as i8));
+            if ok && is_plausible_item_header(mode, loc, &code, flags, version, true) {
+                item_trace!("[DEBUG v5] Found plausible Alpha header at bit {} (start_bit={}, nudge={}): code='{}', mode={}, loc={}, flags=0x{:08X}", 
+                    n_start, start_bit, nudge, code, mode, loc, flags);
+                // Return header_len only (bits to code start)
+                return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, nudge as i8));
             }
         }
     }
@@ -711,12 +723,19 @@ pub fn is_plausible_item_header(
     location: u8,
     code: &str,
     flags: u32,
-    _version: u8,
+    version: u8,
     alpha_mode: bool,
 ) -> bool {
     if code.len() < 3 { return false; }
     if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
+    
+    // Strict template check for Alpha v105 to avoid Huffman "w" drift
+    if alpha_mode && item_template(code).is_none() {
+        return false;
+    }
+
     if alpha_mode {
+        if version != 5 && version != 1 { return false; }
         if mode > 6 || location > 15 { return false; }
         if (flags & 0xF8000000) != 0 { return false; }
     } else {
@@ -728,15 +747,60 @@ pub fn is_plausible_item_header(
 fn socket_rescue_limit(_parent: &Item) -> u64 { 256 }
 
 fn scan_socket_children(
-    _bytes: &[u8],
-    _bit_pos: u64,
-    _huffman: &HuffmanTree,
+    bytes: &[u8],
+    bit_pos: u64,
+    huffman: &HuffmanTree,
     _parent_idx: usize,
-    _alpha: bool,
-    _limit: u64,
-) -> Option<(Vec<Item>, u64)> { None }
+    alpha: bool,
+    limit: u64,
+) -> Option<(Vec<Item>, u64)> {
+    let mut children = Vec::new();
+    let mut current_pos = bit_pos;
+    let max_pos = bit_pos + limit;
+    let section_bits = (bytes.len() * 8) as u64;
 
-fn find_next_item_match(_bytes: &[u8], _pos: u64, _huff: &HuffmanTree, _alpha: bool) -> Option<u64> { None }
+    while current_pos < max_pos && current_pos < section_bits {
+        if alpha && (current_pos % 8 != 0) {
+            current_pos += 1;
+            continue;
+        }
+        if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, current_pos, huffman, alpha) {
+            if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
+                if mode == 6 || location == 6 {
+                    if let Ok((item, consumed)) = parse_item_at(bytes, current_pos, huffman, 0, alpha) {
+                        current_pos += consumed;
+                        children.push(item);
+                        continue;
+                    }
+                } else {
+                    // Reached next top-level item
+                    break;
+                }
+            }
+        }
+        current_pos += 1;
+    }
+
+    if children.is_empty() { None } else { Some((children, current_pos)) }
+}
+
+fn find_next_item_match(bytes: &[u8], pos: u64, huffman: &HuffmanTree, alpha: bool) -> Option<u64> {
+    let limit = (bytes.len() * 8) as u64;
+    let mut probe = pos;
+    while probe < limit {
+        if alpha && (probe % 8 != 0) {
+            probe += 1;
+            continue;
+        }
+        if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, probe, huffman, alpha) {
+            if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
+                return Some(probe);
+            }
+        }
+        probe += 1;
+    }
+    None
+}
 
 fn parse_item_at(
     bytes: &[u8],

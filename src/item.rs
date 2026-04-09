@@ -1,4 +1,4 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian, Numeric};
+use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use std::io::{self, Cursor};
 use crate::data::bit_cursor::BitCursor;
 
@@ -15,14 +15,17 @@ macro_rules! item_trace {
 }
 
 pub use crate::domain::item::{RecordedBit, ItemBitRange, BitSegment, ItemHeader, ItemBody, ItemModule, Item, ItemQuality, map_item_quality, CharmBagData, CursedItemData, BitEmitter, HuffmanTree};
-pub use crate::domain::stats::{ItemProperty, ItemStats};
+pub use crate::domain::stats::{
+    stat_save_bits, AlphaStatMap, ALPHA_STAT_MAPS,
+    lookup_alpha_map_by_raw, lookup_alpha_map_by_effective,
+    ItemProperty, ItemStats,
+};
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult, BackingBitCursor};
 pub use crate::domain::header::entity::ItemSegmentType;
 
 pub use crate::domain::item::stat_list::{
-    PropertyParseResult, AlphaStatMap, ALPHA_STAT_MAPS,
-    lookup_alpha_map_by_raw, lookup_alpha_map_by_effective,
-    read_property_list, parse_single_property, recover_alpha_xrs_properties, stat_save_bits,
+    PropertyParseResult,
+    read_property_list, parse_single_property, recover_alpha_xrs_properties,
 };
 
 pub use crate::engine::checksum::Checksum;
@@ -369,7 +372,7 @@ impl Item {
         }
 
         if parse_property_lists && is_runeword {
-            let (rw_props, complete, _term_bit) =
+            let (rw_props, _complete, _term_bit) =
                 read_property_list(cursor, trimmed_code, version, ctx, huffman, true)?;
             runeword_attributes = rw_props;
         }

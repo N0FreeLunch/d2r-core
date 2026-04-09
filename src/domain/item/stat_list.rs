@@ -1,8 +1,7 @@
 use bitstream_io::{BitRead, BitReader, LittleEndian};
 use crate::domain::item::{ItemQuality, ItemBitRange};
-pub use crate::domain::stats::{
-    lookup_alpha_map_by_effective, lookup_alpha_map_by_raw, stat_save_bits, AlphaStatMap,
-    ItemProperty, ItemStats, ALPHA_STAT_MAPS,
+use crate::domain::stats::{
+    lookup_alpha_map_by_raw, stat_save_bits, ItemProperty,
 };
 use crate::data::bit_cursor::BitCursor;
 use crate::item::{HuffmanTree, ParsingResult, ParsingError, PropertyReaderContext};

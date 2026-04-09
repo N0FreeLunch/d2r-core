@@ -8,5 +8,5 @@ pub use entity::{
     ItemHeader, ItemBody, Item, ItemModule, CharmBagData, CursedItemData,
     RecordedBit, ItemBitRange, BitSegment
 };
-pub use crate::domain::stats::{ItemProperty, ItemStats};
+// Removed redundant re-exports: ItemProperty, ItemStats moved to domain::stats
 pub use serialization::{BitEmitter, HuffmanTree};

@@ -168,9 +168,9 @@ impl Item {
 
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, _timestamp_flag) = if is_alpha {
             let level = cursor.read_bits::<u8>(7)? as u8;
-            let quality_raw = cursor.read_bits::<u8>(4)? as u8;
+            let _alpha_mid_pad = cursor.read_bit()?; // 1 bit unknown between level/quality
+            let quality_raw = cursor.read_bits::<u8>(3)? as u8;
             let quality = ItemQuality::from(quality_raw);
-            let _padding = cursor.read_bits::<u8>(5)?; 
             
             let has_multiple_graphics = cursor.read_bit()?;
             let has_class_specific_data = cursor.read_bit()?;
@@ -262,7 +262,11 @@ impl Item {
             None
         };
 
-        let timestamp_flag = cursor.read_bits::<u8>(1)? != 0;
+        let timestamp_flag = if is_alpha {
+            _timestamp_flag
+        } else {
+            cursor.read_bits::<u8>(1)? != 0
+        };
 
         let (reads_defense, reads_durability, reads_quantity) = if let Some(template) = template {
             (template.is_armor, template.has_durability, template.is_stackable)
@@ -284,7 +288,9 @@ impl Item {
                 max_durability = Some(m_dur);
                 if m_dur > 0 {
                     current_durability = Some(cursor.read_bits::<u32>(cur_bits)?);
-                    let _extra = cursor.read_bit()?;
+                    if version != 5 {
+                        let _extra = cursor.read_bit()?;
+                    }
                 }
             }
             if reads_quantity {
@@ -374,8 +380,9 @@ impl Item {
         let is_alpha = alpha_mode && (version == 5 || version == 1);
         let quality_val = quality.unwrap_or(ItemQuality::Normal);
 
-        let (mut properties, mut properties_complete, terminator_bit) = if is_alpha && quality_val == ItemQuality::Normal {
-            (Vec::new(), true, false)
+        let (mut properties, mut properties_complete, terminator_bit): (Vec<ItemProperty>, bool, bool) = if is_alpha && quality_val == ItemQuality::Normal && !is_runeword && !trimmed_code.is_empty() {
+             // In Alpha v105, Normal items are truly compact and skip the property list entirely.
+             (Vec::new(), true, false)
         } else {
             read_property_list(cursor, trimmed_code, version, ctx, huffman, false)?
         };
@@ -573,9 +580,14 @@ impl Item {
 
             let (item, consumed_bits) = match parse_item_at(section_bytes, start, huffman, items.len(), alpha_mode) {
                 Ok(res) => res,
-                Err(_) => { bit_pos = start + 1; continue; }
+                Err(e) => { 
+                    item_trace!("[DEBUG] Failed to parse item at {}: {:?}", start, e);
+                    bit_pos = start + 1; continue; 
+                }
             };
             
+            item_trace!("[DEBUG] Item {} parsed. Code: {}, Offset: {}, Consumed: {}", items.len(), item.code, start, consumed_bits);
+
             let mut end = start + consumed_bits;
             let mut gap_bits = Vec::new();
             if alpha_mode {
@@ -686,7 +698,9 @@ pub fn peek_item_header_at(
     let is_compact = (flags & (1 << 21)) != 0;
 
     let mut header_len = 45;
-    if !is_compact {
+    if version == 5 {
+        header_len = 53; // Alpha headers are always 53 bits (45 + 8 padding)
+    } else if !is_compact {
         // y (4), page (3), socket_hint (3)
         let _ = cursor.read_bits::<u32>(10).ok()?;
         header_len += 10;
@@ -706,10 +720,11 @@ pub fn peek_item_header_at(
         // Return bits read to code start
         return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, 0));
     } else {
-        // Alpha v105 nudge search
-        // Prioritize nudge 8 (common gap) then search outwards.
-        let nudges = [8, 0, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15, -1, 16, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11, -12, -13, -14, -15, -16];
-        for nudge in nudges {
+        // Alpha v105 nudge search: Collect candidates and pick the best one
+        let nudges: [i32; 17] = [0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15, -1];
+        let mut best_candidate: Option<(u8, u8, u8, String, u32, u8, bool, u64, i32)> = None;
+
+        for &nudge in nudges.iter() {
             let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
             let n_start = (start_bit as i64 + header_len as i64 + nudge as i64) as u64;
             if n_start >= (section_bytes.len() * 8) as u64 { continue; }
@@ -723,14 +738,23 @@ pub fn peek_item_header_at(
                 } else { ok = false; break; }
             }
             if ok && is_plausible_item_header(mode, loc, &code, flags, version, true) {
-                item_trace!("[DEBUG v5] Found plausible Alpha header at bit {} (start_bit={}, nudge={}): code='{}', mode={}, loc={}, flags=0x{:08X}", 
-                    n_start, start_bit, nudge, code, mode, loc, flags);
-                // Return header_len only (bits to code start)
-                return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, nudge as i8));
+                let candidate = (mode, loc, x, code.clone(), flags, version, is_compact, header_len as u64, nudge);
+                
+                item_trace!("[DEBUG v5] Candidate Alpha header: code='{}', nudge={}, compact={}, bits={}", 
+                    code, nudge, is_compact, start_bit as i64 + header_len as i64 + nudge as i64);
+
+                // Selection logic: Nudge 0 is gold. Lower absolute nudge is better.
+                if nudge == 0 {
+                    return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, 0));
+                }
+                
+                if best_candidate.is_none() || nudge.abs() < best_candidate.as_ref().unwrap().8.abs() {
+                    best_candidate = Some(candidate);
+                }
             }
         }
+        return best_candidate.map(|(m, l, x, c, f, v, ic, hl, n)| (m, l, x, c, f, v, ic, hl, n as i8));
     }
-    None
 }
 
 pub fn recover_property_reader<R: BitRead>(
@@ -776,6 +800,11 @@ pub fn is_plausible_item_header(
         if version != 5 && version != 1 { return false; }
         if mode > 6 || location > 15 { return false; }
         if (flags & 0xF8000000) != 0 { return false; }
+        
+        // Alpha v105 sanity
+        let _is_compact = (flags & (1 << 21)) != 0;
+        // In Alpha v105, some items (Javelins/Bucklers) might be non-compact even if normal.
+        // We rely on Huffman code match and Nudge preference instead of strict flag predicates.
     } else {
         if mode > 6 || location > 15 { return false; }
     }

@@ -26,14 +26,19 @@ pub fn parse_header<R: BitRead>(
 
     let is_compact = (flags & (1 << 21)) != 0;
     
-    let (y, page, socket_hint) = if is_compact {
+    let (y, page, socket_hint) = if is_compact || axiom.is_alpha() {
         (0, 0, 0)
     } else {
         let y = (cursor.read_bits::<u8>(4)? as u32 & 0x0F) as u8;
         let page = (cursor.read_bits::<u8>(3)? as u32 & 0x07) as u8;
-        let socket_hint = (cursor.read_bits::<u8>(3)? as u32 & 0x07) as u8;
+        let socket_hint_width = if axiom.is_alpha() { 3 } else { 3 }; // Restore 3 for now
+        let socket_hint = (cursor.read_bits::<u8>(socket_hint_width)? as u32 & ((1 << socket_hint_width) - 1)) as u8;
         (y, page, socket_hint)
     };
+
+    if axiom.is_alpha() {
+        let _padding = cursor.read_bits::<u8>(8)?; // The mysterious 8-bit Alpha header extension
+    }
 
     let is_ear = (flags & (1 << 16)) != 0;
     let is_identified = (flags & (1 << 4)) != 0;

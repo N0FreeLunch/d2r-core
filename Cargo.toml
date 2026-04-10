@@ -213,5 +213,9 @@ name = "d2save_ssa"
 path = "src/bin/verify/d2save_ssa.rs"
 
 [[bin]]
+name = "sba"
+path = "src/bin/verify/sba.rs"
+
+[[bin]]
 name = "d2item_bve"
 path = "src/bin/verify/d2item_bve.rs"

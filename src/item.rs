@@ -429,6 +429,7 @@ impl Item {
         ctx: Option<(&[u8], u64)>,
         alpha_mode: bool,
     ) -> ParsingResult<Item> {
+        cursor.set_trace(item_trace_enabled());
         let start_bit = cursor.pos();
         cursor.begin_segment(ItemSegmentType::Root);
         

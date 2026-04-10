@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use super::quality::ItemQuality;
 use crate::domain::stats::{ItemProperty, ItemStats};
 
@@ -8,13 +8,13 @@ pub struct RecordedBit {
     pub offset: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct ItemBitRange {
     pub start: u64,
     pub end: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BitSegment {
     pub start: u64,
     pub end: u64,

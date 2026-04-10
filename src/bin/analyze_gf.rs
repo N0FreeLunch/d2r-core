@@ -16,7 +16,7 @@ fn main() {
     println!("if marker at: {}", map.if_pos);
     let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
 
-    match AttributeSection::parse(&bytes, &map) {
+    match AttributeSection::parse(&bytes, map.gf_pos, map.if_pos) {
         Ok(attr) => {
             println!("Attribute Entries: {}", attr.entries.len());
             for entry in &attr.entries {

@@ -68,8 +68,8 @@ fn main() -> Result<()> {
         // 2. Attribute Section Diff
         let map1 = map_core_sections(&bytes1).context("Failed to map sections for file 1")?;
         let map2 = map_core_sections(&bytes2).context("Failed to map sections for file 2")?;
-        let attr1 = AttributeSection::parse(&bytes1, &map1).context("Failed to parse attributes for file 1")?;
-        let attr2 = AttributeSection::parse(&bytes2, &map2).context("Failed to parse attributes for file 2")?;
+        let attr1 = AttributeSection::parse(&bytes1, map1.gf_pos, map1.if_pos).context("Failed to parse attributes for file 1")?;
+        let attr2 = AttributeSection::parse(&bytes2, map2.gf_pos, map2.if_pos).context("Failed to parse attributes for file 2")?;
 
         let is_alpha1 = save1.header.version == 105;
         let is_alpha2 = save2.header.version == 105;

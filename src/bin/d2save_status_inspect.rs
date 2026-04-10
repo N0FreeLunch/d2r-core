@@ -34,7 +34,7 @@ fn main() {
 
     // Attributes (gf section)
     println!("\n--- Attributes (gf section at {}) ---", map.gf_pos);
-    match AttributeSection::parse(&bytes, &map) {
+    match AttributeSection::parse(&bytes, map.gf_pos, map.if_pos) {
         Ok(attrs) => {
             let is_alpha = save.header.version == 105;
             for entry in &attrs.entries {

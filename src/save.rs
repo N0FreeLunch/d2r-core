@@ -15,6 +15,7 @@
 use crate::item::{HuffmanTree, Item};
 use crate::domain::progression::{Quest, QuestSet, Waypoint, WaypointSet};
 pub use crate::domain::stats::{AttributeSection, AttributeEntry};
+pub use crate::domain::character::skills::{SkillSection, SKILL_SECTION_LEN};
 use bitstream_io::LittleEndian;
 use std::io;
 use std::mem;
@@ -35,8 +36,6 @@ pub const ACTIVE_ACT_OFFSET: usize = 21;
 pub const PROGRESS_FLAG_OFFSET: usize = 108;
 
 const MIN_HEADER_LEN: usize = CHAR_NAME_OFFSET + CHAR_NAME_LEN;
-pub const SKILL_SECTION_LEN: usize = 30;
-
 fn find_marker(bytes: &[u8], first: u8, second: u8) -> Option<usize> {
     (0..bytes.len().saturating_sub(1))
         .find(|&i| bytes[i] == first && bytes[i + 1] == second)
@@ -312,37 +311,8 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
 }
 
 
-#[derive(Clone)]
-pub struct SkillSection([u8; SKILL_SECTION_LEN]);
-
-impl SkillSection {
-    pub fn from_slice(slice: &[u8]) -> io::Result<Self> {
-        if slice.len() != SKILL_SECTION_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "skill slice does not match expected length",
-            ));
-        }
-        let mut data = [0u8; SKILL_SECTION_LEN];
-        data.copy_from_slice(slice);
-        Ok(SkillSection(data))
-    }
-
-    pub fn as_slice(&self) -> &[u8; SKILL_SECTION_LEN] {
-        &self.0
-    }
-}
-
 pub fn parse_skill_section(bytes: &[u8], map: &SaveSectionMap) -> io::Result<SkillSection> {
-    let start = map.if_pos + 2;
-    let end = start + SKILL_SECTION_LEN;
-    if end > bytes.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "skill section truncated",
-        ));
-    }
-    SkillSection::from_slice(&bytes[start..end])
+    crate::domain::character::skills::parse_skill_section(bytes, map.if_pos)
 }
 
 pub fn patch_skill_section(

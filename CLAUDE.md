@@ -1,15 +1,15 @@
-# Claude Entry Instructions
+# Claude Entry Instructions (Bootstrap)
 
 ## Canonical References
 Read these in order:
-1. `AGENTS.md`
-2. `NAVIGATOR.md` (Public)
-3. Optional local Strategy Hub `../d2r-spec/NAVIGATOR.md` (Private)
-4. Optional local `../d2r-spec/AGENTS.md`
-5. Optional local `../d2r-spec/AI_WORKFLOW.md`
+1. `AGENTS.md` (Public Safety Floor)
+2. `NAVIGATOR.md` (Public Index)
+3. **`../d2r-spec/CLAUDE.md`** (Local Strategy Hub - **Primary Authority when Hub is present**)
+4. `../d2r-spec/AGENTS.md` (Workflow Overlay)
+5. `../d2r-spec/AI_WORKFLOW.md`
 6. The active `../d2r-spec/.agents/tasks/*.md` file for the current task, if it exists
 
-This file is an entrypoint only. If guidance conflicts, prefer public root docs first, then apply local Strategy Hub overlay docs only if they exist.
+This document is a **bootstrap entrypoint**. If a local Strategy Hub exists at `../d2r-spec/`, its instructions take precedence for implementation, review, and verification workflows. If guidance conflicts, prefer public root docs (`AGENTS.md`) first, then apply the local Strategy Hub overlay only if it exists.
 
 ## Role
 Act as a bounded implementation and review model.

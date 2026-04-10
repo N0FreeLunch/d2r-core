@@ -11,7 +11,9 @@ This is the public bootstrap index for AI agents to locate implementation files,
 ## 0. Navigation Precedence (Read Order)
 1. `AGENTS.md` (global safety + operational constraints)
 2. `NAVIGATOR.md` (this file: public bootstrap map)
-3. Model entrypoint (`gemini.md` or `CLAUDE.md`)
+3. Model entrypoint (`GEMINI.md` or `CLAUDE.md`) — when Strategy Hub is present, prefer its spec-side counterpart:
+   - **`../d2r-spec/GEMINI.md`** (Gemini-class primary authority)
+   - **`../d2r-spec/CLAUDE.md`** (Claude-class primary authority)
 4. Private overlay when available:
    - `../d2r-spec/NAVIGATOR.md`
    - `../d2r-spec/AGENTS.md`
@@ -141,3 +143,11 @@ When editing this navigator:
 2. Apply smallest possible patch for contradictions.
 3. Append clarifications if no contradiction exists.
 4. Keep paths relative from repository root.
+
+## 10. Strategy Hub Model Entrypoints (Canonical)
+When the local Strategy Hub at `../d2r-spec/` is present, use the following spec-side files as the **primary authority** for model-specific operating rules:
+- **`../d2r-spec/GEMINI.md`** — Gemini-class research and planning model entrypoint
+- **`../d2r-spec/CLAUDE.md`** — Claude-class bounded implementation and review model entrypoint
+- **`../d2r-spec/CONSTITUTION.md`** — Strategy Hub private constitutional companion
+
+The core-side files (`GEMINI.md`, `CLAUDE.md`, `CONSTITUTION.md`) are public bootstrap entrypoints that redirect to these spec-side files when the Hub is available.

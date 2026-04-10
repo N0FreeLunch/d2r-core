@@ -1,16 +1,16 @@
-# Gemini Entry Instructions
+# Gemini Entry Instructions (Bootstrap)
 
 ## Canonical References
 Read these in order:
-1. `AGENTS.md`
-2. `NAVIGATOR.md` (Public)
-3. Optional local Strategy Hub `../d2r-spec/NAVIGATOR.md` (Private)
-4. Optional local `../d2r-spec/AGENTS.md`
-5. Optional local `../d2r-spec/AI_WORKFLOW.md`
+1. `AGENTS.md` (Public Safety Floor)
+2. `NAVIGATOR.md` (Public Index)
+3. **`../d2r-spec/GEMINI.md`** (Local Strategy Hub - **Primary Authority when Hub is present**)
+4. `../d2r-spec/AGENTS.md` (Workflow Overlay)
+5. `../d2r-spec/AI_WORKFLOW.md`
 6. Optional local `../d2r-spec/.agents/tasks/*.md`
 7. The relevant `../d2r-spec/discussion/*.md`
 
-This file is an entrypoint only. If guidance conflicts, prefer public root docs first, then apply local Strategy Hub overlay docs only if they exist.
+This document is a **bootstrap entrypoint**. If a local Strategy Hub exists at `../d2r-spec/`, its instructions take precedence for research, planning, and multi-model workflows. If guidance conflicts, prefer public root docs (`AGENTS.md`) first, then apply the local Strategy Hub overlay only if it exists.
 
 ## Role
 Act as a strategic research and analysis model.
@@ -80,8 +80,6 @@ Final updated directive documents should only be written after this review is co
   - Include `Outcome`, `Verification`, and `Residual Risk` whenever the output contains substantive analysis or planning artifacts.
   - Do not force this format for short conversational answers, narrow code explanations, or lightweight review comments unless the user asked for a formal artifact.
 
-
-
 ## High-Efficiency Indexing & Skill Discovery (2026-04-01)
 - **Dynamic Initializing (Context-First)**:
   - Gemini models should prioritize efficiency. Reading `../d2r-spec/SYSTEM_INDEX.md` and `../d2r-spec/.agents/skills/SKILL_INDEX.yml` is **REQUIRED** only when:
@@ -106,4 +104,3 @@ Every TURN that modifies a document (Discussion, Skill, Spec, or Guideline) MUST
 ## Required Final Field
 End meaningful outputs with a short summary of the outcome, verification status, and any remaining risks **only upon Task Completion or Major Planning Deliverables**. For iterative development, maintain brevity.
 This final-field convention applies to planning artifacts, task completions, and other formal handoff-style deliverables, not to every normal reply.
-

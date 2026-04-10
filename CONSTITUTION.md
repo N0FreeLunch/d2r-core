@@ -1,7 +1,8 @@
-# 📜 D2R-Core Constitution
+# 📜 D2R-Core Constitution (Bootstrap)
 
 > **Status:** `Strict Adherence Required`  
-> **Methodology:** `Spec-driven Design (SDD)`
+> **Methodology:** `Spec-driven Design (SDD)`  
+> **Authority:** For detailed governance, consult **`../d2r-spec/CONSTITUTION.md`** (Strategy Hub Private Companion)
 
 ---
 

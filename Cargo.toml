@@ -12,6 +12,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.9"
 serde_json = "1.0"
 dotenvy = "0.15"
+anyhow = "1.0"
 thiserror = "2.0.18"
 syn = { version = "2.0", features = ["full", "visit", "extra-traits", "visit"] }
 proc-macro2 = { version = "1.0", features = ["span-locations"] }
@@ -206,3 +207,11 @@ path = "src/bin/verify/bsmt_mutate.rs"
 [[bin]]
 name = "ast_probe"
 path = "src/bin/verify/ast_probe.rs"
+
+[[bin]]
+name = "d2save_ssa"
+path = "src/bin/verify/d2save_ssa.rs"
+
+[[bin]]
+name = "d2item_bve"
+path = "src/bin/verify/d2item_bve.rs"

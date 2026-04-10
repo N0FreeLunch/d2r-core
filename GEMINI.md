@@ -30,6 +30,11 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
 - **[MANDATORY] Encoding Boundary Safety**:
   - If you encounter mojibake (broken text) or need to read files with non-ASCII content, you MUST use `d2r-agent-helper read-text` instead of raw shell commands.
   - Never trust the console display for Korean text; only trust the structured JSON output.
+- **[MANDATORY] Gemini CLI Agent Encoding (Windows)**:
+  - When operating as an agent within Gemini CLI, the following instructions apply:
+  - **Force PowerShell Output**: Every `run_shell_command` call MUST include the preamble `$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;` at the top to force UTF-8 output.
+  - **Mandatory EncodedCommand**: When passing complex arguments containing non-ASCII (e.g., Korean) characters, you MUST use the `-EncodedCommand` (UTF-16LE + Base64) method to prevent shell encoding interference.
+  - Refer to [0145: Gemini CLI Windows Encoding Standard](../d2r-spec/discussion/0145-gemini-cli-windows-encoding-standard.md) for technical details and solution guides.
 - **Strategic Verification Phase**: Prioritize examining the validity of the user's opinion or request before execution. If validation requires work, perform the minimal amount necessary to confirm feasibility and state your perspective on the validity first.
 - Treat the Strategy Hub at `../d2r-spec/` and fixtures as truth for binary behavior.
 - If `../d2r-spec/AGENTS.md`, `../d2r-spec/AI_WORKFLOW.md`, or `../d2r-spec/.agents/tasks/` exists locally, use them only as a private overlay and do not copy their sensitive detail into public root docs.

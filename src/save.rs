@@ -17,6 +17,11 @@ pub use crate::domain::progression::axiom::{
     V105_HEADER_LEN, V105_NPC_LEN, V105_NPC_OFFSET, V105_QUEST_LEN, V105_QUEST_OFFSET,
     V105_WAYPOINT_LEN, V105_WAYPOINT_OFFSET,
 };
+pub use crate::domain::header::axiom::{
+    ACTIVE_ACT_OFFSET, ACTIVE_WEAPON_OFFSET, CHAR_CLASS_OFFSET, CHAR_LEVEL_OFFSET,
+    CHAR_NAME_LEN, CHAR_NAME_OFFSET, CHECKSUM_OFFSET, D2S_MAGIC, FILE_SIZE_OFFSET,
+    LAST_PLAYED_OFFSET, MAGIC_OFFSET, MIN_HEADER_LEN, PROGRESS_FLAG_OFFSET, VERSION_OFFSET,
+};
 pub use crate::domain::stats::{AttributeSection, AttributeEntry};
 pub use crate::domain::character::skills::{SkillSection, SKILL_SECTION_LEN};
 pub use crate::domain::progression::{QuestSection, WaypointSection};
@@ -24,22 +29,6 @@ use bitstream_io::LittleEndian;
 use std::io;
 use std::mem;
 
-pub const D2S_MAGIC: u32 = 0xaa55aa55;
-
-pub const MAGIC_OFFSET: usize = 0;
-pub const VERSION_OFFSET: usize = 4;
-pub const FILE_SIZE_OFFSET: usize = 8;
-pub const CHECKSUM_OFFSET: usize = 12;
-pub const ACTIVE_WEAPON_OFFSET: usize = 16;
-pub const CHAR_CLASS_OFFSET: usize = 24;
-pub const CHAR_LEVEL_OFFSET: usize = 27;
-pub const LAST_PLAYED_OFFSET: usize = 32;
-pub const CHAR_NAME_OFFSET: usize = 299;
-pub const CHAR_NAME_LEN: usize = 48;
-pub const ACTIVE_ACT_OFFSET: usize = 21;
-pub const PROGRESS_FLAG_OFFSET: usize = 108;
-
-const MIN_HEADER_LEN: usize = CHAR_NAME_OFFSET + CHAR_NAME_LEN;
 fn find_marker(bytes: &[u8], first: u8, second: u8) -> Option<usize> {
     (0..bytes.len().saturating_sub(1))
         .find(|&i| bytes[i] == first && bytes[i + 1] == second)

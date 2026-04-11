@@ -1,20 +1,41 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
 use d2r_core::item::{HuffmanTree, Item};
+use d2r_core::verify::args::{ArgParser, ArgSpec};
 use std::env;
 use std::fs;
 use std::io::Cursor;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2item_bit_peek <save_file>");
-        return;
-    }
-    let path = &args[1];
-    let offset = args.get(2).and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-    let count_bits = args
-        .get(3)
+    let mut parser = ArgParser::new("d2item_bit_peek");
+    parser.add_spec(ArgSpec::positional("save_file", "Path to save file"));
+    parser.add_spec(
+        ArgSpec::positional("offset", "Bit offset from start")
+            .optional()
+            .with_default("0"),
+    );
+    parser.add_spec(
+        ArgSpec::positional("count_bits", "Number of bits to read")
+            .optional()
+            .with_default("64"),
+    );
+
+    let parsed = match parser.parse(env::args_os().skip(1).collect()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}", e);
+            eprintln!("\n{}", parser.usage());
+            std::process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
+    let offset = parsed
+        .get("offset")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+    let count_bits = parsed
+        .get("count_bits")
         .and_then(|s| s.parse::<u32>().ok())
         .unwrap_or(64);
     let bytes = fs::read(path).expect("failed to read save file");

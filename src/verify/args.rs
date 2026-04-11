@@ -69,6 +69,11 @@ impl ArgSpec {
         self
     }
 
+    pub fn optional(mut self) -> Self {
+        self.required = false;
+        self
+    }
+
     pub fn with_env(mut self, env_var: &str) -> Self {
         self.env_var = Some(env_var.to_string());
         self

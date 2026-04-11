@@ -68,18 +68,18 @@ fn main() {
         let bytes = match fs::read(path) {
             Ok(b) => b,
             Err(e) => {
-                let result = Report::<serde_json::Value> {
-                    metadata: ReportMetadata {
-                        tool: "d2save_verify".to_string(),
-                        file: path.clone(),
-                        version: "unknown".to_string(),
-                        timestamp: "".to_string(),
-                    },
-                    status: ReportStatus::Fail,
-                    issues,
-                    hints: vec!["Ensure the file path is correct and accessible.".to_string()],
-                    scan_results: None,
-                };
+                issues.push(ReportIssue {
+                    kind: "io".to_string(),
+                    message: format!("Cannot read file: {}", e),
+                    bit_offset: None,
+                });
+                let result = Report::<serde_json::Value>::new(
+                    ReportMetadata::new("d2save_verify", path, "unknown"),
+                    ReportStatus::Fail,
+                )
+                .with_issues(issues)
+                .with_hints(vec!["Ensure the file path is correct and accessible.".to_string()]);
+
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
             }
@@ -88,20 +88,21 @@ fn main() {
         let save = match Save::from_bytes(&bytes) {
             Ok(s) => s,
             Err(err) => {
-                let result = Report::<serde_json::Value> {
-                    metadata: ReportMetadata {
-                        tool: "d2save_verify".to_string(),
-                        file: path.clone(),
-                        version: "corrupted".to_string(),
-                        timestamp: "".to_string(),
-                    },
-                    status: ReportStatus::Fail,
-                    issues,
-                    hints: vec!["Header is corrupted or in an unsupported format.".to_string()],
-                    scan_results: Some(serde_json::json!({
-                        "file_size_actual": bytes.len(),
-                    })),
-                };
+                issues.push(ReportIssue {
+                    kind: "header_parse".to_string(),
+                    message: format!("Header parse: {}", err),
+                    bit_offset: None,
+                });
+                let result = Report::<serde_json::Value>::new(
+                    ReportMetadata::new("d2save_verify", path, "corrupted"),
+                    ReportStatus::Fail,
+                )
+                .with_issues(issues)
+                .with_hints(vec!["Header is corrupted or in an unsupported format.".to_string()])
+                .with_results(serde_json::json!({
+                    "file_size_actual": bytes.len(),
+                }));
+
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
             }
@@ -231,28 +232,25 @@ fn main() {
         hints.dedup();
 
         let issue_count = issues.len();
-        let result = Report::<D2SaveVerifyPayload> {
-            metadata: ReportMetadata {
-                tool: "d2save_verify".to_string(),
-                file: path.clone(),
-                version: format!("0x{:04X}", save.header.version),
-                timestamp: "".to_string(),
-            },
-            status: if fail { ReportStatus::Fail } else { ReportStatus::Ok },
-            issues,
-            hints,
-            scan_results: Some(D2SaveVerifyPayload {
-                header_version: save.header.version,
-                alpha_mode,
-                file_size_header: header_size,
-                file_size_actual: actual_size,
-                file_size_delta: (actual_size as i64) - (header_size as i64),
-                checksum_stored: format!("0x{:08X}", stored_checksum),
-                checksum_calculated: calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
-                jm_marker_count: jm_markers.len(),
-                issue_count,
-            }),
-        };
+        let status = if fail { ReportStatus::Fail } else { ReportStatus::Ok };
+        let version = format!("0x{:04X}", save.header.version);
+        let result = Report::<D2SaveVerifyPayload>::new(
+            ReportMetadata::new("d2save_verify", path, &version),
+            status,
+        )
+        .with_issues(issues)
+        .with_hints(hints)
+        .with_results(D2SaveVerifyPayload {
+            header_version: save.header.version,
+            alpha_mode,
+            file_size_header: header_size,
+            file_size_actual: actual_size,
+            file_size_delta: (actual_size as i64) - (header_size as i64),
+            checksum_stored: format!("0x{:08X}", stored_checksum),
+            checksum_calculated: calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
+            jm_marker_count: jm_markers.len(),
+            issue_count,
+        });
         println!("{}", serde_json::to_string(&result).unwrap());
         process::exit(if fail { 1 } else { 0 });
     }

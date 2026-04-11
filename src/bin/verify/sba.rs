@@ -114,24 +114,19 @@ fn main() -> Result<()> {
 
     if is_json {
         let status = if issues.is_empty() { ReportStatus::Ok } else { ReportStatus::Fail };
-        let report = Report {
-            metadata: ReportMetadata {
-                tool: "sba".to_string(),
-                file: fixture_path,
-                version: if is_alpha { "105".to_string() } else { format!("0x{:04X}", save.header.version) },
-                timestamp: "".to_string(),
-            },
-            status,
-            scan_results: Some(SbaJsonPayload {
-                fixture: current_baseline.fixture,
-                baseline: baseline_path,
-                mode: if is_generate { "generate".to_string() } else { "verify".to_string() },
-                item_count: current_baseline.items.len(),
-                mismatch_count: issues.len(),
-            }),
-            issues,
-            hints: Vec::new(),
+        let version = if is_alpha { "105".to_string() } else { format!("0x{:04X}", save.header.version) };
+        let metadata = ReportMetadata::new("sba", &fixture_path, &version);
+        let payload = SbaJsonPayload {
+            fixture: current_baseline.fixture,
+            baseline: baseline_path,
+            mode: if is_generate { "generate".to_string() } else { "verify".to_string() },
+            item_count: current_baseline.items.len(),
+            mismatch_count: issues.len(),
         };
+        let report = Report::new(metadata, status)
+            .with_results(payload)
+            .with_issues(issues);
+
         println!("{}", serde_json::to_string(&report)?);
     }
 

@@ -67,18 +67,10 @@ fn main() {
         Ok(b) => b,
         Err(e) => {
             if is_json {
-                let report = Report::<BitPeekJsonPayload> {
-                    metadata: ReportMetadata {
-                        tool: "d2item_bit_peek".to_string(),
-                        file: path.clone(),
-                        version: "unknown".to_string(),
-                        timestamp: "".to_string(),
-                    },
-                    status: ReportStatus::Fail,
-                    issues: vec![ReportIssue { kind: "io".to_string(), message: format!("Failed to read file: {}", e), bit_offset: None }],
-                    hints: vec!["Ensure the file path is correct and accessible.".to_string()],
-                    scan_results: None,
-                };
+                let metadata = ReportMetadata::new("d2item_bit_peek", path, "unknown");
+                let report = Report::<BitPeekJsonPayload>::new(metadata, ReportStatus::Fail)
+                    .with_issues(vec![ReportIssue { kind: "io".to_string(), message: format!("Failed to read file: {}", e), bit_offset: None }])
+                    .with_hints(vec!["Ensure the file path is correct and accessible.".to_string()]);
                 println!("{}", serde_json::to_string(&report).unwrap());
                 std::process::exit(1);
             } else {
@@ -107,18 +99,10 @@ fn main() {
         
         if is_json {
             payload.value_bin = Some(format!("{:0width$b}", val, width = count_bits as usize));
-            let report = Report {
-                metadata: ReportMetadata {
-                    tool: "d2item_bit_peek".to_string(),
-                    file: path.clone(),
-                    version: "unknown".to_string(),
-                    timestamp: "".to_string(),
-                },
-                status: ReportStatus::Ok,
-                scan_results: Some(payload),
-                issues,
-                hints: Vec::new(),
-            };
+            let metadata = ReportMetadata::new("d2item_bit_peek", path, "unknown");
+            let report = Report::new(metadata, ReportStatus::Ok)
+                .with_results(payload)
+                .with_issues(issues);
             println!("{}", serde_json::to_string(&report).unwrap());
         } else {
             println!(
@@ -135,18 +119,10 @@ fn main() {
         Some(pos) => pos,
         None => {
             if is_json {
-                let report = Report::<BitPeekJsonPayload> {
-                    metadata: ReportMetadata {
-                        tool: "d2item_bit_peek".to_string(),
-                        file: path.clone(),
-                        version: "unknown".to_string(),
-                        timestamp: "".to_string(),
-                    },
-                    status: ReportStatus::Fail,
-                    issues: vec![ReportIssue { kind: "format".to_string(), message: "No JM marker found".to_string(), bit_offset: None }],
-                    hints: vec!["Not a valid D2 character save or severely truncated.".to_string()],
-                    scan_results: None,
-                };
+                let metadata = ReportMetadata::new("d2item_bit_peek", path, "unknown");
+                let report = Report::<BitPeekJsonPayload>::new(metadata, ReportStatus::Fail)
+                    .with_issues(vec![ReportIssue { kind: "format".to_string(), message: "No JM marker found".to_string(), bit_offset: None }])
+                    .with_hints(vec!["Not a valid D2 character save or severely truncated.".to_string()]);
                 println!("{}", serde_json::to_string(&report).unwrap());
                 std::process::exit(1);
             } else {
@@ -253,18 +229,11 @@ fn main() {
 
     if is_json {
         payload.items = Some(json_items);
-        let report = Report {
-            metadata: ReportMetadata {
-                tool: "d2item_bit_peek".to_string(),
-                file: path.clone(),
-                version: if is_alpha { "105".to_string() } else { "unknown".to_string() },
-                timestamp: "".to_string(),
-            },
-            status: if issues.is_empty() { ReportStatus::Ok } else { ReportStatus::Fail },
-            scan_results: Some(payload),
-            issues,
-            hints: Vec::new(),
-        };
+        let version = if is_alpha { "105" } else { "unknown" };
+        let metadata = ReportMetadata::new("d2item_bit_peek", path, version);
+        let report = Report::new(metadata, if issues.is_empty() { ReportStatus::Ok } else { ReportStatus::Fail })
+            .with_results(payload)
+            .with_issues(issues);
         println!("{}", serde_json::to_string(&report).unwrap());
     }
 }

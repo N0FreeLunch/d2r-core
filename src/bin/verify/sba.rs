@@ -5,6 +5,7 @@ use anyhow::{Result, Context};
 
 use d2r_core::save::Save;
 use d2r_core::item::{Item, HuffmanTree, BitSegment, ItemBitRange};
+use d2r_core::verify::args::{ArgParser, ArgSpec};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SbaBaseline {
@@ -21,23 +22,25 @@ struct SbaItem {
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    
-    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
-        print_help();
-        return Ok(());
-    }
+    let mut parser = ArgParser::new("sba");
+    parser.add_spec(ArgSpec::option("fixture", None, Some("fixture"), "Path to the savegame fixture (.d2s)").required());
+    parser.add_spec(ArgSpec::option("baseline", None, Some("baseline"), "Path to the JSON baseline file").required());
+    parser.add_spec(ArgSpec::flag("generate", None, Some("generate"), "Generate a new baseline from the fixture"));
+    parser.add_spec(ArgSpec::flag("verify", None, Some("verify"), "Verify the fixture against an existing baseline"));
 
-    let fixture_path = match get_arg(&args, "--fixture") {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
         Ok(p) => p,
-        Err(_) => {
-            print_help();
-            return Ok(());
+        Err(e) => {
+            eprintln!("{}", e);
+            std::process::exit(1);
         }
     };
-    let baseline_path = get_arg(&args, "--baseline")?;
-    let is_generate = args.contains(&"--generate".to_string());
-    let is_verify = args.contains(&"--verify".to_string());
+
+    let fixture_path = parsed.get("fixture").cloned().unwrap();
+    let baseline_path = parsed.get("baseline").cloned().unwrap();
+    let is_generate = parsed.is_set("generate");
+    let is_verify = parsed.is_set("verify");
 
     if !is_generate && !is_verify {
         anyhow::bail!("Must specify either --generate or --verify");
@@ -145,25 +148,4 @@ fn verify_baseline(expected: &SbaBaseline, actual: &SbaBaseline) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn get_arg(args: &[String], name: &str) -> Result<String> {
-    let pos = args.iter().position(|a| a == name)
-        .with_context(|| format!("Missing required argument: {}", name))?;
-    if pos + 1 >= args.len() {
-        anyhow::bail!("Argument {} requires a value", name);
-    }
-    Ok(args[pos + 1].clone())
-}
-
-fn print_help() {
-    println!("SBA - Segment Baseline Analysis Verifier");
-    println!();
-    println!("Usage: sba --fixture <path> --baseline <path> [--generate | --verify]");
-    println!();
-    println!("Options:");
-    println!("  --fixture <path>   Path to the savegame fixture (.d2s)");
-    println!("  --baseline <path>  Path to the JSON baseline file");
-    println!("  --generate         Generate a new baseline from the fixture");
-    println!("  --verify           Verify the fixture against an existing baseline");
 }

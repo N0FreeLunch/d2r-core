@@ -14,6 +14,10 @@
 
 use crate::item::{HuffmanTree, Item};
 use crate::domain::progression::{Waypoint, WaypointSet};
+pub use crate::domain::progression::axiom::{
+    V105_HEADER_LEN, V105_NPC_LEN, V105_NPC_OFFSET, V105_QUEST_LEN, V105_QUEST_OFFSET,
+    V105_WAYPOINT_LEN, V105_WAYPOINT_OFFSET,
+};
 pub use crate::domain::stats::{AttributeSection, AttributeEntry};
 pub use crate::domain::character::skills::{SkillSection, SKILL_SECTION_LEN};
 use bitstream_io::LittleEndian;
@@ -203,9 +207,9 @@ pub fn rebuild_status_and_player_items(
     // Update QUESTS if present (Alpha v105)
     if version == 105 {
         if let Some(qs) = quests {
-            let offset = 0x193; // Quest Section (Woo!)
+            let offset = V105_QUEST_OFFSET; // Quest Section (Woo!)
             let slice = qs.as_slice();
-            let len = slice.len().min(701 - offset); // End before WS starts at 701
+            let len = slice.len().min(V105_QUEST_LEN); // End before WS starts at 701
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
@@ -215,9 +219,9 @@ pub fn rebuild_status_and_player_items(
     // Update WAYPOINTS if present (Alpha v105)
     if version == 105 {
         if let Some(wps) = waypoints {
-            let offset = 0x2BD; // Waypoint Section (WS)
+            let offset = V105_WAYPOINT_OFFSET; // Waypoint Section (WS)
             let slice = wps.as_slice();
-            let len = slice.len().min(782 - offset); // End before NPC starts at 782
+            let len = slice.len().min(V105_WAYPOINT_LEN); // End before NPC starts at 782
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
@@ -227,9 +231,9 @@ pub fn rebuild_status_and_player_items(
     // Update NPC Section if present (Alpha v105)
     if version == 105 {
         if let Some(npc) = expansion {
-            let offset = 0x30E; // NPC Section
+            let offset = V105_NPC_OFFSET; // NPC Section
             let slice = npc.as_slice();
-            let len = slice.len().min(833 - offset); // Up to header end (Stats start at 833)
+            let len = slice.len().min(V105_NPC_LEN); // Up to header end (Stats start at 833)
             if header_bytes.len() >= offset + len {
                 header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
             }
@@ -559,33 +563,33 @@ impl Save {
             progress_flag,
             last_played,
             raw_prefix: bytes[..match version {
-                105 => 833, // Alpha v105 Fixed Header
+                105 => V105_HEADER_LEN, // Alpha v105 Fixed Header
                 _ => MIN_HEADER_LEN,
             }
             .min(bytes.len())]
                 .to_vec(),
-            quests: if version == 105 && bytes.len() >= 0x193 + 12 {
+            quests: if version == 105 && bytes.len() >= V105_QUEST_OFFSET + 12 {
                 // Quest Section (Woo!) starts at 0x193 (403).
                 // It ends before Waypoints at 0x2BD (701).
-                let end = 0x2BD.min(bytes.len());
-                Some(QuestSection::from_slice(&bytes[0x193..end]))
+                let end = V105_WAYPOINT_OFFSET.min(bytes.len());
+                Some(QuestSection::from_slice(&bytes[V105_QUEST_OFFSET..end]))
             } else {
                 None
             },
-            waypoints: if version == 105 && bytes.len() >= 0x2BD + 2 {
+            waypoints: if version == 105 && bytes.len() >= V105_WAYPOINT_OFFSET + 2 {
                 // Waypoint Section (WS) starts at 0x2BD (701).
                 // It spans 24 bytes per difficulty (72 bytes total).
                 // NPC section starts at 0x30E (782).
-                let end = 0x30E.min(bytes.len());
-                Some(WaypointSection::from_slice(&bytes[0x2BD..end]))
+                let end = V105_NPC_OFFSET.min(bytes.len());
+                Some(WaypointSection::from_slice(&bytes[V105_WAYPOINT_OFFSET..end]))
             } else {
                 None
             },
-            expansion: if version == 105 && bytes.len() >= 0x30E + 2 {
+            expansion: if version == 105 && bytes.len() >= V105_NPC_OFFSET + 2 {
                 // NPC Section starts at 0x30E (782).
                 // It ends at header end (833).
-                let end = 833.min(bytes.len());
-                Some(ExpansionSection::from_slice(&bytes[0x30E..end]))
+                let end = V105_HEADER_LEN.min(bytes.len());
+                Some(ExpansionSection::from_slice(&bytes[V105_NPC_OFFSET..end]))
             } else {
                 None
             },
@@ -601,9 +605,9 @@ impl Header {
 
         // Update QUESTS if present (Alpha v105)
         if let Some(ref qs) = self.quests {
-            let offset = 0x193;
+            let offset = V105_QUEST_OFFSET;
             let slice = qs.as_slice();
-            let max_len = 0x2BD - offset;
+            let max_len = V105_QUEST_LEN;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);
@@ -612,9 +616,9 @@ impl Header {
 
         // Update WAYPOINTS if present (Alpha v105)
         if let Some(ref wps) = self.waypoints {
-            let offset = 0x2BD;
+            let offset = V105_WAYPOINT_OFFSET;
             let slice = wps.as_slice();
-            let max_len = 0x30E - offset;
+            let max_len = V105_WAYPOINT_LEN;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);
@@ -623,9 +627,9 @@ impl Header {
 
         // Update EXPANSION (NPC) if present (Alpha v105)
         if let Some(ref ex) = self.expansion {
-            let offset = 0x30E;
+            let offset = V105_NPC_OFFSET;
             let slice = ex.as_slice();
-            let max_len = 833 - offset;
+            let max_len = V105_NPC_LEN;
             let len = slice.len().min(max_len);
             if bytes.len() >= offset + len {
                 bytes[offset..offset + len].copy_from_slice(&slice[..len]);

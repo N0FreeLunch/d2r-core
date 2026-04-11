@@ -1,4 +1,5 @@
 use crate::data::quests::{QuestEntry, V105_QUESTS};
+use super::axiom::V105_QUEST_OFFSET;
 
 #[derive(Clone, Copy)]
 pub struct Quest {
@@ -78,7 +79,7 @@ impl QuestSet {
         let quests = V105_QUESTS
             .iter()
             .map(|entry| {
-                let offset = entry.v105_offset - 403;
+                let offset = entry.v105_offset - V105_QUEST_OFFSET;
                 let state = if offset + 1 < bytes.len() {
                     u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
                 } else {
@@ -92,7 +93,7 @@ impl QuestSet {
 
     pub fn sync_to_v105_bytes(&self, bytes: &mut [u8]) {
         for quest in &self.quests {
-            let offset = quest.v105_offset() - 403;
+            let offset = quest.v105_offset() - V105_QUEST_OFFSET;
             if offset + 1 < bytes.len() {
                 let le_bytes = quest.state().to_le_bytes();
                 bytes[offset] = le_bytes[0];

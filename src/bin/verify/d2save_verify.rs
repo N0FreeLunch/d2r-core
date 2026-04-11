@@ -6,21 +6,19 @@ use std::process;
 use serde::Serialize;
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
+use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
 
 #[derive(Serialize)]
-struct VerifyIssue {
-    kind: String,
-    message: String,
-    bit_offset: Option<u64>,
-}
-
-#[derive(Serialize)]
-struct VerifyResult {
-    file: String,
-    status: String,
-    issues: Vec<VerifyIssue>,
-    hints: Vec<String>,
-    metadata: serde_json::Value,
+struct D2SaveVerifyPayload {
+    header_version: u32,
+    alpha_mode: bool,
+    file_size_header: usize,
+    file_size_actual: usize,
+    file_size_delta: i64,
+    checksum_stored: String,
+    checksum_calculated: Option<String>,
+    jm_marker_count: usize,
+    issue_count: usize,
 }
 
 fn main() {
@@ -70,17 +68,17 @@ fn main() {
         let bytes = match fs::read(path) {
             Ok(b) => b,
             Err(e) => {
-                issues.push(VerifyIssue {
-                    kind: "io".to_string(),
-                    message: format!("Cannot read file: {}", e),
-                    bit_offset: None,
-                });
-                let result = VerifyResult {
-                    file: path.clone(),
-                    status: "fail".to_string(),
+                let result = Report::<serde_json::Value> {
+                    metadata: ReportMetadata {
+                        tool: "d2save_verify".to_string(),
+                        file: path.clone(),
+                        version: "unknown".to_string(),
+                        timestamp: chrono::Local::now().to_rfc3339(),
+                    },
+                    status: ReportStatus::Fail,
                     issues,
                     hints: vec!["Ensure the file path is correct and accessible.".to_string()],
-                    metadata: serde_json::json!({}),
+                    scan_results: None,
                 };
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
@@ -90,19 +88,19 @@ fn main() {
         let save = match Save::from_bytes(&bytes) {
             Ok(s) => s,
             Err(err) => {
-                issues.push(VerifyIssue {
-                    kind: "header_parse".to_string(),
-                    message: format!("{}", err),
-                    bit_offset: None,
-                });
-                let result = VerifyResult {
-                    file: path.clone(),
-                    status: "fail".to_string(),
+                let result = Report::<serde_json::Value> {
+                    metadata: ReportMetadata {
+                        tool: "d2save_verify".to_string(),
+                        file: path.clone(),
+                        version: "corrupted".to_string(),
+                        timestamp: chrono::Local::now().to_rfc3339(),
+                    },
+                    status: ReportStatus::Fail,
                     issues,
                     hints: vec!["Header is corrupted or in an unsupported format.".to_string()],
-                    metadata: serde_json::json!({
+                    scan_results: Some(serde_json::json!({
                         "file_size_actual": bytes.len(),
-                    }),
+                    })),
                 };
                 println!("{}", serde_json::to_string(&result).unwrap());
                 process::exit(1);
@@ -121,7 +119,7 @@ fn main() {
                     d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
                     _ => None,
                 };
-                issues.push(VerifyIssue {
+                issues.push(ReportIssue {
                     kind: "item_parse".to_string(),
                     message: format!("{}", err),
                     bit_offset,
@@ -135,7 +133,7 @@ fn main() {
             let item_bits = match item.to_bytes(&huffman, alpha_mode) {
                 Ok(b) => b,
                 Err(e) => {
-                    issues.push(VerifyIssue {
+                    issues.push(ReportIssue {
                         kind: "item_parse".to_string(),
                         message: format!("Item to_bytes ({}): {}", item.code, e),
                         bit_offset: None,
@@ -152,7 +150,7 @@ fn main() {
                     d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
                     _ => None,
                 };
-                issues.push(VerifyIssue {
+                issues.push(ReportIssue {
                     kind: "item_parse".to_string(),
                     message: format!("Item round-trip parse failure ({}): {}", item.code, e),
                     bit_offset,
@@ -164,7 +162,7 @@ fn main() {
         let header_size = save.header.file_size as usize;
         let actual_size = bytes.len();
         if header_size != actual_size {
-            issues.push(VerifyIssue {
+            issues.push(ReportIssue {
                 kind: "file_size".to_string(),
                 message: format!(
                     "File size header: {} bytes, actual: {} bytes",
@@ -181,7 +179,7 @@ fn main() {
             Ok(calculated_checksum) => {
                 calculated_checksum_opt = Some(calculated_checksum);
                 if stored_checksum != calculated_checksum {
-                    issues.push(VerifyIssue {
+                    issues.push(ReportIssue {
                         kind: "checksum".to_string(),
                         message: format!(
                             "stored=0x{:08X}, calculated=0x{:08X}",
@@ -193,7 +191,7 @@ fn main() {
                 }
             }
             Err(err) => {
-                issues.push(VerifyIssue {
+                issues.push(ReportIssue {
                     kind: "checksum".to_string(),
                     message: format!("recalculation error: {}", err),
                     bit_offset: None,
@@ -204,7 +202,7 @@ fn main() {
 
         let jm_markers = find_jm_markers(&bytes);
         if jm_markers.is_empty() {
-            issues.push(VerifyIssue {
+            issues.push(ReportIssue {
                 kind: "jm_markers".to_string(),
                 message: "No JM markers found".to_string(),
                 bit_offset: None,
@@ -233,21 +231,26 @@ fn main() {
         hints.dedup();
 
         let issue_count = issues.len();
-        let result = VerifyResult {
-            file: path.clone(),
-            status: if fail { "fail".to_string() } else { "ok".to_string() },
+        let result = Report::<D2SaveVerifyPayload> {
+            metadata: ReportMetadata {
+                tool: "d2save_verify".to_string(),
+                file: path.clone(),
+                version: format!("0x{:04X}", save.header.version),
+                timestamp: chrono::Local::now().to_rfc3339(),
+            },
+            status: if fail { ReportStatus::Fail } else { ReportStatus::Ok },
             issues,
             hints,
-            metadata: serde_json::json!({
-                "header_version": save.header.version,
-                "alpha_mode": alpha_mode,
-                "file_size_header": header_size,
-                "file_size_actual": actual_size,
-                "file_size_delta": (actual_size as i64) - (header_size as i64),
-                "checksum_stored": format!("0x{:08X}", stored_checksum),
-                "checksum_calculated": calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
-                "jm_marker_count": jm_markers.len(),
-                "issue_count": issue_count,
+            scan_results: Some(D2SaveVerifyPayload {
+                header_version: save.header.version,
+                alpha_mode,
+                file_size_header: header_size,
+                file_size_actual: actual_size,
+                file_size_delta: (actual_size as i64) - (header_size as i64),
+                checksum_stored: format!("0x{:08X}", stored_checksum),
+                checksum_calculated: calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
+                jm_marker_count: jm_markers.len(),
+                issue_count,
             }),
         };
         println!("{}", serde_json::to_string(&result).unwrap());

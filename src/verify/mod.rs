@@ -37,3 +37,36 @@ impl VerificationReport {
         }
     }
 }
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportStatus {
+    Ok,
+    Fail,
+    Warn,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ReportMetadata {
+    pub tool: String,
+    pub file: String,
+    pub version: String,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ReportIssue {
+    pub kind: String,
+    pub message: String,
+    pub bit_offset: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct Report<T> {
+    pub metadata: ReportMetadata,
+    pub status: ReportStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan_results: Option<T>,
+    pub issues: Vec<ReportIssue>,
+    pub hints: Vec<String>,
+}

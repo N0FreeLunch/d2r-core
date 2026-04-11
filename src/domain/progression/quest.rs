@@ -122,6 +122,54 @@ impl QuestSet {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct QuestSection {
+    pub raw_bytes: Vec<u8>,
+}
+
+impl QuestSection {
+    pub fn from_slice(slice: &[u8]) -> Self {
+        QuestSection {
+            raw_bytes: slice.to_vec(),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.raw_bytes
+    }
+
+    pub fn is_v105_completed_by_name(&self, name: &str) -> bool {
+        let set = QuestSet::from_v105_bytes(&self.raw_bytes);
+        set.find_by_name(name).map(|q| q.is_completed()).unwrap_or(false)
+    }
+
+    pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
+        let mut set = QuestSet::from_v105_bytes(&self.raw_bytes);
+        if let Some(q) = set.quests_mut().iter_mut().find(|q: &&mut Quest| q.name() == name) {
+            q.set_completed(completed);
+            set.sync_to_v105_bytes(&mut self.raw_bytes);
+            return true;
+        }
+        false
+    }
+
+    /// Unlocks the Durance of Hate gate (Act 3) by setting semantic bits discovered in forensics.
+    pub fn unlock_durance_gate(&mut self) {
+        // 1. Set "Khalim's Will" Quest Completed Bits
+        self.set_v105_completed_by_name("Khalim's Will", true);
+
+        // 2. Set "Sacred Authority" / Gate Flag in the Quest Section Header (approx byte 8)
+        if self.raw_bytes.len() > 8 {
+            self.raw_bytes[8] |= 0x01; // Gate Flag
+        }
+
+        // 3. Set Environment State (approx 12th byte / before first quest)
+        if self.raw_bytes.len() > 11 {
+            self.raw_bytes[11] |= 0x80; // Orb Destroyed / Environment Trigger
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

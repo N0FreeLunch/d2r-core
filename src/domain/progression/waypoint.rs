@@ -128,6 +128,48 @@ impl WaypointSet {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct WaypointSection {
+    pub raw_bytes: Vec<u8>,
+}
+
+impl WaypointSection {
+    pub fn from_slice(slice: &[u8]) -> Self {
+        WaypointSection {
+            raw_bytes: slice.to_vec(),
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] {
+        &self.raw_bytes
+    }
+
+    pub fn set_activated(&mut self, byte_idx: usize, bit_idx: usize, active: bool) {
+        if byte_idx < self.raw_bytes.len() {
+            if active {
+                self.raw_bytes[byte_idx] |= 1 << bit_idx;
+            } else {
+                self.raw_bytes[byte_idx] &= !(1 << bit_idx);
+            }
+        }
+    }
+
+    pub fn is_activated_by_name(&self, name: &str, difficulty: u8) -> bool {
+        let set = WaypointSet::from_bytes(&self.raw_bytes, difficulty);
+        set.find_by_name(name).map(|w| w.is_active()).unwrap_or(false)
+    }
+
+    pub fn set_activated_by_name(&mut self, name: &str, difficulty: u8, active: bool) -> bool {
+        let mut set = WaypointSet::from_bytes(&self.raw_bytes, difficulty);
+        if let Some(wp) = set.waypoints_mut().iter_mut().find(|w: &&mut Waypoint| w.name() == name) {
+            wp.set_active(active);
+            set.sync_to_bytes(&mut self.raw_bytes);
+            return true;
+        }
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

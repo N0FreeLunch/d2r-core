@@ -9,7 +9,7 @@ pub(crate) fn item_trace_enabled() -> bool {
 macro_rules! item_trace {
     ($($arg:tt)*) => {
         if crate::item::item_trace_enabled() {
-            println!($($arg)*);
+            eprintln!($($arg)*);
         }
     };
 }

@@ -70,3 +70,41 @@ pub struct Report<T> {
     pub issues: Vec<ReportIssue>,
     pub hints: Vec<String>,
 }
+
+impl ReportMetadata {
+    pub fn new(tool: &str, file: &str, version: &str) -> Self {
+        Self {
+            tool: tool.to_string(),
+            file: file.to_string(),
+            version: version.to_string(),
+            timestamp: "".to_string(),
+        }
+    }
+}
+
+impl<T> Report<T> {
+    pub fn new(metadata: ReportMetadata, status: ReportStatus) -> Self {
+        Self {
+            metadata,
+            status,
+            scan_results: None,
+            issues: Vec::new(),
+            hints: Vec::new(),
+        }
+    }
+
+    pub fn with_results(mut self, results: T) -> Self {
+        self.scan_results = Some(results);
+        self
+    }
+
+    pub fn with_issues(mut self, issues: Vec<ReportIssue>) -> Self {
+        self.issues = issues;
+        self
+    }
+
+    pub fn with_hints(mut self, hints: Vec<String>) -> Self {
+        self.hints = hints;
+        self
+    }
+}

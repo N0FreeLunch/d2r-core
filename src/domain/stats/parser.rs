@@ -10,7 +10,7 @@ use crate::data::stat_costs::STAT_COSTS;
 macro_rules! item_trace {
     ($($arg:tt)*) => {
         if crate::item::item_trace_enabled() {
-            println!($($arg)*);
+            eprintln!($($arg)*);
         }
     };
 }

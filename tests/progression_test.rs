@@ -2,7 +2,7 @@ use d2r_core::domain::progression::quest::QuestSet;
 use d2r_core::domain::progression::waypoint::WaypointSet;
 use d2r_core::item::HuffmanTree;
 use d2r_core::save::{
-    ExpansionSection, QuestSection, Save, WaypointSection, rebuild_status_and_player_items,
+    ExpansionSection, Save, WaypointSection, rebuild_status_and_player_items,
 };
 use std::fs;
 use std::path::PathBuf;

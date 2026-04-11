@@ -1,11 +1,10 @@
 use d2r_core::item::{HuffmanTree, Item};
 use d2r_core::save::{
-    AttributeSection, QuestSection, map_core_sections, parse_quest_section, parse_skill_section,
+    AttributeSection, map_core_sections, parse_quest_section, parse_skill_section,
     rebuild_status_and_player_items,
 };
 use std::fs;
 use std::io;
-use std::path::PathBuf;
 
 mod common;
 use common::repo_path;
@@ -24,7 +23,7 @@ fn status_and_stash_roundtrip_fixtures() -> io::Result<()> {
     for fixture in fixtures {
         let bytes = load_fixture(fixture)?;
         let map = map_core_sections(&bytes)?;
-        let attributes = AttributeSection::parse(&bytes, &map)?;
+        let attributes = AttributeSection::parse(&bytes, map.gf_pos, map.if_pos)?;
         let skills = parse_skill_section(&bytes, &map)?;
         let quests = parse_quest_section(&bytes, &map)?;
         let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
@@ -53,7 +52,7 @@ fn test_level_and_header_sync() -> io::Result<()> {
     let patched = d2r_core::save::patch_level(&bytes, 99, &huffman)?;
 
     let map = map_core_sections(&patched)?;
-    let attributes = AttributeSection::parse(&patched, &map)?;
+    let attributes = AttributeSection::parse(&patched, map.gf_pos, map.if_pos)?;
 
     assert_eq!(
         patched[d2r_core::save::CHAR_LEVEL_OFFSET],
@@ -100,7 +99,7 @@ fn test_variable_length_rebuild() -> io::Result<()> {
     ))?;
     let huffman = HuffmanTree::new();
     let map = map_core_sections(&bytes)?;
-    let mut attrs = AttributeSection::parse(&bytes, &map)?;
+    let mut attrs = AttributeSection::parse(&bytes, map.gf_pos, map.if_pos)?;
 
     let original_len = bytes.len();
 
@@ -128,7 +127,7 @@ fn test_variable_length_rebuild() -> io::Result<()> {
 
     // Check that we can parse it back
     let new_map = map_core_sections(&rebuilt)?;
-    let new_attrs = AttributeSection::parse(&rebuilt, &new_map)?;
+    let new_attrs = AttributeSection::parse(&rebuilt, new_map.gf_pos, new_map.if_pos)?;
 
     let found = new_attrs
         .entries

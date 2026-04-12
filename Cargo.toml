@@ -220,3 +220,7 @@ path = "src/bin/verify/sba.rs"
 [[bin]]
 name = "d2item_bve"
 path = "src/bin/verify/d2item_bve.rs"
+
+[[bin]]
+name = "d2_binary_target_auditor"
+path = "src/bin/d2_binary_target_auditor.rs"

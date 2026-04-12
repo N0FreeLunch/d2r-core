@@ -121,6 +121,7 @@ pub struct ArgParser {
     program_name: String,
     specs: Vec<ArgSpec>,
     auto_load_dotenv: bool,
+    description: Option<String>,
 }
 
 #[derive(Debug)]
@@ -135,7 +136,13 @@ impl ArgParser {
             program_name: program_name.to_string(),
             specs: Vec::new(),
             auto_load_dotenv: true,
+            description: None,
         }
+    }
+
+    pub fn description(mut self, desc: &str) -> Self {
+        self.description = Some(desc.to_string());
+        self
     }
 
     pub fn disable_dotenv(mut self) -> Self {
@@ -180,6 +187,8 @@ impl ArgParser {
                     }
                 } else if long_name == "help" {
                     return Err(ArgError::Help(self.usage()));
+                } else if long_name == "json" {
+                    flags.insert("json".to_string(), true);
                 } else {
                     return Err(ArgError::Error(format!("Unknown option --{}", long_name)));
                 }
@@ -253,7 +262,11 @@ impl ArgParser {
     }
 
     pub fn usage(&self) -> String {
-        let mut usage = format!("Usage: {}", self.program_name);
+        let mut usage = String::new();
+        if let Some(desc) = &self.description {
+            usage.push_str(&format!("{}\n\n", desc));
+        }
+        usage.push_str(&format!("Usage: {}", self.program_name));
         let mut options_txt = String::new();
 
         for spec in &self.specs {
@@ -302,6 +315,7 @@ impl ArgParser {
         }
         
         options_txt.push_str("  -h, --help           Show this help message\n");
+        options_txt.push_str("      --json           Output in machine-readable JSON format\n");
 
         usage.push_str(&options_txt);
         usage
@@ -319,6 +333,10 @@ impl ParsedArgs {
 
     pub fn is_set(&self, name: &str) -> bool {
         self.flags.get(name).copied().unwrap_or(false)
+    }
+
+    pub fn is_json(&self) -> bool {
+        self.is_set("json")
     }
 }
 

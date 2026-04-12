@@ -14,6 +14,12 @@ pub enum ArgType {
     Option,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArgError {
+    Help(String),
+    Error(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct ArgSpec {
     pub name: String,
@@ -134,7 +140,7 @@ impl ArgParser {
         self.specs.push(spec);
     }
 
-    pub fn parse(&self, args: Vec<OsString>) -> Result<ParsedArgs, String> {
+    pub fn parse(&self, args: Vec<OsString>) -> Result<ParsedArgs, ArgError> {
         let mut values = HashMap::new();
         let mut flags = HashMap::new();
         let mut positional_idx = 0;
@@ -155,7 +161,7 @@ impl ArgParser {
                                 if let Some(val) = it.next() {
                                     collected.push(val.to_string_lossy().to_string());
                                 } else {
-                                    return Err(format!("Option --{} requires {} value(s)", long_name, spec.value_count));
+                                    return Err(ArgError::Error(format!("Option --{} requires {} value(s)", long_name, spec.value_count)));
                                 }
                             }
                             values.insert(spec.name.clone(), collected);
@@ -163,9 +169,9 @@ impl ArgParser {
                         ArgType::Positional | ArgType::RepeatedPositional => unreachable!(),
                     }
                 } else if long_name == "help" {
-                    return Err(self.usage());
+                    return Err(ArgError::Help(self.usage()));
                 } else {
-                    return Err(format!("Unknown option --{}", long_name));
+                    return Err(ArgError::Error(format!("Unknown option --{}", long_name)));
                 }
             } else if arg_str.starts_with("-") && arg_str.len() > 1 {
                 let short_name = arg_str.chars().nth(1).unwrap();
@@ -180,7 +186,7 @@ impl ArgParser {
                                 if let Some(val) = it.next() {
                                     collected.push(val.to_string_lossy().to_string());
                                 } else {
-                                    return Err(format!("Option -{} requires {} value(s)", short_name, spec.value_count));
+                                    return Err(ArgError::Error(format!("Option -{} requires {} value(s)", short_name, spec.value_count)));
                                 }
                             }
                             values.insert(spec.name.clone(), collected);
@@ -188,9 +194,9 @@ impl ArgParser {
                         ArgType::Positional | ArgType::RepeatedPositional => unreachable!(),
                     }
                 } else if short_name == 'h' {
-                    return Err(self.usage());
+                    return Err(ArgError::Help(self.usage()));
                 } else {
-                    return Err(format!("Unknown option -{}", short_name));
+                    return Err(ArgError::Error(format!("Unknown option -{}", short_name)));
                 }
             } else {
                 // Positional
@@ -200,7 +206,7 @@ impl ArgParser {
                 } else if let Some(spec) = self.specs.iter().find(|s| matches!(s.arg_type, ArgType::RepeatedPositional)) {
                     values.entry(spec.name.clone()).or_insert_with(Vec::new).push(arg_str.to_string());
                 } else {
-                    return Err(format!("Unexpected positional argument: {}", arg_str));
+                    return Err(ArgError::Error(format!("Unexpected positional argument: {}", arg_str)));
                 }
             }
         }
@@ -229,7 +235,7 @@ impl ArgParser {
             }
 
             if spec.required && !values.contains_key(&spec.name) {
-                return Err(format!("Missing required argument: {}", spec.name));
+                return Err(ArgError::Error(format!("Missing required argument: {}", spec.name)));
             }
         }
 
@@ -376,7 +382,10 @@ mod tests {
         let args = vec![];
         let result = parser.parse(args);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing required argument"));
+        match result.unwrap_err() {
+            ArgError::Error(e) => assert!(e.contains("Missing required argument")),
+            _ => panic!("Expected Error variant"),
+        }
     }
 
     #[test]

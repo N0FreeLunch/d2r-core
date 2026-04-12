@@ -31,10 +31,15 @@ fn main() {
     );
     parser.add_spec(ArgSpec::repeated_positional("files", "Save files to verify"));
 
+    use d2r_core::verify::args::ArgError;
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {
         Ok(p) => p,
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("error: {}", e);
             eprintln!("\n{}", parser.usage());
             process::exit(1);
         }

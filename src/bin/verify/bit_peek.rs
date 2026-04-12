@@ -43,10 +43,15 @@ fn main() {
     );
     parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Emit results in shared Report JSON format"));
 
+    use d2r_core::verify::args::ArgError;
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {
         Ok(p) => p,
-        Err(e) => {
-            eprintln!("{}", e);
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            std::process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("error: {}", e);
             eprintln!("\n{}", parser.usage());
             std::process::exit(1);
         }

@@ -27,8 +27,8 @@ fn run_bin(bin: &str, args: &[&str]) -> RunResult {
 fn test_sba_help() {
     let bin = env!("CARGO_BIN_EXE_sba");
     let res = run_bin(bin, &["--help"]);
-    // SBA prints the usage to stderr on error (including --help triggered error)
-    assert!(res.stderr.contains("Usage: sba"));
+    assert!(res.status.success());
+    assert!(res.stdout.contains("Usage: sba") || res.stderr.contains("Usage: sba"));
 }
 
 #[test]
@@ -43,7 +43,8 @@ fn test_bit_peek_no_args() {
 fn test_d2save_verify_help() {
     let bin = env!("CARGO_BIN_EXE_d2save_verify");
     let res = run_bin(bin, &["--help"]);
-    assert!(res.stderr.contains("Usage: d2save_verify"));
+    assert!(res.status.success());
+    assert!(res.stdout.contains("Usage: d2save_verify") || res.stderr.contains("Usage: d2save_verify"));
 }
 
 #[test]

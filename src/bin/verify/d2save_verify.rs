@@ -7,6 +7,7 @@ use serde::Serialize;
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
+use d2r_core::verify::args::{ArgParser, ArgSpec};
 
 #[derive(Serialize)]
 struct D2SaveVerifyPayload {
@@ -22,17 +23,35 @@ struct D2SaveVerifyPayload {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2save_verify <file.d2s> [file2.d2s ...]");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_verify");
+    parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Emit results in shared Report JSON format"));
+    parser.add_spec(
+        ArgSpec::option("dump-bits", None, Some("dump-bits"), "Dump raw bits from start <bit> and count <bits>")
+            .value_count(2)
+    );
+    parser.add_spec(ArgSpec::repeated_positional("files", "Save files to verify"));
 
-    if args.contains(&"--dump-bits".to_string()) {
-        let idx = args.iter().position(|r| r == "--dump-bits").unwrap();
-        let start_bit: u64 = args[idx + 1].parse().unwrap();
-        let count: u64 = args[idx + 2].parse().unwrap();
-        let path = &args[1];
+    let parsed = match parser.parse(env::args_os().skip(1).collect()) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("{}", e);
+            eprintln!("\n{}", parser.usage());
+            process::exit(1);
+        }
+    };
+
+    let files = parsed.get_vec("files").cloned().unwrap_or_default();
+    let is_json = parsed.is_set("json");
+    let dump_bits = parsed.get_vec("dump-bits");
+
+    if let Some(bits_args) = dump_bits {
+        if files.is_empty() {
+            eprintln!("Error: No file provided for --dump-bits");
+            process::exit(1);
+        }
+        let start_bit: u64 = bits_args[0].parse().unwrap_or(0);
+        let count: u64 = bits_args[1].parse().unwrap_or(0);
+        let path = &files[0];
         let bytes = fs::read(path).unwrap();
 
         println!("Dumping {} bits starting at {}:", count, start_bit);
@@ -53,14 +72,12 @@ fn main() {
         process::exit(0);
     }
 
-    if args.contains(&"--json".to_string()) {
-        let path = match args.iter().skip(1).find(|a| !a.starts_with("--")) {
-            Some(p) => p,
-            None => {
-                eprintln!("Error: No file provided for --json");
-                process::exit(1);
-            }
-        };
+    if is_json {
+        if files.is_empty() {
+            eprintln!("Error: No file provided for --json");
+            process::exit(1);
+        }
+        let path = &files[0];
 
         let mut issues = Vec::new();
         let mut fail = false;
@@ -255,12 +272,14 @@ fn main() {
         process::exit(if fail { 1 } else { 0 });
     }
 
+    if files.is_empty() {
+        eprintln!("{}", parser.usage());
+        process::exit(1);
+    }
+
     let mut all_ok = true;
 
-    for path in &args[1..] {
-        if path.starts_with("--") {
-            continue;
-        }
+    for path in &files {
         println!("=== {} ===", path);
         let bytes = match fs::read(path) {
             Ok(b) => b,

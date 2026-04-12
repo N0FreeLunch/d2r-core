@@ -120,6 +120,7 @@ impl ArgSpec {
 pub struct ArgParser {
     program_name: String,
     specs: Vec<ArgSpec>,
+    auto_load_dotenv: bool,
 }
 
 #[derive(Debug)]
@@ -133,7 +134,13 @@ impl ArgParser {
         Self {
             program_name: program_name.to_string(),
             specs: Vec::new(),
+            auto_load_dotenv: true,
         }
+    }
+
+    pub fn disable_dotenv(mut self) -> Self {
+        self.auto_load_dotenv = false;
+        self
     }
 
     pub fn add_spec(&mut self, spec: ArgSpec) {
@@ -141,6 +148,9 @@ impl ArgParser {
     }
 
     pub fn parse(&self, args: Vec<OsString>) -> Result<ParsedArgs, ArgError> {
+        if self.auto_load_dotenv {
+            let _ = dotenvy::dotenv();
+        }
         let mut values = HashMap::new();
         let mut flags = HashMap::new();
         let mut positional_idx = 0;

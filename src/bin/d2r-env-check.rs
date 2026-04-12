@@ -9,6 +9,8 @@ struct PathCheck {
     canonical: PathBuf,
 }
 
+use d2r_core::verify::args::ArgParser;
+
 fn canonicalize_path(path: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|err| err.to_string())
 }
@@ -52,34 +54,10 @@ fn report_issue(label: &str, detail: &str) {
     println!("[issue] {label}: {detail}");
 }
 
-fn load_env_file(env_path: &Path) {
-    let Ok(contents) = fs::read_to_string(env_path) else {
-        return;
-    };
-
-    for raw_line in contents.lines() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-
-        let key = key.trim();
-        let value = value.trim();
-        if env::var_os(key).is_none() {
-            unsafe {
-                env::set_var(key, value);
-            }
-        }
-    }
-}
 
 fn main() {
-    let env_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".env");
-    load_env_file(&env_path);
+    let parser = ArgParser::new("d2r-env-check");
+    let _ = parser.parse(env::args_os().skip(1).collect());
 
     let mut issues = 0usize;
 

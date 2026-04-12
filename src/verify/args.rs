@@ -6,6 +6,8 @@ use std::env;
 pub enum ArgType {
     /// A positional argument (e.g., `file.txt`)
     Positional,
+    /// Collects all remaining positional arguments
+    RepeatedPositional,
     /// A boolean flag (e.g., `--verbose` or `-v`)
     Flag,
     /// A key-value option (e.g., `--output out.json` or `-o out.json`)
@@ -20,6 +22,7 @@ pub struct ArgSpec {
     pub arg_type: ArgType,
     pub description: String,
     pub required: bool,
+    pub value_count: usize,
     pub env_var: Option<String>,
     pub default: Option<String>,
 }
@@ -33,6 +36,21 @@ impl ArgSpec {
             arg_type: ArgType::Positional,
             description: description.to_string(),
             required: true,
+            value_count: 1,
+            env_var: None,
+            default: None,
+        }
+    }
+
+    pub fn repeated_positional(name: &str, description: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            short: None,
+            long: None,
+            arg_type: ArgType::RepeatedPositional,
+            description: description.to_string(),
+            required: false,
+            value_count: 0,
             env_var: None,
             default: None,
         }
@@ -46,6 +64,7 @@ impl ArgSpec {
             arg_type: ArgType::Flag,
             description: description.to_string(),
             required: false,
+            value_count: 0,
             env_var: None,
             default: None,
         }
@@ -59,6 +78,7 @@ impl ArgSpec {
             arg_type: ArgType::Option,
             description: description.to_string(),
             required: false,
+            value_count: 1,
             env_var: None,
             default: None,
         }
@@ -83,6 +103,11 @@ impl ArgSpec {
         self.default = Some(default.to_string());
         self
     }
+
+    pub fn value_count(mut self, count: usize) -> Self {
+        self.value_count = count;
+        self
+    }
 }
 
 #[derive(Debug)]
@@ -93,7 +118,7 @@ pub struct ArgParser {
 
 #[derive(Debug)]
 pub struct ParsedArgs {
-    values: HashMap<String, String>,
+    values: HashMap<String, Vec<String>>,
     flags: HashMap<String, bool>,
 }
 
@@ -125,13 +150,17 @@ impl ArgParser {
                             flags.insert(spec.name.clone(), true);
                         }
                         ArgType::Option => {
-                            if let Some(val) = it.next() {
-                                values.insert(spec.name.clone(), val.to_string_lossy().to_string());
-                            } else {
-                                return Err(format!("Option --{} requires a value", long_name));
+                            let mut collected = Vec::new();
+                            for _ in 0..spec.value_count {
+                                if let Some(val) = it.next() {
+                                    collected.push(val.to_string_lossy().to_string());
+                                } else {
+                                    return Err(format!("Option --{} requires {} value(s)", long_name, spec.value_count));
+                                }
                             }
+                            values.insert(spec.name.clone(), collected);
                         }
-                        ArgType::Positional => unreachable!(),
+                        ArgType::Positional | ArgType::RepeatedPositional => unreachable!(),
                     }
                 } else if long_name == "help" {
                     return Err(self.usage());
@@ -146,13 +175,17 @@ impl ArgParser {
                             flags.insert(spec.name.clone(), true);
                         }
                         ArgType::Option => {
-                            if let Some(val) = it.next() {
-                                values.insert(spec.name.clone(), val.to_string_lossy().to_string());
-                            } else {
-                                return Err(format!("Option -{} requires a value", short_name));
+                            let mut collected = Vec::new();
+                            for _ in 0..spec.value_count {
+                                if let Some(val) = it.next() {
+                                    collected.push(val.to_string_lossy().to_string());
+                                } else {
+                                    return Err(format!("Option -{} requires {} value(s)", short_name, spec.value_count));
+                                }
                             }
+                            values.insert(spec.name.clone(), collected);
                         }
-                        ArgType::Positional => unreachable!(),
+                        ArgType::Positional | ArgType::RepeatedPositional => unreachable!(),
                     }
                 } else if short_name == 'h' {
                     return Err(self.usage());
@@ -162,8 +195,10 @@ impl ArgParser {
             } else {
                 // Positional
                 if let Some(spec) = self.specs.iter().filter(|s| matches!(s.arg_type, ArgType::Positional)).nth(positional_idx) {
-                    values.insert(spec.name.clone(), arg_str.to_string());
+                    values.insert(spec.name.clone(), vec![arg_str.to_string()]);
                     positional_idx += 1;
+                } else if let Some(spec) = self.specs.iter().find(|s| matches!(s.arg_type, ArgType::RepeatedPositional)) {
+                    values.entry(spec.name.clone()).or_insert_with(Vec::new).push(arg_str.to_string());
                 } else {
                     return Err(format!("Unexpected positional argument: {}", arg_str));
                 }
@@ -182,14 +217,14 @@ impl ArgParser {
             if !values.contains_key(&spec.name) {
                 if let Some(env_name) = &spec.env_var {
                     if let Ok(val) = env::var(env_name) {
-                        values.insert(spec.name.clone(), val);
+                        values.insert(spec.name.clone(), vec![val]);
                     }
                 }
             }
 
             if !values.contains_key(&spec.name) {
                 if let Some(default) = &spec.default {
-                    values.insert(spec.name.clone(), default.clone());
+                    values.insert(spec.name.clone(), vec![default.clone()]);
                 }
             }
 
@@ -214,6 +249,9 @@ impl ArgParser {
                         usage.push_str(&format!(" [{}]", spec.name));
                     }
                 }
+                ArgType::RepeatedPositional => {
+                    usage.push_str(&format!(" [{}...]", spec.name));
+                }
                 _ => {}
             }
         }
@@ -233,8 +271,14 @@ impl ArgParser {
             }
 
             match spec.arg_type {
-                ArgType::Option => opt.push_str(" <value>"),
-                ArgType::Positional => continue,
+                ArgType::Option => {
+                    if spec.value_count > 1 {
+                        opt.push_str(&format!(" <value1>...<value{}>", spec.value_count));
+                    } else {
+                        opt.push_str(" <value>");
+                    }
+                }
+                ArgType::Positional | ArgType::RepeatedPositional => continue,
                 ArgType::Flag => {}
             }
 
@@ -250,6 +294,10 @@ impl ArgParser {
 
 impl ParsedArgs {
     pub fn get(&self, name: &str) -> Option<&String> {
+        self.values.get(name).and_then(|v| v.first())
+    }
+
+    pub fn get_vec(&self, name: &str) -> Option<&Vec<String>> {
         self.values.get(name)
     }
 
@@ -283,6 +331,44 @@ mod tests {
     }
 
     #[test]
+    fn test_multi_value_option() {
+        let mut parser = ArgParser::new("test");
+        parser.add_spec(ArgSpec::option("bits", None, Some("bits"), "start and count").value_count(2));
+
+        let args = vec![
+            OsString::from("--bits"),
+            OsString::from("64"),
+            OsString::from("32"),
+        ];
+
+        let parsed = parser.parse(args).unwrap();
+        let bits = parsed.get_vec("bits").unwrap();
+        assert_eq!(bits.len(), 2);
+        assert_eq!(bits[0], "64");
+        assert_eq!(bits[1], "32");
+    }
+
+    #[test]
+    fn test_repeated_positional() {
+        let mut parser = ArgParser::new("test");
+        parser.add_spec(ArgSpec::positional("main", "main file"));
+        parser.add_spec(ArgSpec::repeated_positional("extras", "extra files"));
+
+        let args = vec![
+            OsString::from("main.d2s"),
+            OsString::from("extra1.d2s"),
+            OsString::from("extra2.d2s"),
+        ];
+
+        let parsed = parser.parse(args).unwrap();
+        assert_eq!(parsed.get("main").unwrap(), "main.d2s");
+        let extras = parsed.get_vec("extras").unwrap();
+        assert_eq!(extras.len(), 2);
+        assert_eq!(extras[0], "extra1.d2s");
+        assert_eq!(extras[1], "extra2.d2s");
+    }
+
+    #[test]
     fn test_missing_required() {
         let mut parser = ArgParser::new("test");
         parser.add_spec(ArgSpec::positional("input", "input file"));
@@ -309,3 +395,4 @@ mod tests {
         assert_eq!(parsed.get("host").unwrap(), "localhost");
     }
 }
+

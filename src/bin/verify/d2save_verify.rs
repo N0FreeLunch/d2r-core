@@ -24,7 +24,6 @@ struct D2SaveVerifyPayload {
 
 fn main() {
     let mut parser = ArgParser::new("d2save_verify");
-    parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Emit results in shared Report JSON format"));
     parser.add_spec(
         ArgSpec::option("dump-bits", None, Some("dump-bits"), "Dump raw bits from start <bit> and count <bits>")
             .value_count(2)

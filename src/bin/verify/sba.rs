@@ -38,7 +38,6 @@ fn main() -> Result<()> {
     parser.add_spec(ArgSpec::option("baseline", None, Some("baseline"), "Path to the JSON baseline file").required());
     parser.add_spec(ArgSpec::flag("generate", None, Some("generate"), "Generate a new baseline from the fixture"));
     parser.add_spec(ArgSpec::flag("verify", None, Some("verify"), "Verify the fixture against an existing baseline"));
-    parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Emit results in shared Report JSON format"));
 
     let args: Vec<_> = env::args_os().skip(1).collect();
     use d2r_core::verify::args::ArgError;

@@ -41,7 +41,6 @@ fn main() {
             .optional()
             .with_default("64"),
     );
-    parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Emit results in shared Report JSON format"));
 
     use d2r_core::verify::args::ArgError;
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {

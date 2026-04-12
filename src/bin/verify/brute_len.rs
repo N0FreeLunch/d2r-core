@@ -1,21 +1,53 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use bitstream_io::{BitReader as IoBitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
+use d2r_core::verify::args::{ArgError, ArgParser, ArgSpec};
 use std::env;
 use std::fs;
 use std::io::Cursor;
 use std::process;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: d2item_brute_len <save_file> <base_bit> [min_len] [max_len]");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2item_brute_len")
+        .description("Scans for a 9-bit Terminator (511) in a range of bits from a base bit offset.");
+    parser.add_spec(ArgSpec::positional("file", "Path to save file"));
+    parser.add_spec(ArgSpec::positional("base_bit", "Starting bit offset"));
+    parser.add_spec(
+        ArgSpec::positional("min_len", "Minimum length to scan (default: 50)")
+            .optional()
+            .with_default("50"),
+    );
+    parser.add_spec(
+        ArgSpec::positional("max_len", "Maximum length to scan (default: 300)")
+            .optional()
+            .with_default("300"),
+    );
 
-    let path = &args[1];
-    let base_bit: usize = args[2].parse().expect("base_bit must be a number");
-    let min_len: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(50);
-    let max_len: usize = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(300);
+    let parsed = match parser.parse(env::args_os().skip(1).collect()) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            return;
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("error: {}\n\n{}", e, parser.usage());
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("file").unwrap();
+    let base_bit: usize = parsed
+        .get("base_bit")
+        .unwrap()
+        .parse()
+        .expect("base_bit must be a number");
+    let min_len: usize = parsed
+        .get("min_len")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(50);
+    let max_len: usize = parsed
+        .get("max_len")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
 
     let bytes = fs::read(path).expect("failed to read save file");
 

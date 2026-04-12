@@ -1,19 +1,45 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use bitstream_io::{BitReader as IoBitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
-use d2r_core::item::HuffmanTree;
+use d2r_core::verify::args::{ArgError, ArgParser, ArgSpec};
 use std::env;
 use std::fs;
 use std::io::Cursor;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: find_bits_width <save_file> <offset_bits> [count]");
-        return;
-    }
-    let bytes = fs::read(&args[1]).expect("failed to read save file");
-    let offset = args[2].parse::<u64>().expect("invalid offset");
-    let count = args.get(3).and_then(|s| s.parse::<usize>().ok()).unwrap_or(10);
+    let mut parser = ArgParser::new("d2item_find_bits_width")
+        .description("Probes bit widths (1 to 32) at a given bit offset in a save file.");
+    parser.add_spec(ArgSpec::positional("file", "Path to save file"));
+    parser.add_spec(ArgSpec::positional("bit_offset", "Starting bit offset"));
+    parser.add_spec(
+        ArgSpec::positional("count", "Number of bits to probe (default: 10)")
+            .optional()
+            .with_default("10"),
+    );
+
+    let parsed = match parser.parse(env::args_os().skip(1).collect()) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            return;
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("error: {}\n\n{}", e, parser.usage());
+            std::process::exit(1);
+        }
+    };
+
+    let file_path = parsed.get("file").unwrap();
+    let offset = parsed
+        .get("bit_offset")
+        .unwrap()
+        .parse::<u64>()
+        .expect("invalid offset");
+    let _count = parsed
+        .get("count")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(10);
+
+    let bytes = fs::read(file_path).expect("failed to read save file");
 
     let mut reader = IoBitReader::endian(Cursor::new(&bytes[(offset / 8) as usize..]), LittleEndian);
     let mut recorder = BitCursor::new(&mut reader);

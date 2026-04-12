@@ -1,18 +1,30 @@
 use bitstream_io::{BitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
 use d2r_core::item::{HuffmanTree, Item};
+use d2r_core::verify::args::{ArgError, ArgParser, ArgSpec};
 use std::env;
 use std::fs;
 use std::io::Cursor;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: bit_scan <save_file>");
-        return;
-    }
-    let path = &args[1];
-    let bytes = fs::read(path).unwrap();
+    let mut parser = ArgParser::new("d2item_bit_scan")
+        .description("Brute force bit scan to find potential items in a save file.");
+    parser.add_spec(ArgSpec::positional("file", "Path to save file"));
+
+    let parsed = match parser.parse(env::args_os().skip(1).collect()) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            return;
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("error: {}\n\n{}", e, parser.usage());
+            std::process::exit(1);
+        }
+    };
+
+    let path = parsed.get("file").unwrap();
+    let bytes = fs::read(path).expect("failed to read save file");
     let huffman = HuffmanTree::new();
 
     let mut starts = Vec::new();

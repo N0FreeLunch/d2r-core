@@ -4,15 +4,31 @@ use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::io::Cursor;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: bit_nudge_explorer <save_file> [item_index]");
-        return;
-    }
-    let path = &args[1];
-    let target_idx = args.get(2).and_then(|s| s.parse::<usize>().ok());
+    let mut parser = ArgParser::new("BitNudgeExplorer")
+        .description("Explores bit-level nudges for items in a D2R save file to find valid alignment");
+
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("item_index", "optional target item index to inspect").optional());
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
+    let target_idx = parsed.get("item_index").and_then(|s| s.parse::<usize>().ok());
     let bytes = fs::read(path).expect("failed to read save file");
 
     let jm_pos = (0..bytes.len() - 2)
@@ -45,19 +61,19 @@ fn main() {
         }
 
         println!("\nExploring Item {} at bit offset {}:", current_idx, start_bit as u64 + bit_pos);
-        
+
         // Try nudges
         for nudge in -4i64..=4i64 {
             let nudged_start = (bit_pos as i64 + nudge) as u64;
             if nudged_start >= (bytes.len() * 8) as u64 { continue; }
-            
+
             let mut reader = IoBitReader::endian(Cursor::new(&bytes[jm_pos + 4..]), LittleEndian);
             let _ = reader.skip(nudged_start as u32);
             let mut cursor = BitCursor::new(reader);
-            
+
             match Item::from_reader_with_context(&mut cursor, &huffman, Some((&bytes, start_bit as u64)), is_alpha) {
                 Ok(item) => {
-                    println!("  [Nudge {:+2}] SUCCESS: '{}' (len={} bits)", nudge, item.code, cursor.pos());
+                    println!("  [Nudge {:+2}] SUCCESS: '{}' (len={} bits)", nudge, item.code, cursor.pos());    
                     if nudge == 0 || target_idx.is_some() {
                         print_item_segments(&cursor);
                     }

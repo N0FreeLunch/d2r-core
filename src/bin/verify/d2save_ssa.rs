@@ -2,6 +2,7 @@ use std::env;
 use std::fs;
 use serde::Serialize;
 use anyhow::{Result, Context};
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 use d2r_core::save::{Save, map_core_sections, AttributeSection, class_name};
 use d2r_core::item::{Item, HuffmanTree};
@@ -15,17 +16,38 @@ struct DiffResult {
 }
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        print_help();
-        return Ok(());
-    }
+    let mut parser = ArgParser::new("d2save_ssa")
+        .description("Semantic Save-Game Auditor for comparing character stats and items between two D2R save files");
 
-    let file1_path = &args[1];
-    let file2_path = &args[2];
-    let use_json = args.contains(&"--json".to_string());
-    let diff_stats = args.contains(&"--stats".to_string()) || (!args.contains(&"--items".to_string()) && args.iter().filter(|a| !a.starts_with("--")).count() >= 3);
-    let diff_items = args.contains(&"--items".to_string());
+    parser.add_spec(ArgSpec::positional("file1", "path to the first save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("file2", "path to the second save file (.d2s)"));
+    parser.add_spec(ArgSpec::flag('s', "stats", "enable character stats comparison (default if no flags)"));
+    parser.add_spec(ArgSpec::flag('i', "items", "enable player items comparison"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            std::process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let file1_path = parsed.get("file1").unwrap();
+    let file2_path = parsed.get("file2").unwrap();
+    let use_json = parsed.is_json();
+    
+    let mut diff_stats = parsed.has_flag("stats");
+    let diff_items = parsed.has_flag("items");
+
+    // Default to stats if nothing specified
+    if !diff_stats && !diff_items {
+        diff_stats = true;
+    }
 
     let bytes1 = fs::read(file1_path).with_context(|| format!("Failed to read {}", file1_path))?;
     let bytes2 = fs::read(file2_path).with_context(|| format!("Failed to read {}", file2_path))?;
@@ -35,10 +57,7 @@ fn main() -> Result<()> {
 
     let mut results = Vec::new();
 
-    // Default to stats if nothing specified
-    let actual_diff_stats = diff_stats || (!diff_items);
-
-    if actual_diff_stats {
+    if diff_stats {
         // 1. Header Diff
         if save1.header.char_name != save2.header.char_name {
             results.push(DiffResult {
@@ -155,24 +174,15 @@ fn main() -> Result<()> {
         if results.is_empty() {
             println!("No semantic differences found.");
         } else {
-            println!("+------------+----------------------+----------------------+----------------------+");
-            println!("| {:<10} | {:<20} | {:<20} | {:<20} |", "Section", "Field", "Value A", "Value B");
-            println!("+------------+----------------------+----------------------+----------------------+");
+            println!("+------------+----------------------+----------------------+----------------------+");    
+            println!("| {:<10} | {:<20} | {:<20} | {:<20} |", "Section", "Field", "Value A", "Value B");        
+            println!("+------------+----------------------+----------------------+----------------------+");    
             for res in results {
                 println!("| {:<10} | {:<20} | {:<20} | {:<20} |", res.section, res.field, res.old_value, res.new_value);
             }
-            println!("+------------+----------------------+----------------------+----------------------+");
+            println!("+------------+----------------------+----------------------+----------------------+");    
         }
     }
 
     Ok(())
-}
-
-fn print_help() {
-    println!("Usage: d2save_ssa <file1.d2s> <file2.d2s> [options]");
-    println!();
-    println!("Options:");
-    println!("  --stats    Compare character stats (Level, Exp, Gold, etc.) [Default]");
-    println!("  --items    Compare player items (Identity and position)");
-    println!("  --json     Output in JSON format");
 }

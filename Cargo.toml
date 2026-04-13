@@ -1,4 +1,4 @@
-[package]
+﻿[package]
 name = "d2r-core"
 version = "0.1.0"
 edition = "2024"
@@ -190,6 +190,10 @@ name = "d2gf_bit_diff"
 path = "src/bin/verify/d2gf_bit_diff.rs"
 
 [[bin]]
+name = "d2bit_diff"
+path = "src/bin/verify/d2bit_diff.rs"
+
+[[bin]]
 name = "BitShiftScanner"
 path = "src/bin/verify/bit_shift_scanner.rs"
 
@@ -224,3 +228,4 @@ path = "src/bin/verify/d2item_bve.rs"
 [[bin]]
 name = "d2_binary_target_auditor"
 path = "src/bin/d2_binary_target_auditor.rs"
+

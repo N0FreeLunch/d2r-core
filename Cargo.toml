@@ -97,23 +97,23 @@ path = "src/bin/verify/d2item_bit_width_probe.rs"
 
 [[bin]]
 name = "d2item_bit_scan"
-path = "src/bin/verify/bit_scan.rs"
+path = "src/bin/verify/d2item_bit_scan.rs"
 
 [[bin]]
 name = "d2item_bit_peek"
-path = "src/bin/verify/bit_peek.rs"
+path = "src/bin/verify/d2item_bit_peek.rs"
 
 [[bin]]
 name = "d2item_brute_len"
-path = "src/bin/verify/brute_len.rs"
+path = "src/bin/verify/d2item_brute_len.rs"
 
 [[bin]]
 name = "d2item_bit_search"
-path = "src/bin/verify/scan_terminator.rs"
+path = "src/bin/verify/d2item_bit_search.rs"
 
 [[bin]]
 name = "d2item_bit_dump"
-path = "src/bin/verify/peek_jav.rs"
+path = "src/bin/verify/d2item_bit_dump.rs"
 [[bin]]
 name = "d2item_find_sequence"
 path = "src/bin/verify/find_sequence.rs"
@@ -143,10 +143,10 @@ name = "d2item_find_310"
 path = "src/bin/verify/find_310.rs"
 [[bin]]
 name = "d2item_find_bits_width"
-path = "src/bin/verify/find_bits_width.rs"
+path = "src/bin/verify/d2item_find_bits_width.rs"
 [[bin]]
 name = "d2item_find_list1"
-path = "src/bin/verify/find_list1.rs"
+path = "src/bin/verify/d2item_find_list1.rs"
 [[bin]]
 name = "d2item_v5_peek"
 path = "src/bin/verify/d2item_v5_peek.rs"

@@ -3,40 +3,45 @@ use d2r_core::item::{HuffmanTree, Item, ItemQuality};
 use std::env;
 use std::fs;
 use std::io;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!(
-            "Usage: cargo run --bin d2item_chunk_verify -- <file.d2s> [--range START..END] [--detail INDEX]"
-        );
-        std::process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2item_chunk_verify")
+        .description("Analyzes save file structure and character progression, with optional item detail/range view");
 
-    let path = &args[1];
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+    parser.add_spec(ArgSpec::option("range", Some('r'), Some("range"), "scan summary range encoded as START..END (default: 0..10)"));
+    parser.add_spec(ArgSpec::option("detail", Some('d'), Some("detail"), "item index for detail view"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
     let mut range_start = 0;
     let mut range_end = 10;
     let mut detail_index: Option<usize> = None;
 
-    let mut i = 2;
-    while i < args.len() {
-        match args[i].as_str() {
-            "--range" if i + 1 < args.len() => {
-                let parts: Vec<&str> = args[i + 1].split("..").collect();
-                if parts.len() == 2 {
-                    range_start = parts[0].parse().unwrap_or(0);
-                    range_end = parts[1].parse().unwrap_or(10);
-                }
-                i += 2;
-            }
-            "--detail" if i + 1 < args.len() => {
-                detail_index = Some(args[i + 1].parse().unwrap_or(0));
-                i += 2;
-            }
-            _ => {
-                i += 1;
-            }
+    if let Some(range_str) = parsed.get("range") {
+        let parts: Vec<&str> = range_str.split("..").collect();
+        if parts.len() == 2 {
+            range_start = parts[0].parse().unwrap_or(0);
+            range_end = parts[1].parse().unwrap_or(10);
         }
+    }
+
+    if let Some(detail_str) = parsed.get("detail") {
+        detail_index = detail_str.parse().ok();
     }
 
     let bytes = fs::read(path)?;
@@ -325,7 +330,7 @@ fn main() -> io::Result<()> {
             match result {
                 Ok(sect_items) => all_items.extend(sect_items),
                 Err(err) => {
-                    println!("  └── [ERROR] JM @ 0x{:04X}: {}", start_pos, err);
+                    println!("  [ERROR] JM @ 0x{:04X}: {}", start_pos, err);
                 }
             }
         }
@@ -384,7 +389,7 @@ fn print_summary(items: &[Item], start: usize, end: usize) {
 
         for child in &item.socketed_items {
             println!(
-                "      └── Socketed: '{}' ({} bits)",
+                "      Socketed: '{}' ({} bits)",
                 child.code,
                 child.bits.len()
             );
@@ -393,13 +398,13 @@ fn print_summary(items: &[Item], start: usize, end: usize) {
         // Basic anomaly check
         if item.is_runeword && item.bits.len() < 100 {
             println!(
-                "      └── [WARN] Runeword with suspicious short bit-length: {}",
+                "      [WARN] Runeword with suspicious short bit-length: {}",
                 item.bits.len()
             );
         }
         if item.quality == Some(ItemQuality::Normal) && item.bits.len() > 200 {
             println!(
-                "      └── [WARN] Normal item with suspicious long bit-length: {}",
+                "      [WARN] Normal item with suspicious long bit-length: {}",
                 item.bits.len()
             );
         }

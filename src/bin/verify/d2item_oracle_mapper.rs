@@ -1,7 +1,9 @@
-use bitstream_io::{BitRead, BitReader, LittleEndian};
+﻿use bitstream_io::{BitRead, BitReader, LittleEndian};
 use d2r_core::item::{HuffmanTree, is_plausible_item_header, peek_item_header_at};
 use d2r_core::save::find_jm_markers;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 use serde::Serialize;
+use std::env;
 use std::fs;
 use std::io::{self, Cursor};
 
@@ -22,31 +24,37 @@ struct ScanAnchor {
 }
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 || args.contains(&"--help".to_string()) {
-        println!("Usage: d2item_oracle_mapper <save_path> [options]");
-        println!("Options:");
-        println!("  --list-anchors       List all plausible JM item anchors");
-        println!("  --auto-map           Mathematically infer bit-widths for all items");
-        println!("  --json               Output result as JSON");
-        return Ok(());
-    }
+    let mut parser = ArgParser::new("d2item_oracle_mapper")
+        .description("Mathematically infer item bit-widths and map JM anchors in D2R save files");
 
-    let path = &args[1];
+    parser.add_spec(ArgSpec::positional("save_path", "path to the D2R save file (.d2s)"));
+    parser.add_spec(ArgSpec::flag("list-anchors", None, Some("list-anchors"), "list all plausible JM item anchors"));
+    parser.add_spec(ArgSpec::flag("auto-map", None, Some("auto-map"), "mathematically infer bit-widths for all items"));
+    parser.add_spec(ArgSpec::flag("heatmap", None, Some("heatmap"), "show a bit-level heatmap for found items"));
+    parser.add_spec(ArgSpec::option("width", Some('w'), Some("width"), "heatmap display width (default: 10)").with_default("10"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            std::process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}\n\n{}", e, parser.usage());
+            std::process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_path").unwrap();
+    let list_anchors = parsed.is_set("list-anchors");
+    let auto_map = parsed.is_set("auto-map");
+    let heatmap = parsed.is_set("heatmap");
+    let show_json = parsed.is_json();
+    let heatmap_width: u32 = parsed.get("width").and_then(|s| s.parse().ok()).unwrap_or(10);
+
     let bytes = fs::read(path)?;
     let huffman = HuffmanTree::new();
-
-    let list_anchors = args.contains(&"--list-anchors".to_string());
-    let auto_map = args.contains(&"--auto-map".to_string());
-    let heatmap = args.contains(&"--heatmap".to_string());
-    let show_json = args.contains(&"--json".to_string());
-
-    let mut heatmap_width = 10;
-    if let Some(pos) = args.iter().position(|x| x == "--width") {
-        if let Some(w) = args.get(pos + 1) {
-            heatmap_width = w.parse().unwrap_or(10);
-        }
-    }
 
     let mut scan_results = Vec::new();
 
@@ -73,9 +81,6 @@ fn main() -> io::Result<()> {
                     };
 
                     if auto_map {
-                        // Slice 2: Scoring Engine
-                        // In Alpha v105, there is a ~19 bit overhead after the code for extended stats
-                        // (Level, Quality, Flags) before the property list starts.
                         let stats_offset = if record.version == 5 || record.version == 1 {
                             19
                         } else {
@@ -89,7 +94,6 @@ fn main() -> io::Result<()> {
 
                     scan_results.push(record);
                     bit_cursor += header_bits;
-                    // skip alignment
                     continue;
                 }
             }
@@ -132,20 +136,13 @@ fn main() -> io::Result<()> {
         for a in &scan_results {
             if a.code == "gp" {
                 continue;
-            } // Skip empty section
+            }
             println!(
                 "\n[Heatmap] Code: {}, Start: {}, Width: {}",
                 a.code, a.bit_offset, heatmap_width
             );
             let mut reader = BitReader::endian(Cursor::new(&bytes), LittleEndian);
-            let _stats_offset = if a.version == 5 || a.version == 1 {
-                19
-            } else {
-                0
-            };
-
-            // Search for the actual start of stats bit (heuristic to find first 1 or 0x1FF)
-            let start = a.bit_offset + 60; // Approximate header end
+            let start = a.bit_offset + 60;
             if reader.skip(start as u32).is_err() {
                 continue;
             }
@@ -185,18 +182,13 @@ fn infer_bit_width(bytes: &[u8], stats_start_bit: u64, _version: u8) -> (u32, i3
 
             if stat_id == 0x1FF {
                 found_terminator = true;
-                // Strong weight for terminator. Use the property count to anchor the probability.
                 score += 1000;
-                // We also expect items to have a reasonable number of properties, but shorter is more common.
-                // However, we don't want to over-favor 0-length if it's junk.
                 break;
             }
 
-            // Statistical validity: Stats in Alpha are mostly < 512.
             if stat_id < 512 {
                 score += 20;
             } else {
-                // Harsh penalty for high-bit stat_ids (likely desync)
                 score -= 1000;
                 break;
             }
@@ -208,11 +200,9 @@ fn infer_bit_width(bytes: &[u8], stats_start_bit: u64, _version: u8) -> (u32, i3
         }
 
         if !found_terminator {
-            score -= 5000; // Severe penalty for missing terminator in expected window
+            score -= 5000;
         }
 
-        // Special check for v105: 10-bit is the ground truth for non-compact items.
-        // We break ties by favoring 10-bit if scores are very close.
         if width == 10 {
             score += 1;
         }

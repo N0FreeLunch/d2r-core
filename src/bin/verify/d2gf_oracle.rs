@@ -1,5 +1,6 @@
-use bitstream_io::{BitRead, BitReader, LittleEndian};
+﻿use bitstream_io::{BitRead, BitReader, LittleEndian};
 use d2r_core::save::{gf_payload_range, map_core_sections};
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 use std::env;
 use std::fs;
 use std::io::{self, Cursor};
@@ -14,38 +15,47 @@ fn get_retail_bits(stat_id: u32) -> u32 {
     }
 }
 
+fn parse_range(s: &str) -> Option<(u32, u32)> {
+    let parts: Vec<&str> = s.split("..").collect();
+    if parts.len() == 2 {
+        let start = parts[0].parse().unwrap_or(0);
+        let end_part = parts[1].trim_start_matches('=');
+        let end = end_part.parse().unwrap_or(16);
+        Some((start, end))
+    } else {
+        None
+    }
+}
+
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 || args.contains(&"--help".to_string()) {
-        println!("Usage: d2gf_oracle <save_path> [options]");
-        println!("Options:");
-        println!("  --stat-id <id>       Target stat ID to oracle (e.g. 80)");
-        println!("  --width-range <r>    Value-bit width range to sweep (e.g. 0..16)");
-        return Ok(());
-    }
+    let mut parser = ArgParser::new("d2gf_oracle")
+        .description("Value-bit width sweep oracle for discovering unknown stat bit widths in GF sections");
 
-    let path = &args[1];
+    parser.add_spec(ArgSpec::positional("save_path", "path to the D2R save file (.d2s)"));
+    parser.add_spec(ArgSpec::option("stat-id", Some('i'), Some("stat-id"), "target stat ID to oracle (default: 80)").with_default("80"));
+    parser.add_spec(ArgSpec::option("width-range", Some('w'), Some("width-range"), "value-bit width range to sweep (default: 0..16)").with_default("0..16"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            std::process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}\n\n{}", e, parser.usage());
+            std::process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_path").unwrap();
+    let target_id: u32 = parsed.get("stat-id").and_then(|s| s.parse().ok()).unwrap_or(80);
+    
+    let (start_width, end_width) = parsed.get("width-range")
+        .and_then(|s| parse_range(s))
+        .unwrap_or((0, 16));
+
     let bytes = fs::read(path)?;
-
-    let mut target_id = 80;
-    if let Some(pos) = args.iter().position(|x| x == "--stat-id") {
-        if let Some(id_str) = args.get(pos + 1) {
-            target_id = id_str.parse().unwrap_or(80);
-        }
-    }
-
-    let mut start_width = 0;
-    let mut end_width = 16;
-    if let Some(pos) = args.iter().position(|x| x == "--width-range") {
-        if let Some(range_str) = args.get(pos + 1) {
-            let parts: Vec<&str> = range_str.split("..").collect();
-            if parts.len() == 2 {
-                start_width = parts[0].parse().unwrap_or(0);
-                let end_part = parts[1].trim_start_matches('=');
-                end_width = end_part.parse().unwrap_or(16);
-            }
-        }
-    }
 
     let map =
         map_core_sections(&bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;

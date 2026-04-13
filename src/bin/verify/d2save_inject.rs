@@ -1,5 +1,6 @@
-use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
+﻿use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
 use d2r_core::item::Checksum;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -25,24 +26,36 @@ fn load_item_bits_from_d2i(d2i_path: &str) -> Vec<bool> {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 5 {
-        eprintln!("Usage: d2save_inject <input.d2s> <item.d2i> <count> <output.d2s>");
-        eprintln!("  input.d2s   Source save file");
-        eprintln!("  item.d2i    Item template to inject (will be copied <count> times)");
-        eprintln!("  count       Number of copies to inject");
-        eprintln!("  output.d2s  Output file path");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_inject")
+        .description("Injects multiple copies of an item template (.d2i) into a D2R save file (.d2s)");
 
-    let input_path = &args[1];
-    let d2i_path = &args[2];
-    let count: usize = args[3].parse().unwrap_or_else(|_| {
+    parser.add_spec(ArgSpec::positional("input_d2s", "path to the source D2R save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("item_d2i", "path to the item template file (.d2i)"));
+    parser.add_spec(ArgSpec::positional("count", "number of copies to inject"));
+    parser.add_spec(ArgSpec::positional("output_d2s", "path to the output save file (.d2s)"));
+    parser.add_spec(ArgSpec::flag("no-align", Some('n'), Some("no-align"), "disable byte-alignment per item (bit-packed mode)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}\n\n{}", e, parser.usage());
+            process::exit(1);
+        }
+    };
+
+    let input_path = parsed.get("input_d2s").unwrap();
+    let d2i_path = parsed.get("item_d2i").unwrap();
+    let count: usize = parsed.get("count").and_then(|s| s.parse().ok()).unwrap_or_else(|| {
         eprintln!("[ERROR] count must be a positive integer");
         process::exit(1);
     });
-    let output_path = &args[4];
-    let no_align = args.iter().any(|arg| arg == "--no-align" || arg == "-n");
+    let output_path = parsed.get("output_d2s").unwrap();
+    let no_align = parsed.is_set("no-align");
 
     println!("=== d2save_inject ===");
     println!("  Input:  {}", input_path);

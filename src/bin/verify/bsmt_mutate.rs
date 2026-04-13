@@ -1,4 +1,4 @@
-// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
+﻿// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,42 +16,51 @@ use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
-use d2r_core::verify::mutation::{mutate_absolute_bit_and_finalize, MutationMode, resolve_logical_address};
+use d2r_core::verify::mutation::{mutate_absolute_bit_and_finalize, MutationMode, resolve_logical_address};      
 use d2r_core::save::Save;
 use d2r_core::item::{Item, HuffmanTree};
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: bsmt_mutate <save_file.d2s> <target> [--mode absolute|logical]");
-        eprintln!("Example (Absolute): bsmt_mutate player.d2s 2392");
-        eprintln!("Example (Logical): bsmt_mutate player.d2s Header.Checksum --mode logical");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("bsmt_mutate")
+        .description("Safely mutates D2R save files in an isolated environment (tmp/forensics/) for testing and exploration");
 
-    let input_path = Path::new(&args[1]);
-    let target = &args[2];
+    parser.add_spec(ArgSpec::positional("save_file", "path to the D2R save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("target", "bit offset (absolute) or logical address (e.g. Header.Checksum)"));
+    parser.add_spec(ArgSpec::option("mode", Some('m'), Some("mode"), "mutation mode: 'absolute' (default) or 'logical'").with_default("absolute"));
 
-    let mut mode = MutationMode::Absolute;
-    if let Some(mode_idx) = args.iter().position(|r| r == "--mode") {
-        if let Some(mode_val) = args.get(mode_idx + 1) {
-            match mode_val.as_str() {
-                "absolute" => mode = MutationMode::Absolute,
-                "logical" => mode = MutationMode::Logical,
-                _ => {
-                    eprintln!("Error: Unknown mode '{}'. Use 'absolute' or 'logical'.", mode_val);
-                    process::exit(1);
-                }
-            }
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
         }
-    }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}\n\n{}", e, parser.usage());
+            process::exit(1);
+        }
+    };
+
+    let input_path = Path::new(parsed.get("save_file").unwrap());
+    let target = parsed.get("target").unwrap();
+    let mode_str = parsed.get("mode").unwrap();
+
+    let mode = match mode_str.as_str() {
+        "absolute" => MutationMode::Absolute,
+        "logical" => MutationMode::Logical,
+        _ => {
+            eprintln!("Error: Unknown mode '{}'. Use 'absolute' or 'logical'.", mode_str);
+            process::exit(1);
+        }
+    };
 
     let bit_offset: usize = match mode {
         MutationMode::Absolute => {
             match target.parse() {
                 Ok(val) => val,
                 Err(_) => {
-                    eprintln!("Error: bit_offset must be a positive integer in absolute mode.");
+                    eprintln!("Error: target must be a positive integer in absolute mode.");
                     process::exit(1);
                 }
             }
@@ -112,12 +121,13 @@ fn main() {
             let huffman = HuffmanTree::new();
             // Alpha v105 detection
             let is_alpha = save.header.version == 6 || save.header.version == 105;
-            
+
             match Item::read_player_items(&mutated_bytes, &huffman, is_alpha) {
                 Ok(items) => {
                     // Find JM #0 to get the expected count from the header
                     if let Some(jm_pos) = mutated_bytes.windows(2).position(|w| w == b"JM") {
                         let expected_count = u16::from_le_bytes([mutated_bytes[jm_pos + 2], mutated_bytes[jm_pos + 3]]) as usize;
+
                         if items.len() != expected_count {
                             diagnostic_failed = true;
                             report = format!(

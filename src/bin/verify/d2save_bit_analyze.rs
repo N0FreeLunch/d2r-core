@@ -3,20 +3,39 @@ use d2r_core::item::HuffmanTree;
 use std::env;
 use std::fs;
 use std::io::Cursor;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        return;
-    }
-    let path = &args[1];
-    let bytes = fs::read(path).unwrap();
+    let mut parser = ArgParser::new("d2save_bit_analyze")
+        .description("Scans bit offsets for known item codes in a D2R save file");
+
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
+    let bytes = fs::read(path).unwrap_or_else(|e| {
+        eprintln!("[ERROR] Cannot read '{}': {}", path, e);
+        process::exit(1);
+    });
     let huffman = HuffmanTree::new();
 
     // Find first JM
     let jm_pos = (0..bytes.len().saturating_sub(1))
         .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
-        .unwrap();
+        .expect("No JM marker found");
     let item_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
     println!("Found JM at byte {}, item count: {}", jm_pos, item_count);
 

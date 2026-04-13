@@ -4,14 +4,29 @@ use d2r_core::item::{HuffmanTree, is_plausible_item_header};
 use std::env;
 use std::fs;
 use std::io::Cursor;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2item_alpha_scavenger <save_file>");
-        return;
-    }
-    let path = &args[1];
+    let mut parser = ArgParser::new("d2item_alpha_scavenger")
+        .description("Scavenges for plausible Alpha v105 item headers across the entire save file bitstream");
+
+    parser.add_spec(ArgSpec::positional("save_file", "path to the Alpha v105 save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
     let bytes = fs::read(path).expect("failed to read save file");
 
     let huffman = HuffmanTree::new();
@@ -24,7 +39,7 @@ fn main() {
     let jm_pos = (0..bytes.len() - 2)
         .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
         .expect("No JM marker found");
-    
+
     let start_bit = (jm_pos + 4) * 8;
     let end_bit = bytes.len() * 8;
 
@@ -41,7 +56,7 @@ fn main() {
         let mode = match cursor.read_bits::<u32>(3) { Ok(v) => v, _ => continue };
         let loc = match cursor.read_bits::<u32>(3) { Ok(v) => v, _ => continue };
         let x = match cursor.read_bits::<u32>(4) { Ok(v) => v, _ => continue };
-        
+
         let header_bits_before_gap = cursor.pos() - checkpoint;
 
         for gap in 0..=16u64 {
@@ -65,7 +80,7 @@ fn main() {
             };
 
             if !fail && axiom.is_plausible(mode as u8, loc as u8, &code, flags) {
-                println!("  [Bit {}] Potential Item: '{}' (mode={}, loc={}, x={}, flags=0x{:08X}, gap={})", 
+                println!("  [Bit {}] Potential Item: '{}' (mode={}, loc={}, x={}, flags=0x{:08X}, gap={})",     
                     bit, code, mode, loc, x, flags, gap);
             }
         }

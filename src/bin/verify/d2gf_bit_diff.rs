@@ -3,6 +3,8 @@ use d2r_core::save::{gf_payload_range, map_core_sections};
 use std::env;
 use std::fs;
 use std::io;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn bytes_to_bits(bytes: &[u8]) -> Vec<bool> {
     let mut bits = Vec::with_capacity(bytes.len() * 8);
@@ -15,14 +17,27 @@ fn bytes_to_bits(bytes: &[u8]) -> Vec<bool> {
 }
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 || args.contains(&"--help".to_string()) {
-        println!("Usage: d2gf_bit_diff <save1.d2s> <save2.d2s>");
-        return Ok(());
-    }
+    let mut parser = ArgParser::new("d2gf_bit_diff")
+        .description("Performs bit-level alignment and diffing of character status sections between two D2R save files");
 
-    let path1 = &args[1];
-    let path2 = &args[2];
+    parser.add_spec(ArgSpec::positional("file_a", "path to the first save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("file_b", "path to the second save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path1 = parsed.get("file_a").unwrap();
+    let path2 = parsed.get("file_b").unwrap();
 
     let bytes1 = fs::read(path1)?;
     let bytes2 = fs::read(path2)?;

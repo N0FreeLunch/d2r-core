@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
 use std::io;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 use d2r_core::save::{gf_payload_range, map_core_sections};
 
@@ -20,14 +22,30 @@ fn print_section_map(label: &str, map: &d2r_core::save::SaveSectionMap) {
 }
 
 fn main() -> io::Result<()> {
-    let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
-        eprintln!("Usage: d2save_status_diff <file_a.d2s> <file_b.d2s>");
-        std::process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_status_diff")
+        .description("Compares character status sections (GF payload) of two D2R save files");
 
-    let bytes_a = fs::read(&args[1])?;
-    let bytes_b = fs::read(&args[2])?;
+    parser.add_spec(ArgSpec::positional("file_a", "path to the first save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("file_b", "path to the second save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path_a = parsed.get("file_a").unwrap();
+    let path_b = parsed.get("file_b").unwrap();
+
+    let bytes_a = fs::read(path_a)?;
+    let bytes_b = fs::read(path_b)?;
 
     let map_a = map_core_sections(&bytes_a)?;
     let map_b = map_core_sections(&bytes_b)?;

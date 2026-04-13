@@ -4,15 +4,33 @@ use d2r_core::item::{HuffmanTree, Item};
 use std::env;
 use std::fs;
 use std::io::{self, Cursor};
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2item_bit_align <save_file> [item_index]");
-        return;
-    }
-    let bytes = fs::read(&args[1]).expect("failed to read save file");
-    let target_idx = args.get(2).and_then(|s| s.parse::<usize>().ok());
+    let mut parser = ArgParser::new("d2item_bit_align")
+        .description("Analyzes bit-level similarity between actual item bits and expected re-serialized bits");
+
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("item_index", "optional index of the item to align").optional());
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
+    let target_idx = parsed.get("item_index").and_then(|s| s.parse::<usize>().ok());
+
+    let bytes = fs::read(path).expect("failed to read save file");
 
     let huffman = HuffmanTree::new();
     let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
@@ -32,10 +50,10 @@ fn run_align_report(items: &[Item], item_index: usize, huffman: &HuffmanTree) ->
     let actual: Vec<bool> = item.bits.iter().map(|rb| rb.bit).collect();
 
     if actual.is_empty() {
-        return Err(io::Result::Err(io::Error::new(
+        return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "No bits recorded for the item.",
-        )).unwrap());
+        ));
     }
 
     // Strategy A: Re-serialize and re-parse to get "Expected Bits"

@@ -4,15 +4,34 @@ use d2r_core::item::{HuffmanTree, Item, RecordedBit};
 use std::env;
 use std::fs;
 use std::io::Cursor;
+use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: symmetry_bit_diff <save_file_a> <save_file_b>");
-        return;
-    }
-    let bytes_a = fs::read(&args[1]).expect("failed to read save file A");
-    let bytes_b = fs::read(&args[2]).expect("failed to read save file B");
+    let mut parser = ArgParser::new("SymmetryBitDiff")
+        .description("Compares item-by-item bitstream symmetry between two D2R save files");
+
+    parser.add_spec(ArgSpec::positional("file_a", "path to the first save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("file_b", "path to the second save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path_a = parsed.get("file_a").unwrap();
+    let path_b = parsed.get("file_b").unwrap();
+
+    let bytes_a = fs::read(path_a).expect("failed to read save file A");
+    let bytes_b = fs::read(path_b).expect("failed to read save file B");
 
     let jm_pos_a = find_jm(&bytes_a).expect("No JM in A");
     let jm_pos_b = find_jm(&bytes_b).expect("No JM in B");
@@ -23,7 +42,7 @@ fn main() {
 
     let mut reader_a = IoBitReader::endian(Cursor::new(&bytes_a[jm_pos_a + 4..]), LittleEndian);
     let mut reader_b = IoBitReader::endian(Cursor::new(&bytes_b[jm_pos_b + 4..]), LittleEndian);
-    
+
     let mut cursor_a = BitCursor::new(&mut reader_a);
     let mut cursor_b = BitCursor::new(&mut reader_b);
 

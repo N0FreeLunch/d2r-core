@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn find_first_jm(bytes: &[u8]) -> Option<usize> {
     for i in 0..bytes.len().saturating_sub(1) {
@@ -12,14 +13,27 @@ fn find_first_jm(bytes: &[u8]) -> Option<usize> {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 3 {
-        eprintln!("Usage: d2save_item_diff <file_a.d2s> <file_b.d2s>");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_item_diff")
+        .description("Compares item sections of two D2R save files after aligning to the first JM marker");
 
-    let path_a = &args[1];
-    let path_b = &args[2];
+    parser.add_spec(ArgSpec::positional("file_a", "path to the first save file (.d2s)"));
+    parser.add_spec(ArgSpec::positional("file_b", "path to the second save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path_a = parsed.get("file_a").unwrap();
+    let path_b = parsed.get("file_b").unwrap();
 
     let bytes_a = match fs::read(path_a) {
         Ok(b) => b,
@@ -81,7 +95,7 @@ fn main() {
     println!("  Total differences: {} bytes", diffs.len());
 
     if diffs.is_empty() && items_a.len() == items_b.len() {
-        println!("\n  ✅ [IDENTICAL] The Item Sections (JM onwards) are 100% strictly identical.");
+        println!("\n  ??[IDENTICAL] The Item Sections (JM onwards) are 100% strictly identical.");
         process::exit(0);
     }
 

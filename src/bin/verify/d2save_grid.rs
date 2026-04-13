@@ -3,15 +3,28 @@ use d2r_core::item::HuffmanTree;
 use std::env;
 use std::fs;
 use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2save_grid <file.d2s>");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_grid")
+        .description("Displays a visual grid map of the inventory for a D2R save file");
 
-    let path = &args[1];
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
     let bytes = fs::read(path).unwrap_or_else(|e| {
         eprintln!("[ERROR] Cannot read '{}': {}", path, e);
         process::exit(1);

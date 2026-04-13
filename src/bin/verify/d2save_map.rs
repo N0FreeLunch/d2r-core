@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::process;
+use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 use d2r_core::save::{
     ACTIVE_WEAPON_OFFSET, CHAR_CLASS_OFFSET, CHAR_LEVEL_OFFSET, CHAR_NAME_OFFSET,
@@ -8,13 +9,25 @@ use d2r_core::save::{
 };
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: d2save_map <file.d2s>");
-        process::exit(1);
-    }
+    let mut parser = ArgParser::new("d2save_map")
+        .description("Maps and summarizes the major sections and JM markers of a D2R save file");
 
-    let path = &args[1];
+    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
+
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    let parsed = match parser.parse(args) {
+        Ok(p) => p,
+        Err(ArgError::Help(h)) => {
+            println!("{}", h);
+            process::exit(0);
+        }
+        Err(ArgError::Error(e)) => {
+            eprintln!("Error: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let path = parsed.get("save_file").unwrap();
     let bytes = match fs::read(path) {
         Ok(b) => b,
         Err(e) => {

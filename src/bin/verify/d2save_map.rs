@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::process;
 use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 use d2r_core::save::{
@@ -8,7 +7,7 @@ use d2r_core::save::{
     LAST_PLAYED_OFFSET, Save, class_name, find_jm_markers,
 };
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let mut parser = ArgParser::new("d2save_map")
         .description("Maps and summarizes the major sections and JM markers of a D2R save file");
 
@@ -19,32 +18,19 @@ fn main() {
         Ok(p) => p,
         Err(ArgError::Help(h)) => {
             println!("{}", h);
-            process::exit(0);
+            return Ok(());
         }
         Err(ArgError::Error(e)) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
+            anyhow::bail!("{}\n\n{}", e, parser.usage());
         }
     };
 
     let path = parsed.get("save_file").unwrap();
-    let bytes = match fs::read(path) {
-        Ok(b) => b,
-        Err(e) => {
-            eprintln!("[ERROR] Cannot read '{}': {}", path, e);
-            process::exit(1);
-        }
-    };
+    let bytes = fs::read(path).map_err(|e| anyhow::anyhow!("Cannot read '{}': {}", path, e))?;
 
     println!("=== Section Map: {} ({} bytes) ===", path, bytes.len());
 
-    let save = match Save::from_bytes(&bytes) {
-        Ok(save) => save,
-        Err(err) => {
-            eprintln!("[ERROR] Cannot parse D2R header: {}", err);
-            process::exit(1);
-        }
-    };
+    let save = Save::from_bytes(&bytes).map_err(|err| anyhow::anyhow!("Cannot parse D2R header: {}", err))?;
 
     println!();
     println!("[HEADER]");
@@ -121,4 +107,6 @@ fn main() {
         let player_section_bytes = second_jm - first_jm;
         println!("  Player item section:    {} bytes", player_section_bytes);
     }
+
+    Ok(())
 }

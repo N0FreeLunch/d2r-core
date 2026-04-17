@@ -4,13 +4,12 @@
 Read these in order:
 1. `AGENTS.md` (Public Safety Floor)
 2. `NAVIGATOR.md` (Public Index)
-3. **The `GEMINI.md` file resolved from `D2R_SPEC_PATH`** (Local Strategy Hub - **Primary Authority when Hub is present**)
-4. The `AGENTS.md` file resolved from `D2R_SPEC_PATH` (Workflow Overlay)
-5. The `AI_WORKFLOW.md` file resolved from `D2R_SPEC_PATH`
-6. Optional local `.agents/tasks/*.md` under the path resolved from `D2R_SPEC_PATH`
-7. The relevant `discussion/*.md` files under the path resolved from `D2R_SPEC_PATH`
+3. Optional local Strategy Hub files resolved from `D2R_SPEC_PATH` when that environment is available:
+   - a spec-side `GEMINI.md` companion note
+   - the local `AGENTS.md` and `AI_WORKFLOW.md`
+   - local `.agents/tasks/*.md` or `discussion/*.md` files when they are actually relevant
 
-This document is a **bootstrap entrypoint**. If a local Strategy Hub exists at the path resolved from `D2R_SPEC_PATH`, its instructions take precedence for research, planning, and multi-model workflows. If guidance conflicts, prefer public root docs (`AGENTS.md`) first, then apply the local Strategy Hub overlay only if it exists.
+This document is a **bootstrap entrypoint**. Prefer public root docs first, then use any local Strategy Hub material resolved from `D2R_SPEC_PATH` only as an optional companion overlay when that environment exists.
 
 ## Role
 Act as a strategic research and analysis model.
@@ -34,7 +33,7 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
   - When operating as an agent within Gemini CLI, the following instructions apply:
   - **Force PowerShell Output**: Every `run_shell_command` call MUST include the preamble `$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;` at the top to force UTF-8 output.
   - **Mandatory EncodedCommand**: When passing complex arguments containing non-ASCII (e.g., Korean) characters, you MUST use the `-EncodedCommand` (UTF-16LE + Base64) method to prevent shell encoding interference.
-  - Refer to the local Strategy Hub discussion resolved from `D2R_SPEC_PATH` at `discussion/0145-gemini-cli-windows-encoding-standard.md` for technical details and solution guides.
+  - If your local environment exposes a Strategy Hub note for Gemini CLI encoding, treat it as additional implementation detail rather than a public bootstrap prerequisite.
 - **Strategic Verification Phase**: Prioritize examining the validity of the user's opinion or request before execution. If validation requires work, perform the minimal amount necessary to confirm feasibility and state your perspective on the validity first.
 - Treat the Strategy Hub resolved from `D2R_SPEC_PATH` and fixtures as truth for binary behavior.
 - If the local `AGENTS.md`, `AI_WORKFLOW.md`, or `.agents/tasks/` paths resolved from `D2R_SPEC_PATH` exist, use them only as a private overlay and do not copy their sensitive detail into public root docs.
@@ -75,7 +74,7 @@ Final updated directive documents should only be written after this review is co
   - Preserve data-boundary separation (`d2r-core` vs `d2r-data`).
   - Apply `Conflict Check -> Action Plan -> Side-Effect Scan` before changing directive files or skills.
   - For complex PowerShell logic, prefer temporary `tmp/` script harness execution; purge temporary artifacts before completion.
-  - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, you MUST adhere to the standards defined in the **`powershell-safe-file-ops`** skill resolved from `D2R_SPEC_PATH` at `.agents/skills/powershell-safe-file-ops/SKILL.md` to prevent encoding hazards and shell syntax failures.
+  - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, follow the local Windows file-operation guidance exposed by that environment, but do not treat a spec-local skill path as part of the public bootstrap floor.
 - **Response Contract for Meaningful Deliverables**:
   - Include `Outcome`, `Verification`, and `Residual Risk` whenever the output contains substantive analysis or planning artifacts.
   - Do not force this format for short conversational answers, narrow code explanations, or lightweight review comments unless the user asked for a formal artifact.
@@ -87,7 +86,7 @@ Final updated directive documents should only be written after this review is co
     2. A task boundary (Completion/Blocker) is reached and the next step needs to be identified.
     3. Specific skill keywords are encountered and the exact path is unknown.
   - If the user provides a clear task spec or direct instructions, skip redundant indexing to save tokens.
-- **Official Skills Repository**: All custom skills are stored in the `.agents/skills/` directory resolved from `D2R_SPEC_PATH`.
+- **Official Skills Repository**: If your local environment exposes a Strategy Hub skill registry under `D2R_SPEC_PATH`, consult that local skill registry instead of treating it as part of the public bootstrap floor.
 - **Skill Activation Workaround**: Due to directory junction restrictions, tools may fail to list skills automatically. In such cases, determine the path from the index and use `view_file` or PowerShell (`Get-Content`) to read the specific `SKILL.md` directly.
 - **Key Skills to Prioritize**:
   - `d2r-multi-repo-ops`: Essential for operations involving `d2r-spec` and `d2r-data` junctions.

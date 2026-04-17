@@ -4,13 +4,13 @@
 Read these in order:
 1. `AGENTS.md` (Public Safety Floor)
 2. `NAVIGATOR.md` (Public Index)
-3. **`../d2r-spec/GEMINI.md`** (Local Strategy Hub - **Primary Authority when Hub is present**)
-4. `../d2r-spec/AGENTS.md` (Workflow Overlay)
-5. `../d2r-spec/AI_WORKFLOW.md`
-6. Optional local `../d2r-spec/.agents/tasks/*.md`
-7. The relevant `../d2r-spec/discussion/*.md`
+3. **The `GEMINI.md` file resolved from `D2R_SPEC_PATH`** (Local Strategy Hub - **Primary Authority when Hub is present**)
+4. The `AGENTS.md` file resolved from `D2R_SPEC_PATH` (Workflow Overlay)
+5. The `AI_WORKFLOW.md` file resolved from `D2R_SPEC_PATH`
+6. Optional local `.agents/tasks/*.md` under the path resolved from `D2R_SPEC_PATH`
+7. The relevant `discussion/*.md` files under the path resolved from `D2R_SPEC_PATH`
 
-This document is a **bootstrap entrypoint**. If a local Strategy Hub exists at `../d2r-spec/`, its instructions take precedence for research, planning, and multi-model workflows. If guidance conflicts, prefer public root docs (`AGENTS.md`) first, then apply the local Strategy Hub overlay only if it exists.
+This document is a **bootstrap entrypoint**. If a local Strategy Hub exists at the path resolved from `D2R_SPEC_PATH`, its instructions take precedence for research, planning, and multi-model workflows. If guidance conflicts, prefer public root docs (`AGENTS.md`) first, then apply the local Strategy Hub overlay only if it exists.
 
 ## Role
 Act as a strategic research and analysis model.
@@ -18,7 +18,7 @@ Your default output, when the request is exploratory, planning-heavy, or multi-s
 - discussion drafts,
 - implementation-plan inputs,
 - verification notes,
-- `../d2r-spec/.agents/tasks/` task specs.
+- `.agents/tasks/` task specs under the path resolved from `D2R_SPEC_PATH`.
 
 For simple, well-bounded execution or review requests with clear file scope and no planning trigger from `AGENTS.md`, you may respond directly without forcing task-spec-first behavior.
 Avoid direct, broad code implementation unless a task spec explicitly narrows the scope or the user clearly asked for a small, direct change.
@@ -34,17 +34,17 @@ Avoid direct, broad code implementation unless a task spec explicitly narrows th
   - When operating as an agent within Gemini CLI, the following instructions apply:
   - **Force PowerShell Output**: Every `run_shell_command` call MUST include the preamble `$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;` at the top to force UTF-8 output.
   - **Mandatory EncodedCommand**: When passing complex arguments containing non-ASCII (e.g., Korean) characters, you MUST use the `-EncodedCommand` (UTF-16LE + Base64) method to prevent shell encoding interference.
-  - Refer to [0145: Gemini CLI Windows Encoding Standard](../d2r-spec/discussion/0145-gemini-cli-windows-encoding-standard.md) for technical details and solution guides.
+  - Refer to the local Strategy Hub discussion resolved from `D2R_SPEC_PATH` at `discussion/0145-gemini-cli-windows-encoding-standard.md` for technical details and solution guides.
 - **Strategic Verification Phase**: Prioritize examining the validity of the user's opinion or request before execution. If validation requires work, perform the minimal amount necessary to confirm feasibility and state your perspective on the validity first.
-- Treat the Strategy Hub at `../d2r-spec/` and fixtures as truth for binary behavior.
-- If `../d2r-spec/AGENTS.md`, `../d2r-spec/AI_WORKFLOW.md`, or `../d2r-spec/.agents/tasks/` exists locally, use them only as a private overlay and do not copy their sensitive detail into public root docs.
+- Treat the Strategy Hub resolved from `D2R_SPEC_PATH` and fixtures as truth for binary behavior.
+- If the local `AGENTS.md`, `AI_WORKFLOW.md`, or `.agents/tasks/` paths resolved from `D2R_SPEC_PATH` exist, use them only as a private overlay and do not copy their sensitive detail into public root docs.
 - Enforce the data boundary from `AGENTS.md`/`NAVIGATOR.md`: extracted game tables/assets belong to `d2r-data/`, and `d2r-core` edits should stay at gateway/integration level (`src/data/mod.rs` boundary).
 - When creating discussion docs, label important claims as:
   - `fixture-verified`
   - `legacy-hypothesis`
   - `needs-verification`
-- If a task spans `3+ files` or reopens core bit-level ambiguity, route it into `../d2r-spec/.agents/tasks/` planning first when the private overlay is available, and recommend delegation to a stronger secondary model for implementation.
-- Prefer updating `../d2r-spec/discussion/` and `../d2r-spec/.agents/tasks/` over making broad public source edits when the request is for planning, discussion capture, cross-turn handoff, or complex scoped work. Do not manufacture planning artifacts for a simple direct answer or a small bounded edit.
+- If a task spans `3+ files` or reopens core bit-level ambiguity, route it into the `.agents/tasks/` planning area resolved from `D2R_SPEC_PATH` first when the private overlay is available, and recommend delegation to a stronger secondary model for implementation.
+- Prefer updating the `discussion/` and `.agents/tasks/` areas resolved from `D2R_SPEC_PATH` over making broad public source edits when the request is for planning, discussion capture, cross-turn handoff, or complex scoped work. Do not manufacture planning artifacts for a simple direct answer or a small bounded edit.
 - Use YAML frontmatter (`title`, `status`, `date`, `tags`, `related_files`, `tasks`) for all `discussion/*.md` and `adr/*.md` files. (Tags MUST start with `#`). Always update `status` and `date` during edits.
 - **Efficiency & Tooling Strategy**: If a task is repetitive, context-intensive, or consumes excessive tokens, prioritize proposing or promoting reusable tools as per the `efficiency-tooling-specialist` skill.
 - **No Automatic Push**: Never execute `git push` without an explicit, direct command from the user. Automatic pushing as part of a workflow or "finished" state is strictly prohibited.
@@ -75,19 +75,19 @@ Final updated directive documents should only be written after this review is co
   - Preserve data-boundary separation (`d2r-core` vs `d2r-data`).
   - Apply `Conflict Check -> Action Plan -> Side-Effect Scan` before changing directive files or skills.
   - For complex PowerShell logic, prefer temporary `tmp/` script harness execution; purge temporary artifacts before completion.
-  - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, you MUST adhere to the standards defined in the **`powershell-safe-file-ops`** skill (`../d2r-spec/.agents/skills/powershell-safe-file-ops/SKILL.md`) to prevent encoding hazards and shell syntax failures.
+  - **Windows PowerShell Safety**: When operating in a Windows environment using the Gemini CLI, you MUST adhere to the standards defined in the **`powershell-safe-file-ops`** skill resolved from `D2R_SPEC_PATH` at `.agents/skills/powershell-safe-file-ops/SKILL.md` to prevent encoding hazards and shell syntax failures.
 - **Response Contract for Meaningful Deliverables**:
   - Include `Outcome`, `Verification`, and `Residual Risk` whenever the output contains substantive analysis or planning artifacts.
   - Do not force this format for short conversational answers, narrow code explanations, or lightweight review comments unless the user asked for a formal artifact.
 
 ## High-Efficiency Indexing & Skill Discovery (2026-04-01)
 - **Dynamic Initializing (Context-First)**:
-  - Gemini models should prioritize efficiency. Reading `../d2r-spec/SYSTEM_INDEX.md` and `../d2r-spec/.agents/skills/SKILL_INDEX.yml` is **REQUIRED** only when:
+  - Gemini models should prioritize efficiency. Reading `SYSTEM_INDEX.md` and `.agents/skills/SKILL_INDEX.yml` under the path resolved from `D2R_SPEC_PATH` is **REQUIRED** only when:
     1. The current task context is unclear or missing from the initial prompt.
     2. A task boundary (Completion/Blocker) is reached and the next step needs to be identified.
     3. Specific skill keywords are encountered and the exact path is unknown.
   - If the user provides a clear task spec or direct instructions, skip redundant indexing to save tokens.
-- **Official Skills Repository**: All custom skills are stored in `../d2r-spec/.agents/skills/`.
+- **Official Skills Repository**: All custom skills are stored in the `.agents/skills/` directory resolved from `D2R_SPEC_PATH`.
 - **Skill Activation Workaround**: Due to directory junction restrictions, tools may fail to list skills automatically. In such cases, determine the path from the index and use `view_file` or PowerShell (`Get-Content`) to read the specific `SKILL.md` directly.
 - **Key Skills to Prioritize**:
   - `d2r-multi-repo-ops`: Essential for operations involving `d2r-spec` and `d2r-data` junctions.

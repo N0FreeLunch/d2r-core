@@ -1,4 +1,4 @@
-use std::env;
+﻿use std::env;
 use std::fs;
 use serde::Serialize;
 use anyhow::{Result, Context};
@@ -21,8 +21,8 @@ fn main() -> Result<()> {
 
     parser.add_spec(ArgSpec::positional("file1", "path to the first save file (.d2s)"));
     parser.add_spec(ArgSpec::positional("file2", "path to the second save file (.d2s)"));
-    parser.add_spec(ArgSpec::flag('s', "stats", "enable character stats comparison (default if no flags)"));
-    parser.add_spec(ArgSpec::flag('i', "items", "enable player items comparison"));
+    parser.add_spec(ArgSpec::flag("stats", Some('s'), Some("stats"), "enable character stats comparison (default if no flags)"));
+    parser.add_spec(ArgSpec::flag("items", Some('i'), Some("items"), "enable player items comparison"));
 
     let args: Vec<_> = env::args_os().skip(1).collect();
     let parsed = match parser.parse(args) {
@@ -41,8 +41,8 @@ fn main() -> Result<()> {
     let file2_path = parsed.get("file2").unwrap();
     let use_json = parsed.is_json();
     
-    let mut diff_stats = parsed.has_flag("stats");
-    let diff_items = parsed.has_flag("items");
+    let mut diff_stats = parsed.is_set("stats");
+    let diff_items = parsed.is_set("items");
 
     // Default to stats if nothing specified
     if !diff_stats && !diff_items {

@@ -24,7 +24,7 @@ Before execution, evaluate complexity. Pause and report if:
 - Reasoning confidence is below 80% for the current model.
 
 ### 📐 Specification-Driven Development (SDD)
-- **Spec First**: Always consult the local Strategy Hub resolved from `D2R_SPEC_PATH` when it exists. Summarize your understanding of requirements and propose a **reasoning plan/pseudocode** before writing code. If the overlay is absent, stay within the public root docs and source tree.
+- **Spec First**: If a local Strategy Hub resolved from `D2R_SPEC_PATH` exists, consult it for richer planning context when the task is complex or planning-heavy. If the overlay is absent, stay within the public root docs and source tree and do not block on missing overlay material.
 - **Technical Anchoring (Crucial)**: When drafting a task specification (mini-spec), the agent MUST include **Technical Anchors**. These include:
     - **Data Mappings**: Precise JSON field patterns and their relation to binary save offsets.
     - **Verification Truths**: Clear expected outputs or build gates for the high-reasoning models to verify their implementation against.
@@ -36,7 +36,7 @@ Before execution, evaluate complexity. Pause and report if:
     - **Normalize with cause**: If `replace` fails repeatedly due to EOL mismatch or byte drift, or when performing a large edit on a major document, perform pre-normalization.
     - **Re-read is Mandatory**: After any normalization (e.g., `dprint fmt`, `git add --renormalize`), you MUST re-read the file to sync your context with the new byte reality before attempting the next `replace`.
 - **Reality-First Rewrite**: If the provided specification (Logic Blueprint/Anchors) conflicts with the actual code structure, do not force the change. Stop immediately and trigger a replanning pass. Full parent-task replanning is also required when verifier truth is broken or the real scope has expanded materially.
-- **Task File Integrity Gate**: Before executing a parent task file, verify required template markers exist (`EXECUTION TRIGGER`, `Metadata`, `Task Slices`, `Execution Rules`, `Final Response Format`). If any are missing, stop implementation and normalize the task file first.
+- **Task File Integrity Gate**: Before executing from a task file, verify that it has the required execution, metadata, slice, and response markers. If those control-plane markers are missing, stop implementation and normalize the task file first.
 
 ### 🛑 Stop & Escalation (Strategic Halt)
 - **Conservation**: If stuck in a loop or analysis is consuming excessive resources, **stop immediately**.
@@ -45,7 +45,7 @@ Before execution, evaluate complexity. Pause and report if:
   1. If a task is resource-intensive, **pause and ask** the user whether to proceed or hand off.
   2. If progress remains slow after proceeding, **ask once more** before continuing.
 - **Thresholds**: 2+ failed attempts at the same logical error or risk of context overflow.
-- **Strategic Handoff**: For tasks best suited for a stronger model or dedicated environment, provide a concise handoff report including current status, target specification file, and a clear escalation prompt.
+- **Strategic Handoff**: For tasks best suited for a stronger model or dedicated environment, stop and provide a concise handoff-ready status instead of continuing blindly.
 
 ## 4. Architecture & Technical Constraints
 - **Stack**: **Rust** (Core logic/Bit parsing) + **Elm** (Orchestration).
@@ -67,9 +67,9 @@ Before execution, evaluate complexity. Pause and report if:
 
 ## 5. Operational Protocol
 - **Repository Structure**: Core implementation repository with optional integration with a **Strategy Hub** (Private Overlay) resolved via `D2R_SPEC_PATH`.
-- **Strategy Hub Companion**: When a local Strategy Hub is available, treat its internal guidelines (`AGENTS.md`, `AI_WORKFLOW.md`) as the authoritative source for complex reasoning and planning workflows while maintaining core repository independence.
+- **Strategy Hub Companion**: When a local Strategy Hub is available, treat it as an optional companion for complex reasoning and planning workflows without making it a mandatory dependency for understanding or using `d2r-core`.
 - **Repository Boundary Check**: Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`. Adhere to repository isolation principles to prevent logic-data leakage.
-- **Copyright Boundary Truth Source**: Treat the discussion resolved from `D2R_SPEC_PATH` at `discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
+- **Copyright Boundary Truth Source**: When a local Strategy Hub is available, it may provide deeper rationale for the data-separation policy, but core docs must remain understandable without that companion note.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on the Strategy Hub may use `git -C <resolved D2R_SPEC_PATH>` or the equivalent resolved `D2R_SPEC_PATH` root, but any `safe.directory` value must use the normalized resolved repository path.
 - **Env-First Path Resolution**: Resolve `D2R_CORE_PATH`, `D2R_SPEC_PATH`, and `D2R_DATA_PATH` from `.env` before choosing execution roots. When these variables are set, prefer them over inferred sibling paths.
 - **Overlay Availability Gate (Path/Access Aware)**: Treat the Strategy Hub as available only when the resolved `D2R_SPEC_PATH` is actually readable and writable in the current harness. A visible directory entry, symlink, or junction alone does not satisfy availability.

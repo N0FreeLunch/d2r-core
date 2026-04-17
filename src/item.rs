@@ -95,6 +95,9 @@ fn parse_base_header<R: BitRead>(cursor: &mut BitCursor<R>, _version: u8) -> Par
     Ok((id, level, quality, String::new()))
 }
 
+/// Alpha v105 compact items (potions, scrolls, basic gear) are exactly 10 bytes.
+const V105_COMPACT_ITEM_BYTES: u64 = 10;
+
 impl Item {
     fn read_item_code<R: BitRead>(
         cursor: &mut BitCursor<R>,
@@ -590,20 +593,18 @@ impl Item {
             item_trace!("[DEBUG] Item {} parsed. Code: {}, Offset: {}, Consumed: {}", items.len(), item.code, start, consumed_bits);
 
             let mut end = start + consumed_bits;
-            let mut gap_bits = Vec::new();
+            let gap_bits = Vec::new();
             if alpha_mode {
-                let lookahead_limit = 64; 
-                let lookahead_start = start + 72;
-                if let Some(next_match) = find_next_item_match(section_bytes, lookahead_start, huffman, alpha_mode) {
-                    if next_match < end || (next_match > end && (next_match - end) < lookahead_limit) {
-                        if next_match > end {
-                             let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-                             let _ = reader.skip(end as u32);
-                             for _ in 0..(next_match - end) { gap_bits.push(reader.read_bit().unwrap_or(false)); }
-                        }
-                        end = next_match;
-                    }
+                if item.is_compact {
+                    // Compact items are exactly 10 bytes ??advance deterministically.
+                    end = start + V105_COMPACT_ITEM_BYTES * 8;
+                } else {
+                    // Extended items: byte-align the parser's consumed position.
+                    // consumed_bits is measured from 'start', already in bit units.
+                    let next_byte = (consumed_bits + 7) & !7;
+                    end = start + next_byte;
                 }
+                // gap_bits stays empty ??byte alignment means no orphaned bits.
             }
             
             bit_pos = end;

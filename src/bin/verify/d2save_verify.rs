@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Cursor;
 use std::process;
 use serde::Serialize;
+use anyhow::bail;
 
 use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
 use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
@@ -19,10 +20,13 @@ struct D2SaveVerifyPayload {
     checksum_stored: String,
     checksum_calculated: Option<String>,
     jm_marker_count: usize,
+    active_act: u8,
+    progression_flag: u8,
+    expansion_flag: u8,
     issue_count: usize,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     let mut parser = ArgParser::new("d2save_verify");
     parser.add_spec(
         ArgSpec::option("dump-bits", None, Some("dump-bits"), "Dump raw bits from start <bit> and count <bits>")
@@ -35,12 +39,10 @@ fn main() {
         Ok(p) => p,
         Err(ArgError::Help(h)) => {
             println!("{}", h);
-            process::exit(0);
+            return Ok(());
         }
         Err(ArgError::Error(e)) => {
-            eprintln!("error: {}", e);
-            eprintln!("\n{}", parser.usage());
-            process::exit(1);
+            bail!("error: {}\n\n{}", e, parser.usage());
         }
     };
 
@@ -50,8 +52,7 @@ fn main() {
 
     if let Some(bits_args) = dump_bits {
         if files.is_empty() {
-            eprintln!("Error: No file provided for --dump-bits");
-            process::exit(1);
+            bail!("Error: No file provided for --dump-bits");
         }
         let start_bit: u64 = bits_args[0].parse().unwrap_or(0);
         let count: u64 = bits_args[1].parse().unwrap_or(0);
@@ -73,13 +74,12 @@ fn main() {
             }
         }
         println!();
-        process::exit(0);
+        return Ok(());
     }
 
     if is_json {
         if files.is_empty() {
-            eprintln!("Error: No file provided for --json");
-            process::exit(1);
+            bail!("Error: No file provided for --json");
         }
         let path = &files[0];
 
@@ -102,7 +102,7 @@ fn main() {
                 .with_hints(vec!["Ensure the file path is correct and accessible.".to_string()]);
 
                 println!("{}", serde_json::to_string(&result).unwrap());
-                process::exit(1);
+                return Ok(());
             }
         };
 
@@ -125,20 +125,40 @@ fn main() {
                 }));
 
                 println!("{}", serde_json::to_string(&result).unwrap());
-                process::exit(1);
+                return Ok(());
             }
         };
 
         let huffman = d2r_core::item::HuffmanTree::new();
         let alpha_mode = save.header.version == 105;
+
+        if alpha_mode {
+            // Check Woo! (Quest Section)
+            if bytes.len() >= 0x197 && &bytes[0x193..0x197] != b"Woo!" {
+                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: Woo! marker missing at 0x193".into(), bit_offset: Some(0x193 * 8) });
+                fail = true;
+            }
+            // Check WS (Waypoint Section)
+            // Note: Fixtures have "WS" (57-53) at 0x2BD. 
+            if bytes.len() >= 0x2BF && &bytes[0x2BD..0x2BF] != b"WS" {
+                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: WS marker missing at 0x2BD".into(), bit_offset: Some(0x2BD * 8) });
+                fail = true;
+            }
+            // Check w4 (NPC Section) - Verified as "w4" (0x77 0x34) in alpha fixtures
+            if bytes.len() >= 0x310 && &bytes[0x30E..0x310] != b"w4" {
+                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: w4 marker missing at 0x30E".into(), bit_offset: Some(0x30E * 8) });
+                fail = true;
+            }
+        }
+
         let items = match d2r_core::item::Item::read_player_items(&bytes, &huffman, alpha_mode) {
             Ok(items) => items,
             Err(err) => {
                 let bit_offset = match err.error {
                     d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
                     d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
-                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
-                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),      
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),        
                     _ => None,
                 };
                 issues.push(ReportIssue {
@@ -168,8 +188,8 @@ fn main() {
                 let bit_offset = match e.error {
                     d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
                     d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
-                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
-                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),      
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),        
                     _ => None,
                 };
                 issues.push(ReportIssue {
@@ -231,12 +251,26 @@ fn main() {
             });
         }
 
+        if let Some(&jm0) = jm_markers.first() {
+            if jm0 + 3 < bytes.len() {
+                let expected = u16::from_le_bytes([bytes[jm0 + 2], bytes[jm0 + 3]]) as usize;
+                if expected != items.len() {
+                    issues.push(ReportIssue {
+                        kind: "jm_coherence".into(),
+                        message: format!("JM header count ({}) != parsed items ({})", expected, items.len()),
+                        bit_offset: Some((jm0 + 2) as u64 * 8),
+                    });
+                    fail = true;
+                }
+            }
+        }
+
         // Hint synthesis
         let mut hints = Vec::new();
         for issue in &issues {
             match issue.kind.as_str() {
                 "io" => hints.push("Ensure the file path is correct and accessible.".to_string()),
-                "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),
+                "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),   
                 "item_parse" => {
                     if let Some(offset) = issue.bit_offset {
                         hints.push(format!("Investigate bit-width or alignment logic near bit offset {}.", offset));
@@ -247,6 +281,8 @@ fn main() {
                 "file_size" => hints.push("File size in header must match the actual byte count. Truncation suspected.".to_string()),
                 "checksum" => hints.push("Checksum must be refreshed after any file mutation (lives at offset 12).".to_string()),
                 "jm_markers" => hints.push("Missing JM markers suggest the file is not a valid character save or is severely truncated.".to_string()),
+                "structural" => hints.push("Alpha v105: Fixed-offset structural markers (Woo!, WS, w4) are missing or displaced.".to_string()),
+                "jm_coherence" => hints.push("JM header item count does not match parsed item count; file may be truncated or structurally corrupted.".to_string()),
                 _ => {}
             }
         }
@@ -266,19 +302,33 @@ fn main() {
             alpha_mode,
             file_size_header: header_size,
             file_size_actual: actual_size,
-            file_size_delta: (actual_size as i64) - (header_size as i64),
+            file_size_delta: actual_size as i64 - header_size as i64,
             checksum_stored: format!("0x{:08X}", stored_checksum),
             checksum_calculated: calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
             jm_marker_count: jm_markers.len(),
+            active_act: if alpha_mode && bytes.len() > d2r_core::domain::header::axiom::ACTIVE_ACT_OFFSET {
+                bytes[d2r_core::domain::header::axiom::ACTIVE_ACT_OFFSET]
+            } else {
+                0
+            },
+            progression_flag: if alpha_mode && bytes.len() > d2r_core::domain::header::axiom::PROGRESS_FLAG_OFFSET {
+                bytes[d2r_core::domain::header::axiom::PROGRESS_FLAG_OFFSET]
+            } else {
+                0
+            },
+            expansion_flag: if alpha_mode && bytes.len() > d2r_core::domain::header::axiom::EXPANSION_FLAG_OFFSET {
+                bytes[d2r_core::domain::header::axiom::EXPANSION_FLAG_OFFSET]
+            } else {
+                0
+            },
             issue_count,
         });
         println!("{}", serde_json::to_string(&result).unwrap());
-        process::exit(if fail { 1 } else { 0 });
+        if fail { std::process::exit(1); } else { return Ok(()); }
     }
 
     if files.is_empty() {
-        eprintln!("{}", parser.usage());
-        process::exit(1);
+        bail!("{}", parser.usage());
     }
 
     let mut all_ok = true;
@@ -442,6 +492,8 @@ fn main() {
     }
 
     if !all_ok {
-        process::exit(1);
+        std::process::exit(1);
     }
+
+    Ok(())
 }

@@ -16,6 +16,7 @@ pub const CHAR_NAME_OFFSET: usize = 299;
 pub const CHAR_NAME_LEN: usize = 48;
 pub const ACTIVE_ACT_OFFSET: usize = 21;
 pub const PROGRESS_FLAG_OFFSET: usize = 108;
+pub const EXPANSION_FLAG_OFFSET: usize = 271;
 
 /// Minimum header length required to reach the end of the character name field.
 pub const MIN_HEADER_LEN: usize = CHAR_NAME_OFFSET + CHAR_NAME_LEN;

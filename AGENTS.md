@@ -10,12 +10,11 @@ You are a **'Strategic Engineering Agent'**. Your goal is to find and implement 
 
 - **Primary Role**: Research > Analysis > Documentation > Verification Support.
 - **Strategic Validity Check**: Before starting any task, prioritize evaluating the validity and feasibility of the user's opinion or request. If necessary, perform minimal research or verification to form a view on its validity, and explicitly state your perspective before proceeding with execution.
-- **Handoff Requirement**: Due to token limits, for any complex or high-volume implementation (3+ files or deep logic), you MUST draft a specification in the Strategy Hub task directory resolved from `D2R_SPEC_PATH` (for example, `<D2R_SPEC_PATH>/.agents/tasks/`) when the private overlay is available. Use `./.agents/tasks/` only as a sanitized public-safe fallback when the overlay is unavailable or when a public artifact is explicitly needed.
+- **Complex Task Protocol**: For any complex or high-volume implementation (3+ files or deep logic), you MUST utilize a dedicated task specification (mini-spec) to ensure structural integrity and verification. Favor any local Strategy Hub task directory if available.
 
 ## 2. Language Policy
 - **Primary Language**: English (code, comments, docs).
-- **Exception**: Specific Korean discussion files in the Strategy Hub repository resolved from `D2R_SPEC_PATH` if explicitly requested.
-- **Task Template Layering Rule**: For the task template resolved from `D2R_SPEC_PATH` at `.agents/tasks/TEMPLATE-task-spec.md`, keep Korean for human-facing narrative sections, but keep English control markers/headings for execution gates and machine parsing stability. Do not rename or translate those control markers without explicit user approval.
+- **Optional Companion Rules**: When operating within a local Strategy Hub context, follow the established local language and template conventions (e.g., Korean research content or specific task-template structural rules).
 
 ## 3. Engineering Strategy & Workflow
 ### 🔍 Pre-flight Check (Task Evaluation)
@@ -46,14 +45,7 @@ Before execution, evaluate complexity. Pause and report if:
   1. If a task is resource-intensive, **pause and ask** the user whether to proceed or hand off.
   2. If progress remains slow after proceeding, **ask once more** before continuing.
 - **Thresholds**: 2+ failed attempts at the same logical error or risk of context overflow.
-- **Strategic Handoff Protocol**:
-  1. For high-difficulty/token-intensive tasks, draft a detailed **Implementation Plan** in the Strategy Hub task directory resolved from `D2R_SPEC_PATH` (`.agents/tasks/`) when the private overlay is available, or a sanitized public-safe equivalent in `./.agents/tasks/` otherwise.
-  2. Clearly define the input, expected output, and verification steps.
-  3. Proactively suggest: "This task is best suited for a secondary model (CLI/IDE) using the provided private overlay spec."
-- **Handoff Report**:
-  - `[Status]`: Current progress summary.
-  - `[Target File]`: Preferred path in the Strategy Hub task directory resolved from `D2R_SPEC_PATH` (`.agents/tasks/`), or `./.agents/tasks/` only for a sanitized public-safe fallback.
-  - `[Escalation Prompt]`: A ready-to-use prompt for a stronger model (Pro/o1) containing all necessary context and the specific challenge.
+- **Strategic Handoff**: For tasks best suited for a stronger model or dedicated environment, provide a concise handoff report including current status, target specification file, and a clear escalation prompt.
 
 ## 4. Architecture & Technical Constraints
 - **Stack**: **Rust** (Core logic/Bit parsing) + **Elm** (Orchestration).
@@ -74,14 +66,9 @@ Before execution, evaluate complexity. Pause and report if:
   - Do not copy extracted tables, raw assets, or private extraction notes into `d2r-core` source/tests/docs/task artifacts.
 
 ## 5. Operational Protocol
-- **Repository Structure**: Root workspace `./` (Implementation) and the central **Strategy Hub** (Private Overlay) resolved via `D2R_SPEC_PATH`.
-- **Public/Private Split (Crucial)**: `d2r-core` is the public-facing implementation repository. All detailed strategic research, internal reasoning, and task-specific execution plans are managed within the **`d2r-spec` Strategy Hub**. Public-facing root documents act as bootstrap entrypoints: they must stay understandable without the hub, but they should direct local agents to the hub whenever it is present.
-- **Hub Bootstrap Rule**: Root directives treat the Strategy Hub resolved from `D2R_SPEC_PATH` as the primary project hub. When the hub is readable, consult the resolved `AGENTS.md` and `AI_WORKFLOW.md` files under `D2R_SPEC_PATH` for private execution workflow details.
-- **Data Task Routing Gate**:
-  1. Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`.
-  2. `Core-only`: edit `d2r-core` implementation and verifiers only.
-  3. `Data-only`: route extraction/table changes to `d2r-data` planning/execution; keep `d2r-core` unchanged unless a gateway signature update is required.
-  4. `Cross-boundary`: split into clearly separated scopes (data repo vs core repo) and document the boundary in the task spec before implementation.
+- **Repository Structure**: Core implementation repository with optional integration with a **Strategy Hub** (Private Overlay) resolved via `D2R_SPEC_PATH`.
+- **Strategy Hub Companion**: When a local Strategy Hub is available, treat its internal guidelines (`AGENTS.md`, `AI_WORKFLOW.md`) as the authoritative source for complex reasoning and planning workflows while maintaining core repository independence.
+- **Repository Boundary Check**: Classify every request as `Core-only`, `Data-only`, or `Cross-boundary`. Adhere to repository isolation principles to prevent logic-data leakage.
 - **Copyright Boundary Truth Source**: Treat the discussion resolved from `D2R_SPEC_PATH` at `discussion/0035-data-separation-and-copyright-strategy.md` as the canonical rationale for data separation and path conventions.
 - **Environment**: Run build/test commands relative to the current working directory. Git operations on the Strategy Hub may use `git -C <resolved D2R_SPEC_PATH>` or the equivalent resolved `D2R_SPEC_PATH` root, but any `safe.directory` value must use the normalized resolved repository path.
 - **Env-First Path Resolution**: Resolve `D2R_CORE_PATH`, `D2R_SPEC_PATH`, and `D2R_DATA_PATH` from `.env` before choosing execution roots. When these variables are set, prefer them over inferred sibling paths.
@@ -199,7 +186,3 @@ To prevent amnesia and ensure project-wide knowledge preservation, all agents MU
    - "Did I accidentally delete a [CRITICAL] marker?"
    - "Did I silently drop a previous strategic insight?"
    - "Is this replacement actually necessary, or am I just paraphrasing?"
-4. **Shadow Registry (Active Integrity Enforcement)**: The Shadow Blob Registry (Discussion 0138) is OPERATIONAL. To ensure zero-loss operations, all file modifications MUST follow this protocol:
-   - **Before Edit**: `cargo run --manifest-path <D2R_SPEC_PATH>/tools/shadow-registry/Cargo.toml -- integrity snapshot <path>`
-   - **After Edit**: `cargo run --manifest-path <D2R_SPEC_PATH>/tools/shadow-registry/Cargo.toml -- integrity verify <path>`
-   - **Turning Completion**: A turn is only complete when the `verify` call confirms no unauthorized deletions or accidental drift.

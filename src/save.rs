@@ -1,4 +1,4 @@
-// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
+﻿// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -129,7 +129,7 @@ pub fn map_core_sections(bytes: &[u8]) -> io::Result<SaveSectionMap> {
         (
             find_marker(bytes, b'W', b'o'), // 'Woo!'
             find_marker(bytes, b'W', b'S'), // 'WS'
-            find_marker(bytes, b'W', b'4'), // 'W4'
+            find_marker(bytes, b'w', b'4'), // 'w4'
         )
     } else {
         (None, None, None)

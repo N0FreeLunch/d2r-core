@@ -837,7 +837,15 @@ fn scan_socket_children(
             if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
                 if mode == 6 || location == 6 {
                     if let Ok((item, consumed)) = parse_item_at(bytes, current_pos, huffman, 0, alpha) {
-                        current_pos += consumed;
+                        if alpha {
+                            if item.is_compact {
+                                current_pos += V105_COMPACT_ITEM_BYTES * 8;
+                            } else {
+                                current_pos += (consumed + 7) & !7;
+                            }
+                        } else {
+                            current_pos += consumed;
+                        }
                         children.push(item);
                         continue;
                     }

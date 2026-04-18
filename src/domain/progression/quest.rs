@@ -1,5 +1,9 @@
 use crate::data::quests::{QuestEntry, V105_QUESTS};
-use super::axiom::V105_QUEST_OFFSET;
+
+/// Alpha v105 quest sections include a 12-byte header before the quest payload.
+const V105_QUEST_PAYLOAD_START: usize = 12;
+/// Den of Evil (Normal) absolute file offset in Alpha v105.
+const V105_QUEST_NORMAL_START_FILE: usize = 415;
 
 #[derive(Clone, Copy)]
 pub struct Quest {
@@ -79,9 +83,14 @@ impl QuestSet {
         let quests = V105_QUESTS
             .iter()
             .map(|entry| {
-                let offset = entry.v105_offset - V105_QUEST_OFFSET;
-                let state = if offset + 1 < bytes.len() {
-                    u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
+                // Ground absolute file offset to the payload start (Den of Evil = 415)
+                let payload_offset = entry.v105_offset - V105_QUEST_NORMAL_START_FILE;
+                
+                // Add the section-local payload start (12)
+                let section_offset = payload_offset + V105_QUEST_PAYLOAD_START;
+
+                let state = if section_offset + 1 < bytes.len() {
+                    u16::from_le_bytes([bytes[section_offset], bytes[section_offset + 1]])
                 } else {
                     0
                 };
@@ -93,11 +102,16 @@ impl QuestSet {
 
     pub fn sync_to_v105_bytes(&self, bytes: &mut [u8]) {
         for quest in &self.quests {
-            let offset = quest.v105_offset() - V105_QUEST_OFFSET;
-            if offset + 1 < bytes.len() {
+            // Ground absolute file offset to the payload start (Den of Evil = 415)
+            let payload_offset = quest.v105_offset() - V105_QUEST_NORMAL_START_FILE;
+            
+            // Add the section-local payload start (12)
+            let section_offset = payload_offset + V105_QUEST_PAYLOAD_START;
+
+            if section_offset + 1 < bytes.len() {
                 let le_bytes = quest.state().to_le_bytes();
-                bytes[offset] = le_bytes[0];
-                bytes[offset + 1] = le_bytes[1];
+                bytes[section_offset] = le_bytes[0];
+                bytes[section_offset + 1] = le_bytes[1];
             }
         }
     }
@@ -146,7 +160,7 @@ impl QuestSection {
 
     pub fn set_v105_completed_by_name(&mut self, name: &str, completed: bool) -> bool {
         let mut set = QuestSet::from_v105_bytes(&self.raw_bytes);
-        if let Some(q) = set.quests_mut().iter_mut().find(|q: &&mut Quest| q.name() == name) {
+        if let Some(q) = set.quests_mut().iter_mut().find(|q| q.name() == name) {
             q.set_completed(completed);
             set.sync_to_v105_bytes(&mut self.raw_bytes);
             return true;
@@ -179,7 +193,7 @@ mod tests {
     fn test_quest_set_initialization() {
         let quest_set = QuestSet::new_v105_empty();
         assert!(!quest_set.quests().is_empty());
-        
+
         let den = quest_set.find_by_name("Den of Evil").expect("Should find Den of Evil");
         assert_eq!(den.difficulty(), 0);
         assert_eq!(den.act(), 1);

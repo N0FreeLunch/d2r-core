@@ -81,11 +81,15 @@ pub fn find_jm_markers(bytes: &[u8]) -> Vec<usize> {
     jm_positions
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SaveSectionMap {
     pub gf_pos: usize,
     pub if_pos: usize,
     pub jm_positions: Vec<usize>,
+    // Alpha v105 progression markers
+    pub woo_pos: Option<usize>,
+    pub ws_pos: Option<usize>,
+    pub w4_pos: Option<usize>,
 }
 
 impl SaveSectionMap {
@@ -95,6 +99,12 @@ impl SaveSectionMap {
 }
 
 pub fn map_core_sections(bytes: &[u8]) -> io::Result<SaveSectionMap> {
+    let version = if bytes.len() >= 8 {
+        u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]))
+    } else {
+        0
+    };
+
     let gf_pos = find_marker(bytes, b'g', b'f').ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidData, "gf marker not found in save file")
     })?;
@@ -114,10 +124,24 @@ pub fn map_core_sections(bytes: &[u8]) -> io::Result<SaveSectionMap> {
             "Save markers are out of order",
         ));
     }
+
+    let (woo_pos, ws_pos, w4_pos) = if version == 105 {
+        (
+            find_marker(bytes, b'W', b'o'), // 'Woo!'
+            find_marker(bytes, b'W', b'S'), // 'WS'
+            find_marker(bytes, b'W', b'4'), // 'W4'
+        )
+    } else {
+        (None, None, None)
+    };
+
     Ok(SaveSectionMap {
         gf_pos,
         if_pos,
         jm_positions,
+        woo_pos,
+        ws_pos,
+        w4_pos,
     })
 }
 
@@ -196,11 +220,13 @@ pub fn rebuild_status_and_player_items(
     // Update QUESTS if present (Alpha v105)
     if version == 105 {
         if let Some(qs) = quests {
-            let offset = V105_QUEST_OFFSET; // Quest Section (Woo!)
+            let start = map.woo_pos.unwrap_or(V105_QUEST_OFFSET);
+            let end = map.ws_pos.unwrap_or(V105_WAYPOINT_OFFSET);
             let slice = qs.as_slice();
-            let len = slice.len().min(V105_QUEST_LEN); // End before WS starts at 701
-            if header_bytes.len() >= offset + len {
-                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            let max_len = end.saturating_sub(start);
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= start + len {
+                header_bytes[start..start + len].copy_from_slice(&slice[..len]);
             }
         }
     }
@@ -208,11 +234,13 @@ pub fn rebuild_status_and_player_items(
     // Update WAYPOINTS if present (Alpha v105)
     if version == 105 {
         if let Some(wps) = waypoints {
-            let offset = V105_WAYPOINT_OFFSET; // Waypoint Section (WS)
+            let start = map.ws_pos.unwrap_or(V105_WAYPOINT_OFFSET);
+            let end = map.w4_pos.unwrap_or(V105_NPC_OFFSET);
             let slice = wps.as_slice();
-            let len = slice.len().min(V105_WAYPOINT_LEN); // End before NPC starts at 782
-            if header_bytes.len() >= offset + len {
-                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            let max_len = end.saturating_sub(start);
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= start + len {
+                header_bytes[start..start + len].copy_from_slice(&slice[..len]);
             }
         }
     }
@@ -220,11 +248,13 @@ pub fn rebuild_status_and_player_items(
     // Update NPC Section if present (Alpha v105)
     if version == 105 {
         if let Some(npc) = expansion {
-            let offset = V105_NPC_OFFSET; // NPC Section
+            let start = map.w4_pos.unwrap_or(V105_NPC_OFFSET);
+            let end = V105_HEADER_LEN;
             let slice = npc.as_slice();
-            let len = slice.len().min(V105_NPC_LEN); // Up to header end (Stats start at 833)
-            if header_bytes.len() >= offset + len {
-                header_bytes[offset..offset + len].copy_from_slice(&slice[..len]);
+            let max_len = end.saturating_sub(start);
+            let len = slice.len().min(max_len);
+            if header_bytes.len() >= start + len {
+                header_bytes[start..start + len].copy_from_slice(&slice[..len]);
             }
         }
     }
@@ -513,28 +543,39 @@ impl Save {
             }
             .min(bytes.len())]
                 .to_vec(),
-            quests: if version == 105 && bytes.len() >= V105_QUEST_OFFSET + 12 {
-                // Quest Section (Woo!) starts at 0x193 (403).
-                // It ends before Waypoints at 0x2BD (701).
-                let end = V105_WAYPOINT_OFFSET.min(bytes.len());
-                Some(QuestSection::from_slice(&bytes[V105_QUEST_OFFSET..end]))
+            quests: if version == 105 {
+                let map = map_core_sections(bytes).ok();
+                let start = map.as_ref().and_then(|m| m.woo_pos).unwrap_or(V105_QUEST_OFFSET);
+                let end = map.as_ref().and_then(|m| m.ws_pos).unwrap_or(V105_WAYPOINT_OFFSET);
+                if bytes.len() >= start + 12 {
+                    Some(QuestSection::from_slice(&bytes[start..end.min(bytes.len())]))
+                } else {
+                    None
+                }
             } else {
                 None
             },
-            waypoints: if version == 105 && bytes.len() >= V105_WAYPOINT_OFFSET + 2 {
-                // Waypoint Section (WS) starts at 0x2BD (701).
-                // It spans 24 bytes per difficulty (72 bytes total).
-                // NPC section starts at 0x30E (782).
-                let end = V105_NPC_OFFSET.min(bytes.len());
-                Some(WaypointSection::from_slice(&bytes[V105_WAYPOINT_OFFSET..end]))
+            waypoints: if version == 105 {
+                let map = map_core_sections(bytes).ok();
+                let start = map.as_ref().and_then(|m| m.ws_pos).unwrap_or(V105_WAYPOINT_OFFSET);
+                let end = map.as_ref().and_then(|m| m.w4_pos).unwrap_or(V105_NPC_OFFSET);
+                if bytes.len() >= start + 2 {
+                    Some(WaypointSection::from_slice(&bytes[start..end.min(bytes.len())]))
+                } else {
+                    None
+                }
             } else {
                 None
             },
-            expansion: if version == 105 && bytes.len() >= V105_NPC_OFFSET + 2 {
-                // NPC Section starts at 0x30E (782).
-                // It ends at header end (833).
-                let end = V105_HEADER_LEN.min(bytes.len());
-                Some(ExpansionSection::from_slice(&bytes[V105_NPC_OFFSET..end]))
+            expansion: if version == 105 {
+                let map = map_core_sections(bytes).ok();
+                let start = map.as_ref().and_then(|m| m.w4_pos).unwrap_or(V105_NPC_OFFSET);
+                let end = V105_HEADER_LEN;
+                if bytes.len() >= start + 2 {
+                    Some(ExpansionSection::from_slice(&bytes[start..end.min(bytes.len())]))
+                } else {
+                    None
+                }
             } else {
                 None
             },

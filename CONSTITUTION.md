@@ -2,20 +2,20 @@
 
 > **Status:** `Strict Adherence Required`  
 > **Methodology:** `Spec-driven Design (SDD)`  
-> **Authority:** For detailed governance, consult the `CONSTITUTION.md` file resolved from `D2R_SPEC_PATH` (Strategy Hub Private Companion)
+> **Authority:** Preserve the bootstrap safety floor in this file first; if a local Strategy Hub companion is available through `D2R_SPEC_PATH`, it may provide richer governance notes.
 
 ---
 
 ## ⚖️ Core Principles
 
 1. **Specification Authority**  
-   All development must strictly align with the technical specifications defined in the Strategy Hub repository resolved from `D2R_SPEC_PATH`.
+   All development must preserve the public bootstrap safety invariants in this repository and align with any verified technical specifications available in the current environment.
 
 2. **Source of Truth**  
-   The `d2r-spec` subdirectory acts as the definitive source for file formats, research data, and architectural patterns.
+   In core-only environments, local source, fixtures, and verifiers remain valid working truth. If a local `d2r-spec` Strategy Hub is available, it may provide richer companion research and architectural notes.
 
 3. **Compliance**  
-   Every contribution must be validated against the research documentation before merging.
+   Every contribution must be checked against the verified documentation, fixtures, and verifier surface available for the current environment before merging.
 
 ---
 

@@ -1,5 +1,9 @@
 use crate::data::waypoints::{WaypointEntry, WAYPOINTS};
 
+/// Alpha v105 waypoint sections include a 10-byte header before the waypoint payload.
+const V105_WAYPOINT_PAYLOAD_START: usize = 10;
+const DIFFICULTY_STRIDE_BITS: usize = 24 * 8;
+
 #[derive(Clone, Copy)]
 pub struct Waypoint {
     entry: &'static WaypointEntry,
@@ -66,10 +70,10 @@ impl WaypointSet {
         let waypoints = WAYPOINTS
             .iter()
             .map(|entry| {
-                // Formula from src/save.rs:
-                // raw_bytes[0..8]: "WS" Header
-                // Normal difficulty starts at bit 80 (byte 10)
-                let global_bit_idx = (8 * 8) + (difficulty as usize * 24 * 8) + (2 * 8) + entry.ws_bit as usize;
+                // Alpha v105 waypoint bitstream starts at byte 10 (bit 80)
+                let payload_start_bits = V105_WAYPOINT_PAYLOAD_START * 8;
+                let difficulty_bits = difficulty as usize * DIFFICULTY_STRIDE_BITS;
+                let global_bit_idx = payload_start_bits + difficulty_bits + entry.ws_bit as usize;
                 let byte_idx = global_bit_idx / 8;
                 let bit_in_byte = global_bit_idx % 8;
                 
@@ -89,7 +93,9 @@ impl WaypointSet {
 
     pub fn sync_to_bytes(&self, bytes: &mut [u8]) {
         for wp in &self.waypoints {
-            let global_bit_idx = (8 * 8) + (self.difficulty as usize * 24 * 8) + (2 * 8) + wp.ws_bit() as usize;
+            let payload_start_bits = V105_WAYPOINT_PAYLOAD_START * 8;
+            let difficulty_bits = self.difficulty as usize * DIFFICULTY_STRIDE_BITS;
+            let global_bit_idx = payload_start_bits + difficulty_bits + wp.ws_bit() as usize;
             let byte_idx = global_bit_idx / 8;
             let bit_in_byte = global_bit_idx % 8;
             

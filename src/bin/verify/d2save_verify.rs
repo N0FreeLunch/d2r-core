@@ -2,11 +2,11 @@ use bitstream_io::{BitRead, BitReader, LittleEndian};
 use std::env;
 use std::fs;
 use std::io::Cursor;
-use std::process;
 use serde::Serialize;
 use anyhow::bail;
 
-use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum};
+use d2r_core::save::{Save, class_name, find_jm_markers, recalculate_checksum, map_core_sections};
+use d2r_core::domain::progression::axiom::{V105_QUEST_OFFSET, V105_WAYPOINT_OFFSET, V105_NPC_OFFSET};
 use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
 use d2r_core::verify::args::{ArgParser, ArgSpec};
 
@@ -133,20 +133,57 @@ fn main() -> anyhow::Result<()> {
         let alpha_mode = save.header.version == 105;
 
         if alpha_mode {
-            // Check Woo! (Quest Section)
-            if bytes.len() >= 0x197 && &bytes[0x193..0x197] != b"Woo!" {
-                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: Woo! marker missing at 0x193".into(), bit_offset: Some(0x193 * 8) });
-                fail = true;
-            }
-            // Check WS (Waypoint Section)
-            // Note: Fixtures have "WS" (57-53) at 0x2BD. 
-            if bytes.len() >= 0x2BF && &bytes[0x2BD..0x2BF] != b"WS" {
-                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: WS marker missing at 0x2BD".into(), bit_offset: Some(0x2BD * 8) });
-                fail = true;
-            }
-            // Check w4 (NPC Section) - Verified as "w4" (0x77 0x34) in alpha fixtures
-            if bytes.len() >= 0x310 && &bytes[0x30E..0x310] != b"w4" {
-                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: w4 marker missing at 0x30E".into(), bit_offset: Some(0x30E * 8) });
+            if let Ok(map) = map_core_sections(&bytes) {
+                // Check Woo! (Quest Section)
+                match map.woo_pos {
+                    Some(pos) => {
+                        if pos != V105_QUEST_OFFSET {
+                            issues.push(ReportIssue {
+                                kind: "structural".into(),
+                                message: format!("Alpha v105: Woo! marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_QUEST_OFFSET),
+                                bit_offset: Some(pos as u64 * 8)
+                            });
+                        }
+                    }
+                    None => {
+                        issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: Woo! marker missing".into(), bit_offset: None });
+                        fail = true;
+                    }
+                }
+                // Check WS (Waypoint Section)
+                match map.ws_pos {
+                    Some(pos) => {
+                        if pos != V105_WAYPOINT_OFFSET {
+                            issues.push(ReportIssue {
+                                kind: "structural".into(),
+                                message: format!("Alpha v105: WS marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_WAYPOINT_OFFSET),
+                                bit_offset: Some(pos as u64 * 8)
+                            });
+                        }
+                    }
+                    None => {
+                        issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: WS marker missing".into(), bit_offset: None });
+                        fail = true;
+                    }
+                }
+                // Check w4 (NPC Section)
+                match map.w4_pos {
+                    Some(pos) => {
+                        if pos != V105_NPC_OFFSET {
+                            issues.push(ReportIssue {
+                                kind: "structural".into(),
+                                message: format!("Alpha v105: w4 marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_NPC_OFFSET),
+                                bit_offset: Some(pos as u64 * 8)
+                            });
+                        }
+                    }
+                    None => {
+                        issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: w4 marker missing".into(), bit_offset: None });
+                        fail = true;
+                    }
+                }
+            } else {
+                issues.push(ReportIssue { kind: "structural".into(), message: "Alpha v105: Failed to map core sections".into(), bit_offset: None });
                 fail = true;
             }
         }
@@ -157,8 +194,8 @@ fn main() -> anyhow::Result<()> {
                 let bit_offset = match err.error {
                     d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
                     d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
-                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),      
-                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),        
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
                     _ => None,
                 };
                 issues.push(ReportIssue {
@@ -188,8 +225,8 @@ fn main() -> anyhow::Result<()> {
                 let bit_offset = match e.error {
                     d2r_core::item::ParsingError::InvalidHuffmanBit { bit_offset } => Some(bit_offset),
                     d2r_core::item::ParsingError::InvalidStatId { bit_offset, .. } => Some(bit_offset),
-                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),      
-                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),        
+                    d2r_core::item::ParsingError::UnexpectedSegmentEnd { bit_offset } => Some(bit_offset),
+                    d2r_core::item::ParsingError::BitSymmetryFailure { bit_offset } => Some(bit_offset),
                     _ => None,
                 };
                 issues.push(ReportIssue {
@@ -270,7 +307,7 @@ fn main() -> anyhow::Result<()> {
         for issue in &issues {
             match issue.kind.as_str() {
                 "io" => hints.push("Ensure the file path is correct and accessible.".to_string()),
-                "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),   
+                "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),
                 "item_parse" => {
                     if let Some(offset) = issue.bit_offset {
                         hints.push(format!("Investigate bit-width or alignment logic near bit offset {}.", offset));
@@ -281,7 +318,7 @@ fn main() -> anyhow::Result<()> {
                 "file_size" => hints.push("File size in header must match the actual byte count. Truncation suspected.".to_string()),
                 "checksum" => hints.push("Checksum must be refreshed after any file mutation (lives at offset 12).".to_string()),
                 "jm_markers" => hints.push("Missing JM markers suggest the file is not a valid character save or is severely truncated.".to_string()),
-                "structural" => hints.push("Alpha v105: Fixed-offset structural markers (Woo!, WS, w4) are missing or displaced.".to_string()),
+                "structural" => hints.push("Alpha v105: Structural markers (Woo!, WS, w4) are missing (critical) or displaced (non-fatal).".to_string()),
                 "jm_coherence" => hints.push("JM header item count does not match parsed item count; file may be truncated or structurally corrupted.".to_string()),
                 _ => {}
             }
@@ -357,6 +394,42 @@ fn main() -> anyhow::Result<()> {
         // Item round-trip symmetry check
         let huffman = d2r_core::item::HuffmanTree::new();
         let alpha_mode = save.header.version == 105;
+
+        if alpha_mode {
+            if let Ok(map) = map_core_sections(&bytes) {
+                // Check Woo! (Quest Section)
+                if let Some(pos) = map.woo_pos {
+                    if pos != V105_QUEST_OFFSET {
+                        println!("  [INFO]  Alpha v105: Woo! marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_QUEST_OFFSET);
+                    }
+                } else {
+                    println!("  [FAIL]  Alpha v105: Woo! marker missing");
+                    all_ok = false;
+                }
+                // Check WS (Waypoint Section)
+                if let Some(pos) = map.ws_pos {
+                    if pos != V105_WAYPOINT_OFFSET {
+                        println!("  [INFO]  Alpha v105: WS marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_WAYPOINT_OFFSET);
+                    }
+                } else {
+                    println!("  [FAIL]  Alpha v105: WS marker missing");
+                    all_ok = false;
+                }
+                // Check w4 (NPC Section)
+                if let Some(pos) = map.w4_pos {
+                    if pos != V105_NPC_OFFSET {
+                        println!("  [INFO]  Alpha v105: w4 marker displaced (found at 0x{:03X}, expected 0x{:03X})", pos, V105_NPC_OFFSET);
+                    }
+                } else {
+                    println!("  [FAIL]  Alpha v105: w4 marker missing");
+                    all_ok = false;
+                }
+            } else {
+                println!("  [FAIL]  Alpha v105: Failed to map core sections");
+                all_ok = false;
+            }
+        }
+
         let items = match d2r_core::item::Item::read_player_items(&bytes, &huffman, alpha_mode) {
             Ok(items) => items,
             Err(err) => {

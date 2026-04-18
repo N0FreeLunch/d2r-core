@@ -722,8 +722,9 @@ pub fn peek_item_header_at(
         // Return bits read to code start
         return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, 0));
     } else {
-        // Alpha v105 nudge search: Collect candidates and pick the best one
-        let nudges: [i32; 17] = [0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15, -1];
+        // Alpha v105 nudge search: Byte-aligned starts are the norm after Slice 6.2/6.3.
+        // +8 and -1 are legacy recovery fallbacks for bit-drifted starts.
+        let nudges: [i32; 3] = [0, 8, -1];
         let mut best_candidate: Option<(u8, u8, u8, String, u32, u8, bool, u64, i32)> = None;
 
         for &nudge in nudges.iter() {

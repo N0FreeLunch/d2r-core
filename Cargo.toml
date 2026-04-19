@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "d2r-core"
 version = "0.1.0"
 edition = "2024"
@@ -225,6 +225,13 @@ path = "src/bin/verify/sba.rs"
 name = "d2item_bve"
 path = "src/bin/verify/d2item_bve.rs"
 
+[[bin]]
+name = "d2save_audit_symmetry"
+path = "src/bin/verify/d2save_audit_symmetry.rs"
+
+[[bin]]
+name = "d2save_mutate"
+path = "src/bin/verify/d2save_mutate.rs"
 [[bin]]
 name = "d2_binary_target_auditor"
 path = "src/bin/d2_binary_target_auditor.rs"

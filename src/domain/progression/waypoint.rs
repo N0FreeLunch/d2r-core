@@ -1,7 +1,7 @@
 use crate::data::waypoints::{WaypointEntry, WAYPOINTS};
 
 /// Alpha v105 waypoint sections include a 10-byte header before the waypoint payload.
-const V105_WAYPOINT_PAYLOAD_START: usize = 10;
+pub const V105_WAYPOINT_PAYLOAD_START: usize = 10;
 const DIFFICULTY_STRIDE_BITS: usize = 24 * 8;
 
 #[derive(Clone, Copy)]

@@ -563,9 +563,9 @@ impl Item {
                 bit_offset: 0, context_relative_offset: 0, hint: None,
             })?;
         let top_level_count = u16::from_le_bytes([bytes[jm_pos + 2], bytes[jm_pos + 3]]);
-        let next_jm = (jm_pos + 4..bytes.len().saturating_sub(1))
-            .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M').unwrap_or(bytes.len());
-        Self::read_section(&bytes[jm_pos + 4..next_jm], top_level_count, huffman, alpha_mode)
+        // For Alpha v105, we don't prematurely cut the section at the next "JM" marker, 
+        // as nested items also use "JM" and we rely on the top_level_count.
+        Self::read_section(&bytes[jm_pos + 4..], top_level_count, huffman, alpha_mode)
     }
 
     pub fn read_section(

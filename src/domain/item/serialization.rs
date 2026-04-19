@@ -203,7 +203,11 @@ impl Item {
         emitter.write_bits(self.location as u32, 3)?;
         emitter.write_bits(self.x as u32, 4)?;
         
-        if !self.is_compact {
+        if alpha_mode && self.version == 5 {
+            // Alpha v105 items use a fixed 53-bit header budget (45 bits fields + 8 bits padding)
+            // Regardless of is_compact, the fields y, page, socket_hint are not part of the Alpha header bitstream budget.
+            emitter.write_bits(0, 8)?;
+        } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
             emitter.write_bits(self.header_socket_hint as u32, 3)?;
@@ -221,8 +225,8 @@ impl Item {
         if !self.is_compact {
             if alpha_mode {
                 emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
-                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
-                emitter.write_bits(0, 5)?; // Padding
+                emitter.write_bits(0, 1)?; // alpha_mid_pad (matches read_extended_stats)
+                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 3)?;
                 emitter.write_bit(self.has_multiple_graphics)?;
                 emitter.write_bit(self.has_class_specific_data)?;
                 emitter.write_bit(self.timestamp_flag)?;
@@ -323,6 +327,12 @@ impl Item {
             }
         }
 
+        if alpha_mode && self.is_compact && (self.version == 5 || self.version == 1) {
+            // Alpha v105 compact items (potions, scrolls, basic gear) are exactly 10 bytes (80 bits).
+            if emitter.written < 80 {
+                emitter.write_bits(0, (80 - emitter.written) as u32)?;
+            }
+        }
         Ok(emitter.into_bytes())
     }
 

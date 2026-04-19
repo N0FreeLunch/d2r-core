@@ -1,9 +1,9 @@
 use crate::data::quests::{QuestEntry, V105_QUESTS};
 
 /// Alpha v105 quest sections include a 12-byte header before the quest payload.
-const V105_QUEST_PAYLOAD_START: usize = 12;
+pub const V105_QUEST_PAYLOAD_START: usize = 12;
 /// Den of Evil (Normal) absolute file offset in Alpha v105.
-const V105_QUEST_NORMAL_START_FILE: usize = 415;
+pub const V105_QUEST_NORMAL_START_FILE: usize = 415;
 
 #[derive(Clone, Copy)]
 pub struct Quest {

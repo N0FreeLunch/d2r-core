@@ -318,12 +318,17 @@ impl Item {
                 emitter.write_bits(set_list_val, 5)?;
             }
 
-            write_property_list(&mut emitter, &self.properties, self.version, false, self.terminator_bit, quality_val)?;
-            for set_props in &self.set_attributes {
-                write_property_list(&mut emitter, set_props, self.version, false, false, quality_val)?;
-            }
-            if self.is_runeword {
-                write_property_list(&mut emitter, &self.runeword_attributes, self.version, true, false, quality_val)?;
+            let is_alpha = alpha_mode && (self.version == 5 || self.version == 1);
+            let skip_property_list = is_alpha && quality_val == ItemQuality::Normal && !self.is_runeword && !self.code.trim().is_empty();
+
+            if !skip_property_list {
+                write_property_list(&mut emitter, &self.properties, self.version, false, self.terminator_bit, quality_val)?;
+                for set_props in &self.set_attributes {
+                    write_property_list(&mut emitter, set_props, self.version, false, false, quality_val)?;
+                }
+                if self.is_runeword {
+                    write_property_list(&mut emitter, &self.runeword_attributes, self.version, true, false, quality_val)?;
+                }
             }
         }
 

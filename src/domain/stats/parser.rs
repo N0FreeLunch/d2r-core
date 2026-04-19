@@ -112,10 +112,9 @@ where
             if version == 5 {
                  item_trace!("[DEBUG v5] Property Terminator detected at {} for '{}'", recorder.pos() - 9, code);
             }
-            let term_bit = false;
-            if recorder.alpha_quality != Some(ItemQuality::Normal) {
-                let _ = recorder.read_bit()?; // Optional 10th bit
-            }
+            // In Alpha v105, the terminator is 9 bits (0x1FF) followed by a 10th bit.
+            // This 10th bit is always present in the writer for version 5/1.
+            let term_bit = recorder.read_bit()?; 
             recorder.end_segment();
             return Ok(PropertyParseResult::Terminator(term_bit));
         }

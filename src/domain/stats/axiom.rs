@@ -34,7 +34,7 @@ impl StatsAxiom {
         if self.is_alpha() {
             // Alpha v105 Quality-dependent property widths:
             // Normal items use 0 bits for value (ID only).
-            // Others (Magic/Rare/Unique) use 1 bit.
+            // Others (Magic/Rare/Unique/Set) use 1 bit as part of a 10-bit property model.
             if self.quality == ItemQuality::Normal {
                 0
             } else {
@@ -73,6 +73,6 @@ mod tests {
         assert_eq!(normal_axiom.property_bit_width(256), 0);
 
         let magic_axiom = StatsAxiom::new(5, ItemQuality::Magic);
-        assert_eq!(magic_axiom.property_bit_width(256), 1);
+        assert_eq!(magic_axiom.property_bit_width(256), 1); // 1-bit value + 9-bit ID = 10-bit model
     }
 }

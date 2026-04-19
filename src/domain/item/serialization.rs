@@ -285,7 +285,9 @@ impl Item {
                 emitter.write_bits(self.tbk_ibk_teleport.unwrap_or(0) as u32, 5)?;
             }
 
-            emitter.write_bit(self.timestamp_flag)?;
+            if !alpha_mode {
+                emitter.write_bit(self.timestamp_flag)?;
+            }
 
             if let Some(template) = item_template(&self.code) {
                 if template.is_armor {
@@ -385,6 +387,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
             };
 
             emitter.write_bits(raw_id, 9)?;
+            // Alpha v105 properties are 10-bit (9-bit ID + 1-bit value) for non-Normal items.
             if quality != ItemQuality::Normal {
                 emitter.write_bits(prop.raw_value as u32, 1)?;
             }

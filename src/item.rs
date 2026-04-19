@@ -221,7 +221,7 @@ impl Item {
                 low_high_graphic_bits = Some(cursor.read_bits::<u8>(3)? as u8);
             }
             ItemQuality::Magic => {
-                if version == 5 || version == 1 {
+                if is_alpha {
                     let pre = cursor.read_bits::<u16>(7)? as u16;
                     let suf = cursor.read_bits::<u16>(7)? as u16;
                     magic_prefix = Some(pre);
@@ -248,7 +248,7 @@ impl Item {
 
         let mut runeword_id = None;
         let mut runeword_level = None;
-        if is_runeword && version != 5 {
+        if is_runeword && !is_alpha {
             let id = cursor.read_bits::<u16>(12)? as u16;
             runeword_id = Some(id);
             runeword_level = Some(cursor.read_bits::<u8>(4)? as u8);
@@ -280,7 +280,7 @@ impl Item {
 
         let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
 
-        if version == 5 || version == 1 {
+        if is_alpha {
             if reads_defense {
                 defense = Some(cursor.read_bits::<u32>(11)?);
             }
@@ -302,6 +302,19 @@ impl Item {
             if is_socketed {
                 sockets = Some(cursor.read_bits::<u8>(4)? as u8);
             }
+            
+            let mut set_list_count = 0;
+            if item_quality == Some(ItemQuality::Set) {
+                let set_list_value = cursor.read_bits::<u8>(5)?;
+                set_list_count = match set_list_value {
+                    1 | 2 | 4 => 1,
+                    3 | 6 | 10 | 12 => 2,
+                    7 => 3,
+                    15 => 4,
+                    31 => 5,
+                    _ => 0,
+                };
+            }
 
             cursor.end_segment();
             return Ok((
@@ -312,7 +325,7 @@ impl Item {
                 rare_name_1, rare_name_2, rare_affixes,
                 unique_id, runeword_id, runeword_level,
                 personalized_player_name, tbk_ibk_teleport,
-                timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0
+                timestamp_flag, defense, max_durability, current_durability, quantity, sockets, set_list_count
             ));
         }
 
@@ -593,22 +606,28 @@ impl Item {
             item_trace!("[DEBUG] Item {} parsed. Code: {}, Offset: {}, Consumed: {}", items.len(), item.code, start, consumed_bits);
 
             let mut end = start + consumed_bits;
-            let gap_bits = Vec::new();
-            if alpha_mode {
-                if item.is_compact {
-                    // Compact items are exactly 10 bytes ??advance deterministically.
-                    end = start + V105_COMPACT_ITEM_BYTES * 8;
-                } else {
-                    // Extended items: byte-align the parser's consumed position.
-                    // consumed_bits is measured from 'start', already in bit units.
-                    let next_byte = (consumed_bits + 7) & !7;
-                    end = start + next_byte;
+            
+            // Alpha v105 Lookahead Rescue: 
+            // If we are in Alpha mode, try to find the NEXT item's real start 
+            // to bound the current item and prevent overrun.
+            if alpha_mode && items.len() < (top_level_count as usize - 1) {
+                if let Some(next_real_start) = find_next_item_match(section_bytes, start + 72, huffman, alpha_mode) {
+                    if next_real_start < end {
+                        item_trace!("[DEBUG] Alpha Rescue: Trimming item {} end from {} to {}", items.len(), end, next_real_start);
+                        end = next_real_start;
+                    }
                 }
-                // gap_bits stays empty ??byte alignment means no orphaned bits.
+            } else if alpha_mode && item.is_compact {
+                // Compact items are exactly 10 bytes (80 bits) in Alpha v105 if no other item follows immediately.
+                let standard_end = start + V105_COMPACT_ITEM_BYTES * 8;
+                if end < standard_end {
+                    end = standard_end;
+                }
             }
             
             bit_pos = end;
             let mut final_item = item;
+            let gap_bits = Vec::new();
             final_item.range.start = start;
             final_item.range.end = end;
             final_item.total_bits = end - start;
@@ -830,24 +849,30 @@ fn scan_socket_children(
     let section_bits = (bytes.len() * 8) as u64;
 
     while current_pos < max_pos && current_pos < section_bits {
-        if alpha && (current_pos % 8 != 0) {
-            current_pos += 1;
-            continue;
-        }
         if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, current_pos, huffman, alpha) {
             if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
                 if mode == 6 || location == 6 {
                     if let Ok((item, consumed)) = parse_item_at(bytes, current_pos, huffman, 0, alpha) {
+                        let mut item_end = current_pos + consumed;
+                        
+                        // Alpha v105 Lookahead Rescue for nested items
                         if alpha {
-                            if item.is_compact {
-                                current_pos += V105_COMPACT_ITEM_BYTES * 8;
-                            } else {
-                                current_pos += (consumed + 7) & !7;
+                            // Probe for next child or next top-level item
+                            if let Some(next_start) = find_next_item_match(bytes, current_pos + 72, huffman, alpha) {
+                                if next_start < item_end && next_start < max_pos {
+                                    item_trace!("[DEBUG] Alpha Child Rescue: Trimming child end from {} to {}", item_end, next_start);
+                                    item_end = next_start;
+                                }
                             }
-                        } else {
-                            current_pos += consumed;
                         }
-                        children.push(item);
+                        
+                        let mut final_child = item;
+                        final_child.range.start = current_pos;
+                        final_child.range.end = item_end;
+                        final_child.total_bits = item_end - current_pos;
+                        children.push(final_child);
+                        
+                        current_pos = item_end;
                         continue;
                     }
                 } else {
@@ -866,10 +891,7 @@ fn find_next_item_match(bytes: &[u8], pos: u64, huffman: &HuffmanTree, alpha: bo
     let limit = (bytes.len() * 8) as u64;
     let mut probe = pos;
     while probe < limit {
-        if alpha && (probe % 8 != 0) {
-            probe += 1;
-            continue;
-        }
+        // 1-bit granular probing for Alpha v105
         if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, probe, huffman, alpha) {
             if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
                 return Some(probe);

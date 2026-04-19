@@ -227,7 +227,7 @@ mod roundtrip_tests {
 
             // 1. Map and Parse all sections
             let map = map_core_sections(&bytes)?;
-            let attributes = AttributeSection::parse(&bytes, &map)?;
+            let attributes = AttributeSection::parse(&bytes, map.gf_pos, map.if_pos)?;
             let skills = parse_skill_section(&bytes, &map)?;
             let quests = parse_quest_section(&bytes, &map)?;
             let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));

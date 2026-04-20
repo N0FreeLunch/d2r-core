@@ -2,7 +2,7 @@ use bitstream_io::{BitRead, BitWrite, BitWrite2, BitWriter, LittleEndian};
 use std::io;
 use crate::domain::item::Item;
 use crate::domain::item::quality::ItemQuality;
-use crate::domain::stats::{lookup_alpha_map_by_effective, stat_save_bits, ItemProperty};
+use crate::domain::stats::{lookup_alpha_map_by_effective, lookup_alpha_map_by_raw, stat_save_bits, ItemProperty};
 use crate::data::bit_cursor::BitCursor;
 use crate::error::{ParsingError, ParsingResult};
 
@@ -236,8 +236,8 @@ impl Item {
 
         if !self.is_compact {
             if alpha_mode {
-                // Alpha v105 True Zero Model: Level, Quality, Graphics, Class bits are OMITTED for non-Normal items.
-                // In fixture, properties start at bit 76 (immediately after Huffman code).
+                // Alpha v105: ID and Level are omitted, but Quality (4 bits) is present for non-compact items.
+                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
             } else {
                 emitter.write_bits(self.id.unwrap_or(0), 32)?;
                 emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
@@ -334,7 +334,6 @@ impl Item {
                     // Alpha v105 Runeword specialized shadow emission:
                     // Base Segment: Header + properties + terminator + alignment
                     write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
-                    emitter.write_bits(0x1FF, 9)?; // Terminator
                     emitter.write_bit(false)?; // Terminal bit
                     emitter.byte_align()?;
 
@@ -354,9 +353,7 @@ impl Item {
                     emitter.extend_bits(encoded_code)?;
                     
                     write_property_list(&mut emitter, &self.runeword_attributes, self.version, self.is_runeword, false, quality_val)?;
-                    emitter.write_bits(0x1FF, 9)?;
                     // Final terminal bit and alignment will be handled by the common block below.
-
                 } else {
                     write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
                     for set_props in &self.set_attributes {
@@ -406,21 +403,53 @@ fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTem
     crate::data::item_codes::ITEM_TEMPLATES.iter().find(|t| t.code == code.trim())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool, _terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, _terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
-        if version == 5 || version == 1 {
-            let (raw_id, _) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) { (m.raw_id, 0) } else { (prop.stat_id, 0) };
+        // Non-Normal Alpha v105 uses 10-bit property model (9-bit ID + 1-bit value).
+        // EXCEPT for Runewords, which use the Retail variable-width model.
+        let is_alpha_model = (version == 5 || version == 1) && !alpha_runeword;
+
+        if is_alpha_model {
+            let raw_id = lookup_alpha_map_by_effective(prop.stat_id)
+                .map(|m| m.raw_id)
+                .unwrap_or(prop.stat_id);
             emitter.write_bits(raw_id, 9)?;
-            if quality != ItemQuality::Normal { emitter.write_bits(prop.raw_value as u32, 1)?; }
+            // Alpha model uses 1-bit value. 
+            // The parser reads this bit unconditionally if is_alpha_model is true.
+            emitter.write_bits(prop.raw_value as u32, 1)?;
         } else {
-            emitter.write_bits(prop.stat_id, 9)?;
-            if let Some(bits) = stat_save_bits(prop.stat_id) { emitter.write_bits(prop.raw_value as u32, bits)?; }
+            // Retail logic (or Alpha runeword using Retail widths)
+            let raw_id = if version == 5 || version == 1 {
+                lookup_alpha_map_by_effective(prop.stat_id)
+                    .map(|m| m.raw_id)
+                    .unwrap_or(prop.stat_id)
+            } else {
+                prop.stat_id
+            };
+            emitter.write_bits(raw_id, 9)?;
+
+            let effective_id = if version == 5 || version == 1 {
+                lookup_alpha_map_by_raw(raw_id)
+                    .map(|m| m.effective_id)
+                    .unwrap_or(raw_id)
+            } else {
+                raw_id
+            };
+
+            if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == effective_id) {
+                if stat.save_param_bits > 0 {
+                    emitter.write_bits(prop.param as u32, stat.save_param_bits as u32)?;
+                }
+                emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
+            }
         }
     }
     emitter.write_bits(terminator, id_bits)?;
-    if version == 5 || version == 1 { emitter.write_bit(false)?; }
+    if (version == 5 || version == 1) && !alpha_runeword {
+        emitter.write_bit(false)?; // Terminator bit for Alpha model
+    }
     Ok(())
 }

@@ -60,15 +60,17 @@ where
     let entry_start = recorder.pos();
     
     // Non-Normal Alpha v105 uses 10-bit property model (9-bit ID + 1-bit value).
-    let is_alpha = version == 5 || version == 1;
+    // EXCEPT for Runewords, which use the Retail variable-width model.
+    let is_alpha_model = (version == 5 || version == 1) && !_alpha_runeword;
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     let stat_id = recorder.read_bits::<u32>(id_bits)?;
+    crate::item_trace!("[DEBUG] [{}] Stat ID: {}", recorder.pos(), stat_id);
     
     if stat_id == terminator {
         let mut term_bit = false;
-        if is_alpha {
+        if is_alpha_model {
             term_bit = recorder.read_bit()?;
         }
         return Ok(Some((
@@ -86,12 +88,22 @@ where
     }
 
     let mut raw_value = 0;
-    if is_alpha {
+    let mut param = 0;
+    if is_alpha_model {
         // 1-bit value for non-Normal items.
         raw_value = recorder.read_bits::<u32>(1)? as u32;
     } else {
-        // Retail logic for bit widths
-        if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id) {
+        // Retail logic for bit widths.
+        let effective_id = if version == 5 || version == 1 {
+            crate::domain::stats::lookup_alpha_map_by_raw(stat_id).map(|m| m.effective_id).unwrap_or(stat_id)
+        } else {
+            stat_id
+        };
+
+        if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == effective_id) {
+            if stat.save_param_bits > 0 {
+                param = recorder.read_bits::<u32>(stat.save_param_bits as u32)?;
+            }
             raw_value = recorder.read_bits::<u32>(stat.save_bits as u32)?;
         }
     }
@@ -101,7 +113,7 @@ where
         ItemProperty {
             stat_id,
             raw_value: raw_value as i32,
-            param: 0,
+            param,
             name: String::new(),
             value: 0,
             range: ItemBitRange {

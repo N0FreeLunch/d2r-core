@@ -196,14 +196,29 @@ impl HuffmanTree {
 impl Item {
     pub fn to_bytes(&self, huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
         let mut emitter = BitEmitter::new();
-        emitter.write_bits(self.flags, 32)?;
+        
+        let mut final_flags = self.flags;
+        if alpha_mode {
+            // Re-sync boolean fields to Alpha bit positions.
+            if self.is_socketed { final_flags |= 1 << 27; } else { final_flags &= !(1 << 27); }
+            if self.is_runeword { final_flags |= 1 << 11; } else { final_flags &= !(1 << 11); }
+            if self.is_identified { final_flags |= 1 << 4; } else { final_flags &= !(1 << 4); }
+            if self.is_ethereal { final_flags |= 1 << 22; } else { final_flags &= !(1 << 22); }
+            // Ensure bit 26 (Retail Runeword) is cleared in Alpha mode to prevent drift.
+            final_flags &= !(1 << 26);
+        }
+        
+        crate::item_trace!("[DEBUG] to_bytes for '{}', is_runeword={}, final_flags=0x{:08X}", self.code.trim(), self.is_runeword, final_flags);
+        emitter.write_bits(final_flags, 32)?;
         emitter.write_bits(self.version as u32, 3)?;
         emitter.write_bits(self.mode as u32, 3)?;
         emitter.write_bits(self.location as u32, 3)?;
         emitter.write_bits(self.x as u32, 4)?;
         
         if alpha_mode && self.version == 5 {
-            emitter.write_bits(0, 8)?;
+            emitter.write_bits(self.y as u32, 4)?;
+            emitter.write_bits(self.page as u32, 3)?;
+            emitter.write_bits(self.header_socket_hint as u32, 1)?;
         } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
@@ -315,24 +330,52 @@ impl Item {
             let skip_property_list = is_alpha && quality_val == ItemQuality::Normal && !self.is_runeword && !self.code.trim().is_empty();
 
             if !skip_property_list {
-                write_property_list(&mut emitter, &self.properties, self.version, false, self.terminator_bit, quality_val)?;
-                for set_props in &self.set_attributes {
-                    write_property_list(&mut emitter, set_props, self.version, false, false, quality_val)?;
-                }
-                if self.is_runeword {
-                    write_property_list(&mut emitter, &self.runeword_attributes, self.version, true, false, quality_val)?;
+                if alpha_mode && self.is_runeword {
+                    // Alpha v105 Runeword specialized shadow emission:
+                    // Base Segment: Header + properties + terminator + alignment
+                    write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
+                    emitter.write_bits(0x1FF, 9)?; // Terminator
+                    emitter.write_bit(false)?; // Terminal bit
+                    emitter.byte_align()?;
+
+                    // Shadow Segment 1: Shadow Header + runeword_attributes + terminator + alignment
+                    let shadow_flags = final_flags | (1 << 26); // Set bit 26 for Shadow fragment
+                    emitter.write_bits(shadow_flags, 32)?;
+                    emitter.write_bits(self.version as u32, 3)?;
+                    emitter.write_bits(self.mode as u32, 3)?;
+                    emitter.write_bits(self.location as u32, 3)?;
+                    emitter.write_bits(self.x as u32, 4)?;
+                    if self.version == 5 {
+                        emitter.write_bits(self.y as u32, 4)?;
+                        emitter.write_bits(self.page as u32, 3)?;
+                        emitter.write_bits(self.header_socket_hint as u32, 1)?;
+                    }
+                    let encoded_code = huffman.encode(&self.code)?;
+                    emitter.extend_bits(encoded_code)?;
+                    
+                    write_property_list(&mut emitter, &self.runeword_attributes, self.version, self.is_runeword, false, quality_val)?;
+                    emitter.write_bits(0x1FF, 9)?;
+                    // Final terminal bit and alignment will be handled by the common block below.
+
+                } else {
+                    write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
+                    for set_props in &self.set_attributes {
+                        write_property_list(&mut emitter, set_props, self.version, self.is_runeword, false, quality_val)?;
+                    }
+                    if self.is_runeword {
+                        write_property_list(&mut emitter, &self.runeword_attributes, self.version, self.is_runeword, false, quality_val)?;
+                    }
                 }
             }
         }
 
         if alpha_mode {
             // Alpha v105 Requirement: Mandatory 1 Terminal Bit (0) + Padding to Byte Boundary
+            // This applies to the very last segment of any item (including compact and shadows).
             emitter.write_bit(false)?; 
             emitter.byte_align()?;
         }
         Ok(emitter.into_bytes())
-
-
 
 
 

@@ -6,6 +6,7 @@ pub(crate) fn item_trace_enabled() -> bool {
     std::env::var_os("D2R_ITEM_TRACE").is_some()
 }
 
+#[macro_export]
 macro_rules! item_trace {
     ($($arg:tt)*) => {
         if crate::item::item_trace_enabled() {
@@ -157,7 +158,9 @@ impl Item {
         let mut header_socket_hint = 0;
 
         if alpha_mode && version == 5 {
-            let _pad = cursor.read_bits::<u32>(8)?;
+            y = cursor.read_bits::<u8>(4)? as u8;
+            page = cursor.read_bits::<u8>(3)? as u8;
+            header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
         } else if !is_compact {
             y = cursor.read_bits::<u8>(4)? as u8;
             page = cursor.read_bits::<u8>(3)? as u8;
@@ -179,7 +182,9 @@ impl Item {
         }
 
         let stats = if !is_compact {
-            Self::read_extended_stats(cursor, &code, is_compact, (flags & (1 << 27)) != 0, (flags & (1 << 26)) != 0, (flags & (1 << 25)) != 0, version, alpha_mode)?
+            let socket_flag = if alpha_mode { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
+            let runeword_flag = if alpha_mode { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
+            Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode)?
         } else {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0)
         };
@@ -211,9 +216,9 @@ impl Item {
             set_attributes: Vec::new(),
             properties: Vec::new(),
             is_identified: (flags & (1 << 4)) != 0,
-            is_socketed: (flags & (1 << 27)) != 0,
+            is_socketed: if alpha_mode { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 },
             is_personalized: (flags & (1 << 25)) != 0,
-            is_runeword: (flags & (1 << 26)) != 0,
+            is_runeword: if alpha_mode { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 },
             is_ethereal: (flags & (1 << 22)) != 0,
             properties_complete: false,
             modules: Vec::new(),
@@ -221,7 +226,7 @@ impl Item {
 
         let mut final_item = item;
         if !is_compact {
-            let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality)?;
+            let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword)?;
             final_item.properties = props;
             final_item.properties_complete = complete;
             final_item.terminator_bit = term;
@@ -256,9 +261,10 @@ impl Item {
         
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if is_alpha {
             if !is_compact {
-                // Alpha v105 True Zero Model: Level, Quality, Graphics, Class bits are OMITTED for non-Normal items.
-                // Property parsing starts immediately after Huffman code.
-                (Some(0u32), None, None, false, false, false)
+                // Alpha v105: ID and Level are omitted, but Quality (4 bits) might be present.
+                let quality_raw = cursor.read_bits::<u8>(4)?;
+                let quality = ItemQuality::from(quality_raw);
+                (Some(0u32), None, Some(quality), false, false, false)
             } else {
                 (Some(0u32), None, None, false, false, false)
             }
@@ -361,13 +367,16 @@ fn read_item_stats<R: BitRead>(
     huffman: &HuffmanTree,
     alpha_mode: bool,
     quality: Option<ItemQuality>,
+    is_runeword: bool,
 ) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
     cursor.begin_segment(ItemSegmentType::Stats);
     let trimmed_code = code.trim();
     let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4);
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
+    crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}", trimmed_code, version, is_runeword, quality);
 
-    if is_alpha && quality_val == ItemQuality::Normal && !trimmed_code.is_empty() {
+    if is_alpha && quality_val == ItemQuality::Normal && !is_runeword && !trimmed_code.is_empty() {
+         crate::item_trace!("[DEBUG] Skipping properties for Normal Item '{}'", trimmed_code);
          return Ok((Vec::new(), true, false));
     }
     
@@ -377,7 +386,7 @@ fn read_item_stats<R: BitRead>(
         PropertyReaderContext { bytes: &[], item_start_bit: 0 }
     };
 
-    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, false, |_, _, _, _, _| {
+    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, |_, _, _, _, _| {
         let r = IoBitReader::endian(Cursor::new(&[]), LittleEndian);
         let mut c = BitCursor::new(r);
         let d = Item::from_reader_with_context(&mut c, huffman, None, alpha_mode)?;

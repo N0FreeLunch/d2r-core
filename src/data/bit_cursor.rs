@@ -171,6 +171,19 @@ impl<R: BitRead> BitCursor<R> {
         self.recorded_bits.retain(|rb| rb.offset < checkpoint);
         self.segments.retain(|s| s.end <= checkpoint);
     }
+
+    /// Forensic utility to peek at next bits as a string without advancing the cursor.
+    /// This only works if the underlying reader supports rollback, which might be tricky.
+    /// Actually, BitCursor doesn't support easy reader-level rollback if it's a generic BitRead.
+    /// But for our purposes, we can try to read and then we'd need to rollback.
+    /// However, our BitRead might not support it.
+    /// BETTER: Just return empty or error if not available.
+    pub fn peek_bits_string(&mut self, _count: u32) -> ParsingResult<String> {
+         // Since we can't easily rollback the underlying reader without knowing its type,
+         // we might just return empty or implement it if possible later.
+         // For now, let's skip this and use a manual dump in the parser.
+         Ok("peek_not_implemented".to_string())
+    }
 }
 
 #[cfg(test)]

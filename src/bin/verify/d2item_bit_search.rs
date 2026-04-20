@@ -1,50 +1,57 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use d2r_core::data::bit_cursor::BitCursor;
-use d2r_core::item::HuffmanTree;
-use std::env;
 use std::fs;
 use std::io::Cursor;
-use std::process;
-use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 
 fn main() {
-    let mut parser = ArgParser::new("d2item_bit_search")
-        .description("Scans for property terminator (0x1FF) around a specific bit offset in a D2R save file");
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() < 4 {
+        println!("Usage: d2item_bit_search <save_file> <start_bit> <bit_count>");
+        return;
+    }
+    let save_file = &args[1];
+    let start_bit: u64 = args[2].parse().expect("Invalid start_bit");
+    let bit_count: u64 = args[3].parse().expect("Invalid bit_count");
 
-    parser.add_spec(ArgSpec::positional("save_file", "path to the save file (.d2s)"));
-    parser.add_spec(ArgSpec::positional("offset_bits", "starting bit offset to probe around"));
-
-    let args: Vec<_> = env::args_os().skip(1).collect();
-    let parsed = match parser.parse(args) {
-        Ok(p) => p,
-        Err(ArgError::Help(h)) => {
-            println!("{}", h);
-            process::exit(0);
-        }
-        Err(ArgError::Error(e)) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
-        }
-    };
-
-    let save_file = parsed.get("save_file").unwrap();
-    let start_bit: u64 = parsed.get("offset_bits").and_then(|s| s.parse().ok()).expect("offset_bits must be a valid number");
+    let bytes = fs::read(save_file).expect("Failed to read save file");
     
-    let bytes = fs::read(save_file).expect("failed to read save file");
+    println!("Dumping {} bits from bit {}...", bit_count, start_bit);
+    
+    let start_byte = (start_bit / 8) as usize;
+    let bit_offset = (start_bit % 8) as u32;
+    
+    if start_byte >= bytes.len() {
+        println!("Error: start_bit is out of range.");
+        return;
+    }
 
-    println!("Scanning for property terminator (0x1FF) around bit {}:", start_bit);
+    let mut reader = IoBitReader::endian(Cursor::new(&bytes[start_byte..]), LittleEndian);
+    for _ in 0..bit_offset {
+        let _ = reader.read_bit().ok();
+    }
 
-    for nudge in -32i64..=128i64 {
-        let current = (start_bit as i64 + nudge) as u64;
-        if current >= (bytes.len() * 8) as u64 { continue; }
-
-        let mut reader = IoBitReader::endian(Cursor::new(&bytes[(current / 8) as usize..]), LittleEndian);      
-        let mut recorder = BitCursor::new(&mut reader);
-        let _ = recorder.skip_and_record((current % 8) as u32);
-
-        let id: u32 = recorder.read_bits::<u32>(9).unwrap_or(0);
-        if id == 0x1FF {
-            println!("  [Bit {}] Terminator found! (nudge {})", current, nudge);
+    let mut bits = Vec::new();
+    for _ in 0..bit_count {
+        if let Ok(b) = reader.read_bit() {
+            bits.push(if b { '1' } else { '0' });
+        } else {
+            break;
         }
     }
+    
+    let bit_string: String = bits.iter().collect();
+    
+    // Look for various terminators (9 bits)
+    for terminator in ["111111111", "1111111110"] {
+        if let Some(pos) = bit_string.find(terminator) {
+            println!("Found pattern {} at relative bit offset {}", terminator, pos);
+        }
+    }
+
+    // Print in groups of 8 for easy byte visualization
+    for (i, chunk) in bits.chunks(8).enumerate() {
+        let s: String = chunk.iter().collect();
+        print!("{} ", s);
+        if (i + 1) % 4 == 0 { println!(); }
+    }
+    println!();
 }

@@ -1,5 +1,5 @@
 ﻿use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
-use d2r_core::item::Checksum;
+use d2r_core::engine::checksum::Checksum;
 use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 use std::env;
 use std::fs;

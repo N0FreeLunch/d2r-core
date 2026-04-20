@@ -7,7 +7,7 @@ pub mod attribute;
 pub use entity::{ItemProperty, ItemStats, AlphaStatMap, ALPHA_STAT_MAPS};
 pub use attribute::{AttributeSection, AttributeEntry};
 pub use axiom::StatsAxiom;
-pub use parser::{read_property_list, parse_single_property, PropertyParseResult};
+pub use parser::{read_property_list, parse_single_property};
 
 pub fn lookup_alpha_map_by_raw(raw_id: u32) -> Option<&'static AlphaStatMap> {
     ALPHA_STAT_MAPS.iter().find(|m| m.raw_id == raw_id)

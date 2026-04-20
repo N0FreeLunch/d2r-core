@@ -81,7 +81,7 @@ fn alpha_sync<R: BitRead>(
     };
 
     // Peek ahead to find the best-matched Alpha header.
-    let Some((peek_m, peek_l, peek_x, _code, flags, version, is_compact, header_bits, nudge)) = 
+    let Some((peek_m, peek_l, peek_x, _code, flags, version, is_compact, header_bits, _nudge)) = 
         crate::item::peek_item_header_at(section_bytes, start_bit, huffman, axiom.alpha_mode)
     else {
         return Err(cursor.fail(ParsingError::Generic("Alpha heuristic probe failed".to_string())));
@@ -90,7 +90,7 @@ fn alpha_sync<R: BitRead>(
     // Re-sync cursor position.
     let current_total = cursor.pos();
     let target_header_bits = header_bits; 
-    let skip_amount = (nudge as i64 + target_header_bits as i64) - (current_total as i64);
+    let skip_amount = (target_header_bits as i64) - (current_total as i64);
     
     if skip_amount > 0 {
         cursor.skip_and_record(skip_amount as u32)?;

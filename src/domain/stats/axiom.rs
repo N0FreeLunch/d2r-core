@@ -34,7 +34,7 @@ impl StatsAxiom {
         if self.is_alpha() {
             // Alpha v105 Quality-dependent property widths:
             // Normal items use 0 bits for value (ID only).
-            // Others (Magic/Rare/Unique/Set) use 1 bit as part of a 10-bit property model.
+            // Others (Magic/Rare/Unique/Set/Crafted) use 1 bit as part of a 10-bit property model.
             if self.quality == ItemQuality::Normal {
                 0
             } else {

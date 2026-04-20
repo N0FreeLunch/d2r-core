@@ -1,57 +1,42 @@
-use bitstream_io::{BitRead, BitWrite, BitWriter, LittleEndian};
+use bitstream_io::{BitRead, BitWrite, BitWrite2, BitWriter, LittleEndian};
 use std::io;
 use crate::domain::item::Item;
 use crate::domain::item::quality::ItemQuality;
 use crate::domain::stats::{lookup_alpha_map_by_effective, stat_save_bits, ItemProperty};
 use crate::data::bit_cursor::BitCursor;
-use crate::error::{ParsingResult, ParsingError};
+use crate::error::{ParsingError, ParsingResult};
 
 pub struct BitEmitter {
     writer: BitWriter<Vec<u8>, LittleEndian>,
-    written: u64,
+    pub written: u64,
 }
 
 impl BitEmitter {
     pub fn new() -> Self {
         BitEmitter {
-            writer: BitWriter::endian(Vec::new(), LittleEndian),
+            writer: BitWriter::new(Vec::new()),
             written: 0,
         }
     }
 
     pub fn write_bit(&mut self, bit: bool) -> io::Result<()> {
-        self.writer.write_bit(bit)?;
+        BitWrite::write_bit(&mut self.writer, bit)?;
         self.written += 1;
         Ok(())
     }
 
-    pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
-        for i in 0..count {
-            let bit = (value >> i) & 1 != 0;
-            self.write_bit(bit)?;
+    pub fn write_bits(&mut self, value: u32, bits: u32) -> io::Result<()> {
+        for i in 0..bits {
+            self.write_bit((value >> i) & 1 != 0)?;
         }
         Ok(())
     }
 
-    pub fn extend_bits<I>(&mut self, bits: I) -> io::Result<()>
-    where
-        I: IntoIterator<Item = bool>,
-    {
+    pub fn extend_bits(&mut self, bits: Vec<bool>) -> io::Result<()> {
         for bit in bits {
             self.write_bit(bit)?;
         }
         Ok(())
-    }
-
-    pub fn byte_align(&mut self) -> io::Result<()> {
-        let padding = (8 - (self.written % 8)) % 8;
-        self.writer.byte_align()?;
-        self.written += padding;
-        Ok(())
-    }
-
-    pub fn written_bits(&self) -> u64 {
-        self.written
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
@@ -59,11 +44,13 @@ impl BitEmitter {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct HuffmanTree {
     root: Box<HuffmanNode>,
     encoding_table: std::collections::HashMap<char, Vec<bool>>,
 }
 
+#[derive(Debug, Clone)]
 struct HuffmanNode {
     symbol: Option<char>,
     left: Option<Box<HuffmanNode>>,
@@ -104,7 +91,7 @@ impl HuffmanTree {
             ('g', "11010"),
             ('h', "00011"),
             ('i', "1111110"),
-            ('j', "000101110"),
+            ('j', "000101110"), // Verified 000101110 in Alpha fixture
             ('k', "010010"),
             ('l', "11101"),
             ('m', "01101"),
@@ -160,7 +147,7 @@ impl HuffmanTree {
                     format!("Char '{}' not in Huffman table", c),
                 )
             })?;
-            bits.extend(pattern);
+            bits.extend_from_slice(pattern);
         }
         Ok(bits)
     }
@@ -181,16 +168,20 @@ impl HuffmanTree {
         }
     }
 
-    pub fn decode_recorded<R: BitRead>(&self, cursor: &mut BitCursor<R>) -> ParsingResult<char> {
-        self.decode_internal(|| cursor.read_bit().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e))))
-            .map_err(|_| {
-                cursor.fail(ParsingError::InvalidHuffmanBit { bit_offset: cursor.pos() })
-                    .with_hint("Huffman bit pattern does not match Alpha v105 table. Possible bit drift or misalignment.")
-            })
-    }
-
     pub fn decode<R: BitRead>(&self, reader: &mut R) -> io::Result<char> {
         self.decode_internal(|| reader.read_bit())
+    }
+
+    pub fn decode_recorded<R: BitRead>(&self, cursor: &mut BitCursor<R>) -> ParsingResult<char> {
+        self.decode_internal(|| {
+            cursor.read_bit().map_err(|e| {
+                io::Error::new(io::ErrorKind::Other, format!("{:?}", e))
+            })
+        })
+        .map_err(|_| {
+            cursor.fail(ParsingError::InvalidHuffmanBit { bit_offset: cursor.pos() })
+                .with_hint("Huffman bit pattern does not match Alpha v105 table.")
+        })
     }
 }
 
@@ -204,8 +195,6 @@ impl Item {
         emitter.write_bits(self.x as u32, 4)?;
         
         if alpha_mode && self.version == 5 {
-            // Alpha v105 items use a fixed 53-bit header budget (45 bits fields + 8 bits padding)
-            // Regardless of is_compact, the fields y, page, socket_hint are not part of the Alpha header bitstream budget.
             emitter.write_bits(0, 8)?;
         } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
@@ -224,37 +213,31 @@ impl Item {
 
         if !self.is_compact {
             if alpha_mode {
-                emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
-                emitter.write_bits(0, 1)?; // alpha_mid_pad (matches read_extended_stats)
-                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 3)?;
-                emitter.write_bit(self.has_multiple_graphics)?;
-                emitter.write_bit(self.has_class_specific_data)?;
-                emitter.write_bit(self.timestamp_flag)?;
+                // Alpha v105 True Zero Model: Level, Quality, Graphics, Class bits are OMITTED for non-Normal items.
+                // In fixture, properties start at bit 76 (immediately after Huffman code).
             } else {
                 emitter.write_bits(self.id.unwrap_or(0), 32)?;
                 emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
                 emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
             }
 
-            if self.has_multiple_graphics {
+            if !alpha_mode && self.has_multiple_graphics {
                 emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
             }
-            if self.has_class_specific_data {
-                let bits = if alpha_mode { 3 } else { 11 };
-                emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, bits)?;
+            if !alpha_mode && self.has_class_specific_data {
+                emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
             }
 
             let quality_val = self.quality.unwrap_or(ItemQuality::Normal);
             match quality_val {
-                ItemQuality::Low | ItemQuality::High => {
+                ItemQuality::Low | ItemQuality::High if !alpha_mode => {
                     emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
                 }
-                ItemQuality::Magic => {
-                    let bits = if alpha_mode { 7 } else { 11 };
-                    emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, bits)?;
-                    emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, bits)?;
+                ItemQuality::Magic if !alpha_mode => {
+                    emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
+                    emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
                 }
-                ItemQuality::Rare | ItemQuality::Crafted => {
+                ItemQuality::Rare | ItemQuality::Crafted if !alpha_mode => {
                     emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
                     emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
                     for i in 0..6 {
@@ -266,22 +249,22 @@ impl Item {
                         }
                     }
                 }
-                ItemQuality::Set | ItemQuality::Unique => {
+                ItemQuality::Set | ItemQuality::Unique if !alpha_mode => {
                     emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
                 }
                 _ => {}
             }
 
-            if self.is_runeword && self.version != 5 {
+            if self.is_runeword && self.version != 5 && !alpha_mode {
                 emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
                 emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
             }
 
-            if self.is_personalized {
+            if self.is_personalized && !alpha_mode {
                 write_player_name(&mut emitter, self.personalized_player_name.as_deref().unwrap_or(""))?;
             }
 
-            if self.code.trim() == "tbk" || self.code.trim() == "ibk" {
+            if (self.code.trim() == "tbk" || self.code.trim() == "ibk") && !alpha_mode {
                 emitter.write_bits(self.tbk_ibk_teleport.unwrap_or(0) as u32, 5)?;
             }
 
@@ -290,11 +273,11 @@ impl Item {
             }
 
             if let Some(template) = item_template(&self.code) {
-                if template.is_armor {
+                if template.is_armor && !alpha_mode {
                     let bits = stat_save_bits(31).unwrap_or(11);
                     emitter.write_bits(self.defense.unwrap_or(0), bits)?;
                 }
-                if template.has_durability {
+                if template.has_durability && !alpha_mode {
                     let max_bits = stat_save_bits(73).unwrap_or(8);
                     let cur_bits = stat_save_bits(72).unwrap_or(9);
                     let m_dur = self.max_durability.unwrap_or(0);
@@ -304,16 +287,16 @@ impl Item {
                         emitter.write_bit(false)?; // dur_extra
                     }
                 }
-                if template.is_stackable {
+                if template.is_stackable && !alpha_mode {
                     emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
                 }
             }
 
-            if self.is_socketed {
+            if self.is_socketed && !alpha_mode {
                 emitter.write_bits(self.sockets.unwrap_or(0) as u32, 4)?;
             }
 
-            if quality_val == ItemQuality::Set {
+            if quality_val == ItemQuality::Set && !alpha_mode {
                 let set_list_val = match self.set_list_count {
                     1 => 1, 2 => 3, 3 => 7, 4 => 15, 5 => 31, _ => 0
                 };
@@ -334,13 +317,20 @@ impl Item {
             }
         }
 
-        if alpha_mode && self.is_compact && (self.version == 5 || self.version == 1) {
-            // Alpha v105 compact items (potions, scrolls, basic gear) are exactly 10 bytes (80 bits).
-            if emitter.written < 80 {
-                emitter.write_bits(0, (80 - emitter.written) as u32)?;
+        if alpha_mode {
+            // Alpha v105 items observed to be byte-aligned.
+            if emitter.written % 8 != 0 {
+                let bits_to_write = 8 - (emitter.written % 8);
+                emitter.write_bits(0, bits_to_write as u32)?;
             }
         }
         Ok(emitter.into_bytes())
+
+
+
+
+
+
     }
 
     pub fn serialize_section(items: &[Item], huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
@@ -364,58 +354,24 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
 }
 
 fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTemplate> {
-    crate::data::item_codes::ITEM_TEMPLATES
-        .iter()
-        .find(|template| template.code == code.trim())
+    crate::data::item_codes::ITEM_TEMPLATES.iter().find(|t| t.code == code.trim())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
-    if version == 5 && alpha_runeword {
-        for _ in 0..93 {
-            emitter.write_bit(false)?;
-        }
-    }
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, _alpha_runeword: bool, _terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
     for prop in props {
         if version == 5 || version == 1 {
-            let (raw_id, _save_bits) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) {
-                (m.raw_id, 0)
-            } else {
-                (prop.stat_id, 0)
-            };
-
+            let (raw_id, _) = if let Some(m) = lookup_alpha_map_by_effective(prop.stat_id) { (m.raw_id, 0) } else { (prop.stat_id, 0) };
             emitter.write_bits(raw_id, 9)?;
-            // Alpha v105 properties are 10-bit (9-bit ID + 1-bit value) for non-Normal items.
-            if quality != ItemQuality::Normal {
-                emitter.write_bits(prop.raw_value as u32, 1)?;
-            }
-        } else if version == 4 {
-            emitter.write_bits(prop.stat_id, 9)?;
-            emitter.write_bits(prop.raw_value as u32, 8)?;
+            if quality != ItemQuality::Normal { emitter.write_bits(prop.raw_value as u32, 1)?; }
         } else {
-           let stat = crate::data::stat_costs::STAT_COSTS
-                .iter()
-                .find(|s| s.id == prop.stat_id)
-                .ok_or_else(|| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidInput,
-                        format!("Missing stat_cost entry for stat_id {}", prop.stat_id),
-                    )
-                })?;
-            emitter.write_bits(prop.stat_id, id_bits)?;
-            if stat.save_param_bits > 0 {
-                emitter.write_bits(prop.param, stat.save_param_bits as u32)?;
-            }
-            if stat.save_bits > 0 {
-                emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
-            }
+            emitter.write_bits(prop.stat_id, 9)?;
+            if let Some(bits) = stat_save_bits(prop.stat_id) { emitter.write_bits(prop.raw_value as u32, bits)?; }
         }
     }
     emitter.write_bits(terminator, id_bits)?;
-    if version == 5 || version == 1 {
-        emitter.write_bit(terminator_bit)?;
-    }
+    if version == 5 || version == 1 { emitter.write_bit(false)?; }
     Ok(())
 }

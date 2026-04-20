@@ -1,4 +1,4 @@
-﻿// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
+// Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -693,8 +693,10 @@ pub fn rebuild_item_section(
     let jm1 = jm_positions[0];
     let count_u16 = items.len() as u16;
     
-    // Find the end of the item section based on the items' actual boundaries
-    let section_end = if let Some(last_item) = items.last() {
+    // Find the end of the item section based on the next marker to preserve boundary integrity
+    let section_end = if jm_positions.len() > 1 {
+        jm_positions[1]
+    } else if let Some(last_item) = items.last() {
         jm1 + 4 + (last_item.range.end as usize + 7) / 8
     } else {
         jm1 + 4

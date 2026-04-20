@@ -32,6 +32,14 @@ impl BitEmitter {
         Ok(())
     }
 
+    pub fn byte_align(&mut self) -> io::Result<()> {
+        if self.written % 8 != 0 {
+            let bits_to_write = 8 - (self.written % 8);
+            self.write_bits(0, bits_to_write as u32)?;
+        }
+        Ok(())
+    }
+
     pub fn extend_bits(&mut self, bits: Vec<bool>) -> io::Result<()> {
         for bit in bits {
             self.write_bit(bit)?;
@@ -318,11 +326,9 @@ impl Item {
         }
 
         if alpha_mode {
-            // Alpha v105 items observed to be byte-aligned.
-            if emitter.written % 8 != 0 {
-                let bits_to_write = 8 - (emitter.written % 8);
-                emitter.write_bits(0, bits_to_write as u32)?;
-            }
+            // Alpha v105 Requirement: Mandatory 1 Terminal Bit (0) + Padding to Byte Boundary
+            emitter.write_bit(false)?; 
+            emitter.byte_align()?;
         }
         Ok(emitter.into_bytes())
 

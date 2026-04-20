@@ -45,6 +45,16 @@ impl Item {
             hint: Some("Could not find start of item section.".to_string()),
         })?;
 
+        if bytes.len() < start_offset + 4 {
+            return Err(ParsingFailure {
+                error: ParsingError::MissingMarker { marker: "JM count".to_string(), bit_offset: (start_offset * 8) as u64 },
+                context_stack: vec!["read_player_items".to_string()],
+                bit_offset: (start_offset * 8) as u64,
+                context_relative_offset: 0,
+                hint: Some("Item section header (JM count) is incomplete.".to_string()),
+            });
+        }
+
         let count = u16::from_le_bytes([bytes[start_offset + 2], bytes[start_offset + 3]]);
         let section_bytes = &bytes[start_offset + 4..];
         

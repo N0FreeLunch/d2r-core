@@ -1,6 +1,6 @@
-use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
+use bitstream_io::{BitReader as IoBitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
-use d2r_core::item::{HuffmanTree, is_plausible_item_header};
+use d2r_core::item::HuffmanTree;
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -30,13 +30,13 @@ fn main() {
     let bytes = fs::read(path).expect("failed to read save file");
 
     let huffman = HuffmanTree::new();
-    let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
+    let is_alpha = bytes.len() > 8 && bytes[4..8] == [0x69, 0, 0, 0];
     if !is_alpha {
         println!("Not an Alpha v105 save file.");
         return;
     }
 
-    let jm_pos = (0..bytes.len() - 2)
+    let jm_pos = (0..bytes.len().saturating_sub(1))
         .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
         .expect("No JM marker found");
 
@@ -46,7 +46,10 @@ fn main() {
     println!("Scavenging for Alpha items from bit {} to {}:", start_bit, end_bit);
 
     for bit in start_bit as u64..end_bit as u64 {
-        let reader = IoBitReader::endian(Cursor::new(&bytes[(bit / 8) as usize..]), LittleEndian);
+        let byte_idx = (bit / 8) as usize;
+        if byte_idx >= bytes.len() { break; }
+
+        let reader = IoBitReader::endian(Cursor::new(&bytes[byte_idx..]), LittleEndian);
         let mut cursor = BitCursor::new(reader);
         let _ = cursor.skip_and_record((bit % 8) as u32);
 
@@ -61,7 +64,10 @@ fn main() {
 
         for gap in 0..=16u64 {
             let total_offset = bit + header_bits_before_gap + gap;
-            let g_reader = IoBitReader::endian(Cursor::new(&bytes[(total_offset / 8) as usize..]), LittleEndian);
+            let gap_byte_idx = (total_offset / 8) as usize;
+            if gap_byte_idx >= bytes.len() { continue; }
+
+            let g_reader = IoBitReader::endian(Cursor::new(&bytes[gap_byte_idx..]), LittleEndian);
             let mut g_cursor = BitCursor::new(g_reader);
             let _ = g_cursor.skip_and_record((total_offset % 8) as u32);
 

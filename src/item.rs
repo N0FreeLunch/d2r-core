@@ -30,21 +30,45 @@ pub struct PropertyReaderContext<'a> {
 
 impl Item {
     pub fn read_player_items(bytes: &[u8], huffman: &HuffmanTree, alpha: bool) -> ParsingResult<Vec<Item>> {
-        let mut jm_pos = None;
-        for i in 0..bytes.len().saturating_sub(1) {
+        let mut best_jm_pos = None;
+        let mut backup_jm_pos = None;
+
+        for i in 0..bytes.len().saturating_sub(3) {
             if bytes[i] == b'J' && bytes[i + 1] == b'M' {
-                jm_pos = Some(i);
-                break;
+                let count = u16::from_le_bytes([bytes[i + 2], bytes[i + 3]]);
+                
+                if count == 0 {
+                    if backup_jm_pos.is_none() {
+                        backup_jm_pos = Some(i);
+                    }
+                } else {
+                    // Peek at the first item to see if it's plausible.
+                    let section_payload = &bytes[i + 4..];
+                    if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = 
+                        peek_item_header_at(section_payload, 0, huffman, alpha) 
+                    {
+                        if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
+                            best_jm_pos = Some(i);
+                            break;
+                        }
+                    }
+                    
+                    if backup_jm_pos.is_none() {
+                        backup_jm_pos = Some(i);
+                    }
+                }
             }
         }
 
-        let start_offset = jm_pos.ok_or_else(|| ParsingFailure {
+        let start_offset = best_jm_pos.or(backup_jm_pos).ok_or_else(|| ParsingFailure {
             error: ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: 0 },
             context_stack: vec!["read_player_items".to_string()],
             bit_offset: 0,
             context_relative_offset: 0,
-            hint: Some("Could not find start of item section.".to_string()),
+            hint: Some("Could not find a valid start of item section.".to_string()),
         })?;
+
+        item_trace!("[DEBUG] Selected JM section at offset {}", start_offset);
 
         if bytes.len() < start_offset + 4 {
             return Err(ParsingFailure {

@@ -45,9 +45,9 @@ fn main() {
     }
 
     println!("\n--- Waypoints ---");
-    // Normal WPs: 0x19B (2 bytes per act)
-    println!("  [Normal] (at 0x19B)");
-    let normal_wp_start = 0x19B;
+    // Normal WPs: 0x195 (2 bytes per act)
+    println!("  [Normal] (at 0x195)");
+    let normal_wp_start = 0x195;
     for act in 1..=5 {
         let act_offset = normal_wp_start + (act - 1) * 2;
         if act_offset + 2 <= bytes.len() {

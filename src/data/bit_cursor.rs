@@ -10,6 +10,7 @@ use crate::error::{BackingBitCursor, ParsingError, ParsingFailure, ParsingResult
 pub struct BitCursor<R: BitRead> {
     inner: R,
     bit_pos: u64,
+    limit: Option<u64>,
     recorded_bits: Vec<RecordedBit>,
     segments: Vec<BitSegment>,
     context_stack: Vec<(String, u64, Option<u64>)>, // (label, start_bit, expected_bits)
@@ -36,12 +37,17 @@ impl<R: BitRead> BitCursor<R> {
         Self {
             inner,
             bit_pos: 0,
+            limit: None,
             recorded_bits: Vec::new(),
             segments: Vec::new(),
             context_stack: Vec::new(),
             trace_enabled: false,
             alpha_quality: None,
         }
+    }
+
+    pub fn set_limit(&mut self, limit: u64) {
+        self.limit = Some(limit);
     }
 
     pub fn set_trace(&mut self, enabled: bool) {
@@ -68,6 +74,13 @@ impl<R: BitRead> BitCursor<R> {
 
     /// Reads a single bit from the stream.
     pub fn read_bit(&mut self) -> ParsingResult<bool> {
+        if let Some(limit) = self.limit {
+            if self.bit_pos >= limit {
+                return Err(self.fail(ParsingError::Io("Bit limit exceeded (possible section boundary violation)".to_string()))
+                    .with_hint("The parser tried to read beyond the allocated bits for this item or section."));
+            }
+        }
+
         let bit = self.inner.read_bit().map_err(|e| {
             self.fail(ParsingError::Io(format!("Bit-level read failure: {}", e)))
                 .with_hint("Possible end of bitstream reached unexpectedly.")

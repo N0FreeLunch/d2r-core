@@ -94,11 +94,22 @@ impl Item {
         while items.len() < top_level_count as usize && bit_pos < section_bits {
             let start = find_next_item_match(section_bytes, bit_pos, huffman, alpha_mode).unwrap_or(bit_pos);
             
-            let (item, consumed_bits) = match parse_item_at(section_bytes, start, huffman, items.len(), alpha_mode) {
+            // Calculate remaining bits in the section to prevent over-reading.
+            let remaining_in_section = section_bits.saturating_sub(start);
+
+            let (item, consumed_bits) = match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(remaining_in_section)) {
                 Ok(res) => res,
                 Err(e) => {
-
                     item_trace!("[DEBUG] Item parsing failed at {}: {:?}", start, e);
+                    
+                    // Critical termination: If we hit EOF or limit exceeded, don't bother retrying bit-by-bit.
+                    if let ParsingError::Io(ref s) = e.error {
+                        if s.contains("failed to fill whole buffer") || s.contains("unexpected end of file") || s.contains("Bit limit exceeded") {
+                            item_trace!("[DEBUG] EOF or Limit reached during parsing at {}. Stopping section.", start);
+                            break;
+                        }
+                    }
+
                     bit_pos = start + 1;
                     continue;
                 }
@@ -147,7 +158,7 @@ impl Item {
     }
 
     pub fn from_bytes(bytes: &[u8], huffman: &HuffmanTree, alpha: bool) -> ParsingResult<Item> {
-        let (item, _) = parse_item_at(bytes, 0, huffman, 0, alpha)?;
+        let (item, _) = parse_item_at_with_limit(bytes, 0, huffman, 0, alpha, None)?;
         Ok(item)
     }
 
@@ -516,12 +527,26 @@ pub fn parse_item_at(
     bytes: &[u8],
     bit: u64,
     huffman: &HuffmanTree,
+    idx: usize,
+    alpha: bool,
+) -> ParsingResult<(Item, u64)> {
+    parse_item_at_with_limit(bytes, bit, huffman, idx, alpha, None)
+}
+
+pub fn parse_item_at_with_limit(
+    bytes: &[u8],
+    bit: u64,
+    huffman: &HuffmanTree,
     _idx: usize,
     alpha: bool,
+    limit: Option<u64>,
 ) -> ParsingResult<(Item, u64)> {
     let mut reader = IoBitReader::endian(Cursor::new(bytes), LittleEndian);
     let _ = reader.skip(bit as u32);
     let mut cursor = BitCursor::new(reader);
+    if let Some(l) = limit {
+        cursor.set_limit(l);
+    }
     let item = Item::from_reader_with_context(&mut cursor, huffman, Some((bytes, bit)), alpha)?;
     Ok((item, cursor.pos()))
 }
@@ -543,7 +568,8 @@ fn scan_socket_children(
         if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, current_pos, huffman, alpha) {
             if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
                 if mode == 6 || location == 6 {
-                    if let Ok((item, consumed)) = parse_item_at(bytes, current_pos, huffman, 0, alpha) {
+                    let remaining = section_bits.saturating_sub(current_pos);
+                    if let Ok((item, consumed)) = parse_item_at_with_limit(bytes, current_pos, huffman, 0, alpha, Some(remaining)) {
                         let mut item_end = current_pos + consumed;
                         if alpha {
                             if let Some(next_start) = find_next_item_match(bytes, current_pos + 64, huffman, alpha) {

@@ -248,3 +248,7 @@ path = "src/bin/verify/v105_bit_arch.rs"
 name = "d2item_atlas"
 path = "src/bin/verify/d2item_atlas.rs"
 
+[[bin]]
+name = "d2item_atlas_diff"
+path = "src/bin/verify/d2item_atlas_diff.rs"
+

@@ -65,15 +65,13 @@ fn main() {
     println!("  Offset 162 (NM Prog):       0x{:02X}", nm_prog);
     println!("  Offset 163 (Hell Prog):     0x{:02X}", hell_prog);
     
-    // TODO: Alpha v105 Difficulty Logic Refinement
-    // Currently, standard 0xA1 offsets (161-163) are unreliable for v105 fixtures.
-    // We are using a hypothesis that active_act (offset 21) or progress_flag (offset 108)
-    // manages difficulty. This needs to be verified once NM/Hell gameplay saves are gathered.
-    // Reference Discussion: 2026-04-17-standardization-of-gameplay-fixture-naming-and-automation.md
-    let diff_str = if (active_act & 0x80) != 0 {
-        "nightmare" // Hypothesis: bit 7 might signify difficulty shift
-    } else {
-        "normal"
+    // Alpha v105 Difficulty Logic Refinement (Verified via Discussion 0156)
+    // Offset 21 (active_act) bits 3-4 indicate difficulty in v105.
+    // 0x00: Normal, 0x08: Nightmare (Bit 3), 0x10: Hell (Bit 4)
+    let diff_str = match (active_act & 0x18) >> 3 {
+        1 => "nightmare",
+        2 => "hell",
+        _ => "normal",
     };
 
     let act_num = (active_act & 0x7) + 1;

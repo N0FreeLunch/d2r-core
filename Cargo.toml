@@ -252,3 +252,7 @@ path = "src/bin/verify/d2item_atlas.rs"
 name = "d2item_atlas_diff"
 path = "src/bin/verify/d2item_atlas_diff.rs"
 
+[[bin]]
+name = "d2item_marker_probe"
+path = "src/bin/verify/d2item_marker_probe.rs"
+

@@ -59,9 +59,10 @@ where
 {
     let entry_start = recorder.pos();
     
-    // Non-Normal Alpha v105 uses 10-bit property model (9-bit ID + 1-bit value).
-    // EXCEPT for Runewords, which use the Retail variable-width model.
-    let is_alpha_model = (version == 5 || version == 1) && !_alpha_runeword;
+    // Alpha v105 specific model check.
+    let is_alpha_version = version == 5 || version == 1;
+    let is_alpha_flag_model = is_alpha_version && !_alpha_runeword;
+    
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
 
@@ -70,7 +71,8 @@ where
     
     if stat_id == terminator {
         let mut term_bit = false;
-        if is_alpha_model {
+        if is_alpha_version {
+            // Alpha v105 items (including runewords) often have a 1-bit terminal nudge.
             term_bit = recorder.read_bit()?;
         }
         return Ok(Some((
@@ -89,18 +91,29 @@ where
 
     let mut raw_value = 0;
     let mut param = 0;
-    if is_alpha_model {
-        // 1-bit value for non-Normal items.
+
+    if is_alpha_flag_model {
+        // 1-bit value for non-Normal/non-Runeword Alpha items.
         raw_value = recorder.read_bits::<u32>(1)? as u32;
+    } else if is_alpha_version {
+        // Alpha v105 Runeword or complex model.
+        if let Some(map) = crate::domain::stats::lookup_alpha_map_by_raw(stat_id) {
+            if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == map.effective_id) {
+                if stat.save_param_bits > 0 {
+                    param = recorder.read_bits::<u32>(stat.save_param_bits as u32)?;
+                }
+                raw_value = recorder.read_bits::<u32>(stat.save_bits as u32)?;
+            } else {
+                raw_value = recorder.read_bits::<u32>(9)? as u32;
+            }
+        } else {
+            // UNKNOWN Alpha Stat ID. Forensic evidence suggests 9-bit values are the standard fallback.
+            raw_value = recorder.read_bits::<u32>(9)? as u32;
+            crate::item_trace!("[DEBUG] [{}] UNKNOWN Alpha Stat ID {}, read 9-bit value: {}", recorder.pos(), stat_id, raw_value);
+        }
     } else {
         // Retail logic for bit widths.
-        let effective_id = if version == 5 || version == 1 {
-            crate::domain::stats::lookup_alpha_map_by_raw(stat_id).map(|m| m.effective_id).unwrap_or(stat_id)
-        } else {
-            stat_id
-        };
-
-        if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == effective_id) {
+        if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id) {
             if stat.save_param_bits > 0 {
                 param = recorder.read_bits::<u32>(stat.save_param_bits as u32)?;
             }

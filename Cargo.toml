@@ -244,3 +244,7 @@ path = "src/bin/d2_binary_target_auditor.rs"
 name = "v105_bit_arch"
 path = "src/bin/verify/v105_bit_arch.rs"
 
+[[bin]]
+name = "d2item_atlas"
+path = "src/bin/verify/d2item_atlas.rs"
+

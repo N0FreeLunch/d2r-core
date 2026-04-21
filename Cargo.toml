@@ -44,6 +44,10 @@ name = "d2save_diff"
 path = "src/bin/verify/d2save_diff.rs"
 
 [[bin]]
+name = "d2save_structural_diff"
+path = "src/bin/verify/d2save_structural_diff.rs"
+
+[[bin]]
 name = "d2item_inspect"
 path = "src/bin/verify/d2item_inspect.rs"
 
@@ -235,4 +239,8 @@ path = "src/bin/verify/d2save_mutate.rs"
 [[bin]]
 name = "d2_binary_target_auditor"
 path = "src/bin/d2_binary_target_auditor.rs"
+
+[[bin]]
+name = "v105_bit_arch"
+path = "src/bin/verify/v105_bit_arch.rs"
 

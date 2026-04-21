@@ -109,6 +109,7 @@ This catalog includes **public verification tools** residing in the `d2r-core` r
 ### 🔍 Related Toolsets
 - **Game Data & Extraction**: See [`d2r-data/NAVIGATOR.md`](./d2r-data/NAVIGATOR.md) for `d2r-data-extractor` and `probe`.
 - **Forensic Research**: See [`d2r-spec/NAVIGATOR.md`](../d2r-spec/NAVIGATOR.md) for `d2item_oracle_mapper`, `v5_peek`, and `chunk_verify`.
+- **Tooling Proposals**: See [`d2r-spec/discussion/0173-efficiency-tooling-proposals.md`](../d2r-spec/discussion/0173-efficiency-tooling-proposals.md) for future productivity roadmap.
 
 ### 🚀 Common Verification Commands
 

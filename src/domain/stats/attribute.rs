@@ -127,9 +127,8 @@ impl AttributeSection {
         let mut writer = BitWriter::endian(&mut buf, LittleEndian);
 
         for entry in &self.entries {
-            // Forensic Absolute Exclusion: Stat ID 5 must NEVER be in the bitstream 
-            // until the DLC editor's metadata conflict is resolved.
-            if entry.stat_id == 5 {
+            // Allow Stat ID 5 for Alpha v105 to match discovered fixtures (Alkor reward)
+            if entry.stat_id == 5 && !is_alpha {
                 continue;
             }
 
@@ -198,12 +197,13 @@ pub fn char_stat_save_bits(stat_id: u32, is_alpha: bool) -> u32 {
         // Alpha v105 Research: Core stats 0-3 and 12-13 are present, but 4-5 are often undefined/skipped.
         // We exclude 4 and 5 to prevent DLC Editor 'Undefined' crashes.
         match stat_id {
-            0 | 1 | 2 | 3 => 10,
-            4 | 5 => 0, // Explicitly Excluded in Alpha v105 gf section
+            0 | 1 | 2 | 3 | 4 => 10,
+            5 => 8,
             6 | 7 | 8 | 9 | 10 | 11 => 21,
             12 => 7,
             13 => 32,
             14 | 15 => 25,
+            85 => 8, // Alkor Reward Stat (stat_id 85) confirmed as 17-bit (9-bit ID + 8-bit Val)
             _ => stat_cost(stat_id).map(|c| c.save_bits as u32).unwrap_or(0)
         }
     } else {

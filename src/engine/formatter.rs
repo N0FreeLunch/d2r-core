@@ -165,33 +165,35 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
         return format!("Unknown Stat {} (value: {})", stat_id, prop.value);
     };
 
-    let descfunc = cost.descfunc;
+    let descfunc = cost.descfunc.unwrap_or(0);
     let key = if prop.value >= 0 {
         cost.descstrpos
     } else {
         cost.descstrneg
     };
-    if key.is_empty() {
+    let Some(key_str) = key else {
         return format!("{} (value: {})", cost.name, prop.value);
     };
 
-    let loc_str = get_loc(key, language).trim();
+    let loc_str = get_loc(key_str, language).trim();
     
     // Slice 1: DescStr2 handling (e.g. Based on Character Level)
-    let phrase2 = if !cost.descstr2.is_empty() {
-        Some(get_loc(cost.descstr2, language))
+    let phrase2 = if let Some(d2) = cost.descstr2 {
+        Some(get_loc(d2, language))
     } else {
         None
     };
     
     // Slice 2: Level Scaling logic utilizing op and op_param
     let mut display_value = prop.value;
-    if cost.op != 0 {
-        match cost.op {
-            2 | 4 | 5 => {
-                display_value = (prop.value * char_level as i32) >> cost.op_param;
+    if let Some(op) = cost.op {
+        if op != 0 {
+            match op {
+                2 | 4 | 5 => {
+                    display_value = (prop.value * char_level as i32) >> cost.op_param.unwrap_or(0);
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
     
@@ -273,8 +275,8 @@ pub fn format_property(prop: &ItemProperty, char_level: u8, language: &str) -> S
                 )
             } else {
                 // descfunc 15 appends a descstr2 phrase (e.g. "on attack")
-                let phrase2 = if !cost.descstr2.is_empty() {
-                    get_loc(cost.descstr2, language)
+                let phrase2 = if let Some(d2) = cost.descstr2 {
+                    get_loc(d2, language)
                 } else {
                     get_loc("ItemExpansiveChancX", language) // Fallback to template if possible
                 };

@@ -1,8 +1,8 @@
 use std::io::{self, Cursor};
 use bitstream_io::{BitRead, BitReader, BitWrite, BitWriter, LittleEndian};
-use crate::data::stat_costs::{StatCostData, STAT_COSTS};
+use crate::data::stat_costs::{StatCost, STAT_COSTS};
 
-fn stat_cost(stat_id: u32) -> Option<&'static StatCostData> {
+fn stat_cost(stat_id: u32) -> Option<&'static StatCost> {
     STAT_COSTS.iter().find(|stat| stat.id == stat_id)
 }
 

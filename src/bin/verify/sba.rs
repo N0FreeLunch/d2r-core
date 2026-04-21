@@ -1,36 +1,13 @@
 use std::env;
 use std::fs;
-use serde::{Serialize, Deserialize};
 use anyhow::{Result, Context};
 
 use d2r_core::save::Save;
-use d2r_core::item::{Item, HuffmanTree, BitSegment, ItemBitRange};
+use d2r_core::item::{Item, HuffmanTree};
 use d2r_core::verify::args::{ArgParser, ArgSpec};
 
-use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
-
-#[derive(Serialize, Deserialize, Debug)]
-struct SbaBaseline {
-    fixture: String,
-    items: Vec<SbaItem>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct SbaItem {
-    path: String,
-    code: String,
-    range: ItemBitRange,
-    segments: Vec<BitSegment>,
-}
-
-#[derive(Serialize)]
-struct SbaJsonPayload {
-    fixture: String,
-    baseline: String,
-    mode: String,
-    item_count: usize,
-    mismatch_count: usize,
-}
+use d2r_core::verify::{Report, ReportMetadata, ReportStatus};
+use d2r_core::verify::sba::{SbaBaseline, SbaJsonPayload, flatten_item, verify_baseline};
 
 fn main() -> Result<()> {
     let mut parser = ArgParser::new("sba");
@@ -133,77 +110,6 @@ fn main() -> Result<()> {
             .with_issues(issues);
 
         println!("{}", serde_json::to_string(&report)?);
-    }
-
-    Ok(())
-}
-
-fn flatten_item(item: &Item, path: &str, result: &mut Vec<SbaItem>) {
-    result.push(SbaItem {
-        path: path.to_string(),
-        code: item.code.clone(),
-        range: item.range,
-        segments: item.segments.clone(),
-    });
-
-    for (i, socketed) in item.socketed_items.iter().enumerate() {
-        let sub_path = format!("{}.{}", path, i);
-        flatten_item(socketed, &sub_path, result);
-    }
-}
-
-fn verify_baseline(expected: &SbaBaseline, actual: &SbaBaseline, issues: &mut Vec<ReportIssue>) -> Result<()> {
-    if expected.items.len() != actual.items.len() {
-        let msg = format!(
-            "Item count mismatch: expected {}, found {}",
-            expected.items.len(),
-            actual.items.len()
-        );
-        issues.push(ReportIssue { kind: "structure".to_string(), message: msg.clone(), bit_offset: None });
-        anyhow::bail!(msg);
-    }
-
-    for (i, (exp_item, act_item)) in expected.items.iter().zip(actual.items.iter()).enumerate() {
-        if exp_item.path != act_item.path {
-            let msg = format!("Item #{} path mismatch: expected {}, found {}", i, exp_item.path, act_item.path);
-            issues.push(ReportIssue { kind: "structure".to_string(), message: msg.clone(), bit_offset: None });
-            anyhow::bail!(msg);
-        }
-        if exp_item.code != act_item.code {
-            let msg = format!("Item {} code mismatch: expected {}, found {}", exp_item.path, exp_item.code, act_item.code);
-            issues.push(ReportIssue { kind: "data".to_string(), message: msg.clone(), bit_offset: Some(act_item.range.start) });
-            anyhow::bail!(msg);
-        }
-        
-        if exp_item.segments.len() != act_item.segments.len() {
-            let msg = format!(
-                "Item {} segment count mismatch: expected {}, found {}",
-                exp_item.path,
-                exp_item.segments.len(),
-                act_item.segments.len()
-            );
-            issues.push(ReportIssue { kind: "structural_segment".to_string(), message: msg.clone(), bit_offset: Some(act_item.range.start) });
-            anyhow::bail!(msg);
-        }
-
-        for (j, (exp_seg, act_seg)) in exp_item.segments.iter().zip(act_item.segments.iter()).enumerate() {
-            if exp_seg.label != act_seg.label {
-                let msg = format!(
-                    "Item {} segment #{} label mismatch: expected {}, found {}",
-                    exp_item.path, j, exp_seg.label, act_seg.label
-                );
-                issues.push(ReportIssue { kind: "structural_label".to_string(), message: msg.clone(), bit_offset: Some(act_item.range.start + act_seg.start as u64) });
-                anyhow::bail!(msg);
-            }
-            if exp_seg.start != act_seg.start || exp_seg.end != act_seg.end {
-                let msg = format!(
-                    "Item {} segment #{} ({}) bit range mismatch: expected {}-{}, found {}-{}",
-                    exp_item.path, j, exp_seg.label, exp_seg.start, exp_seg.end, act_seg.start, act_seg.end
-                );
-                issues.push(ReportIssue { kind: "structural_range".to_string(), message: msg.clone(), bit_offset: Some(act_item.range.start + act_seg.start as u64) });
-                anyhow::bail!(msg);
-            }
-        }
     }
 
     Ok(())

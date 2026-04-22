@@ -4,9 +4,9 @@ A library for reading and writing Diablo II: Resurrected save files.
 
 ## Compatibility & Status
 
-- **Target Version**: D2R **Version 3.0+** (`Reign of the Demonologist` DLC, Internal **0x69**)
-- **Retro-Archaeology**: Support for **Alpha v105 (0.05)** save files and forensic bitstream reconstruction.
-- **State**: Core parsing is stable for 3.0+ and Alpha v105. Data-integrated formatting is ongoing.
+- **Modern/DLC Track**: Includes support for the current DLC-oriented spec track used by this repository (see `specification/v2_dlc_spec.yaml`).
+- **Retro-Archaeology**: Includes Alpha v105 (`0x69` / 105) save parsing and forensic bitstream reconstruction.
+- **State**: Core parsing and verification tooling cover both the modern/DLC track and Alpha v105. Data-integrated formatting and presentation are still evolving.
 
 
 ## License
@@ -70,7 +70,7 @@ The following CLI tools are provided for inspecting and verifying save data. Lab
 - `d2save_verify`: Verifies integrity and checksums. **(Core)**
 - `d2save_map`: Displays the high-level section map of a save. **(Core)**
 - `d2save_diff`: Compares binary/structural differences between saves. **(Core)**
-- `d2item_inspect`: Inspects item properties and stats. **(Data Required)**
+- `d2item_inspect`: Inspects item properties and stats at the bitstream level. **(Core)**
 - `d2item_blob_inspect`: Analyzes raw item bitstreams. **(Core)**
 - `d2save_inject`: Injects raw data or modifications into saves. **(Core)**
 - `d2item_extract`: Extracts specific item blobs from saves. **(Core)**
@@ -104,6 +104,5 @@ The following tools are designed for deep bitstream analysis and "archaeological
 
 ### Experimental Utilities & Examples
 
-- **`v105_unlocker`**: (Example) Unlocks all quests/waypoints for Alpha v105 save files.
-- **`v105_quest_semantic_check`**: (Example) Validates quest state consistency for Alpha v105.
+- **`v105_unlocker`**: Example program for unlocking all quests and waypoints in Alpha v105 save files. Run with `cargo run --example v105_unlocker -- <input.d2s> <output.d2s>`.
 

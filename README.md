@@ -11,7 +11,9 @@ A library for reading and writing Diablo II: Resurrected save files.
 
 ## License
 
-This project is licensed under the Apache License, Version 2.0. See the [LICENSE](LICENSE) and [NOTICE](NOTICE) files for details.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0**. This means the software is free for personal and noncommercial use, but commercial use is strictly prohibited. 
+
+See the [LICENSE](LICENSE) file for the full license text and [NOTICE](NOTICE) for trademark disclaimers.
 
 ### Disclaimer
 This project is not affiliated with, authorized by, or endorsed by Blizzard Entertainment. Diablo II: Resurrected is a trademark of Blizzard Entertainment. This repository contains only original source code for the parsing engine and does not distribute any copyrighted game assets.

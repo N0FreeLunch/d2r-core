@@ -22,28 +22,46 @@ This project is not affiliated with, authorized by, or endorsed by Blizzard Ente
 
 ---
 
-## Library Features
+## Transparency & Data Boundary
 
-The library is designed with a strict **Data Boundary** to ensure copyright safety. It distinguishes between core parsing logic and game data integration.
+This project enforces a strict **Data Boundary** between the parsing engine's structural logic and the game's proprietary content.
 
-### Core Features (Autonomous)
-These features work standalone and do not require external game data assets. They rely on original reverse-engineered logic and hardcoded constants (e.g., Huffman tables).
+1.  **Structural Disclosure (The Schema)**: We expose the **Rust structs and parsing logic** to prove the engine's integrity and ensure "No Malice." By revealing the *format* of the data, we provide full transparency into how the editor operates without distributing the *content*.
+2.  **No Obligation for Data Content**: This repository provides the "vessel" (the code), but is under no obligation to disclose, and does not provide, the actual internal game data or extracted tables. Actual game values are treated as external dependencies to be handled privately by the user.
 
-- **Save File Integrity**: Parse and write `.d2s` headers, calculate/fix checksums, and finalize file sizes.
-- **Section Parsing**: Map and extract core save sections (`gf` attributes, `if` skills, `JM` items).
-- **Bitstream Engine**: Advanced bit-level reading/writing utilities for Diablo II's variable-width bitstreams.
-- **Huffman Compression**: Full implementation of the original item-code Huffman compression algorithm.
-- **Item Basic Parsing**: Extract item IDs, flags (Ethereal, Socketed, Runeword), position, and raw properties.
-- **Character Management**: Modify basic character status such as Level, Quest flags, and Skill points.
-- **Inventory Mapping**: Classify and map items to their respective slots (Inventory, Stash, Cube, Equipment).
+This approach ensures that while the technical mechanics are open for research and verification, the proprietary assets of the game creators are strictly respected and excluded from the public domain.
+
+### Character Status Editing
+Modify core character attributes and skills with full integrity validation.
+- **Level & Experience**: Patch character level (1-99) and synchronize header/stat values.
+- **Attributes**: Surgical modification of Strength, Dexterity, Vitality, Energy, and Stat points.
+- **Skills**: Edit skill point distribution for all character classes.
+- **Integrity**: Automatically recalculates checksums and file sizes after any status change.
+
+### Inventory & Item Editing
+A comprehensive suite for managing items and storage.
+- **Inventory Mapping**: Classify and map items across Inventory, Stash (Personal/Shared), Horadric Cube, and Equipment.
+- **Item Modification**: Modify item flags (Ethereal, Socketed, Personalize), IDs, and raw bit-properties.
+- **Socketing Engine**: Manage socketed items and their children with recursive bitstream reconstruction.
+- **Huffman Engine**: Full support for original Huffman compression of item codes.
+
+### Progression & World Editing
+Unlock world features and progression markers.
+- **Waypoints**: Activate or deactivate waypoints across all acts and difficulties (Normal, NM, Hell).
+- **Quests**: Modify quest completion flags and semantic triggers (e.g., unlocking the Act 3 Durance gate).
+- **NPC Status**: Track and modify NPC interaction flags and world state markers.
+
+### Core Parsing & Reconstruction
+Standalone features that do not require external game data assets.
+- **Save Integrity**: Validate magic numbers, calculate CRC32 checksums, and finalize binary layouts.
+- **Bitstream Engine**: Advanced bit-level reading/writing for variable-width Diablo II bitstreams.
+- **Section Splicing**: Dynamically rebuild save sections (`gf`, `if`, `JM`) while preserving unknown data anchors.
 
 ### Data-Integrated Features (Requires `d2r-data`)
-These features require the sibling `d2r-data` repository (extracted game tables) to provide context and human-readable formatting.
-
-- **Human-Readable Names**: Resolve internal item codes and affix IDs to localized strings.
+These features use the sibling `d2r-data` repository to provide semantic context.
+- **Human-Readable Names**: Resolve internal codes and affix IDs to localized strings.
 - **Advanced Stat Resolution**: Interpret complex item properties using game-specific cost tables.
 - **Legitimacy Verification**: Validate item base stats, runeword eligibility, and level requirements.
-- **Full Formatting**: Generate "item tooltip" style text representations of parsed item data.
 
 ## Verification Tools
 

@@ -100,6 +100,7 @@ impl Item {
             let (item, consumed_bits) = match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(remaining_in_section)) {
                 Ok(res) => res,
                 Err(e) => {
+                    println!("[DEBUG] Item parsing failed at {}: {:?}", start, e);
                     item_trace!("[DEBUG] Item parsing failed at {}: {:?}", start, e);
                     
                     // Critical termination: If we hit EOF or limit exceeded, don't bother retrying bit-by-bit.
@@ -181,7 +182,14 @@ impl Item {
         let start_bit = cursor.pos();
         cursor.begin_segment(ItemSegmentType::Root);
 
-        let flags = cursor.read_bits::<u32>(32)?;
+        let flags = if alpha_mode {
+            let jm = cursor.read_bits::<u16>(16)?;
+            if jm != 0x4D4A { return Err(cursor.fail(ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: start_bit })); }
+            cursor.read_bits::<u32>(32)?
+        } else {
+            cursor.read_bits::<u32>(32)?
+        };
+
         let version = cursor.read_bits::<u8>(3)? as u8;
         let mode = cursor.read_bits::<u8>(3)? as u8;
         let location = cursor.read_bits::<u8>(3)? as u8;
@@ -369,16 +377,16 @@ impl Item {
         };
 
         let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
-        if reads_defense { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
-        if reads_durability {
+        if reads_defense && !alpha_mode { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
+        if reads_durability && !alpha_mode {
             let max_bits = stat_save_bits(73).unwrap_or(8);
             let cur_bits = stat_save_bits(72).unwrap_or(9);
             let m_dur = cursor.read_bits::<u32>(max_bits)?;
             max_durability = Some(m_dur);
             if m_dur > 0 { current_durability = Some(cursor.read_bits::<u32>(cur_bits)?); let _extra = cursor.read_bit()?; }
         }
-        if reads_quantity { quantity = Some(cursor.read_bits::<u32>(9)?); }
-        if is_socketed { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
+        if reads_quantity && !alpha_mode { quantity = Some(cursor.read_bits::<u32>(9)?); }
+        if is_socketed && !alpha_mode { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
 
         cursor.end_segment();
         Ok((
@@ -490,22 +498,32 @@ pub fn peek_item_header_at(
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
     if reader.skip(start_bit as u32).is_err() { return None; }
 
-    let flags = reader.read::<32, u32>().ok()?;
-    if !alpha_mode && (flags & 0xFFFF) != 0x4D4A { return None; }
-
-    let version = reader.read::<3, u8>().ok()?;
-    let mode = reader.read::<3, u8>().ok()?;
-    let loc = reader.read::<3, u8>().ok()?;
-    let x = reader.read::<4, u8>().ok()?;
+    let (flags, version, mode, loc, x) = if alpha_mode {
+        let jm = reader.read::<16, u16>().ok()?;
+        if jm != 0x4D4A { return None; }
+        let f = reader.read::<32, u32>().ok()?;
+        let v = reader.read::<3, u8>().ok()?;
+        let m = reader.read::<3, u8>().ok()?;
+        let l = reader.read::<3, u8>().ok()?;
+        let x = reader.read::<4, u8>().ok()?;
+        (f, v, m, l, x)
+    } else {
+        let f = reader.read::<32, u32>().ok()?;
+        if (f & 0xFFFF) != 0x4D4A { return None; }
+        let v = reader.read::<3, u8>().ok()?;
+        let m = reader.read::<3, u8>().ok()?;
+        let l = reader.read::<3, u8>().ok()?;
+        let x = reader.read::<4, u8>().ok()?;
+        (f, v, m, l, x)
+    };
     
     let is_compact = (flags & (1 << 21)) != 0;
-    let mut header_len = 45;
-    if version == 5 { header_len = 53; }
-    else if !is_compact {
-        let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-        let _ = n_reader.skip(start_bit as u32 + 45).ok()?;
-        let _ = n_reader.read::<10, u32>().ok()?;
-        header_len += 10;
+    let mut header_len = if alpha_mode { 16 + 32 + 3 + 3 + 3 + 4 } else { 32 + 3 + 3 + 3 + 4 };
+    
+    if alpha_mode && version == 5 {
+        header_len += 8; // 4 (y) + 3 (page) + 1 (hint)
+    } else if !is_compact {
+        header_len += 10; // 4 (y) + 3 (page) + 3 (hint)
     }
 
     let mut code = String::new();

@@ -13,6 +13,8 @@ A library for reading and writing Diablo II: Resurrected save files.
 
 This project is licensed under the **PolyForm Noncommercial License 1.0.0**. This means the software is free for personal and noncommercial use, but commercial use is strictly prohibited. 
 
+**Rationale**: This noncommercial restriction is established to prevent unauthorized commercial exploitation of reverse-engineered game data structures and to ensure the project remains a tool for research and personal use only.
+
 See the [LICENSE](LICENSE) file for the full license text and [NOTICE](NOTICE) for trademark disclaimers.
 
 ### Disclaimer

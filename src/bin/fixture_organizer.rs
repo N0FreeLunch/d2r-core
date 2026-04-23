@@ -11,6 +11,7 @@ fn main() {
     parser.add_spec(ArgSpec::option("char", Some('c'), Some("char"), "Character name (e.g. TESTDRUID)"));
     parser.add_spec(ArgSpec::option("quest", Some('q'), Some("quest"), "Quest/Progression context (e.g. Q1)"));
     parser.add_spec(ArgSpec::option("desc", Some('d'), Some("desc"), "Detailed description (e.g. DonePreAkara)"));
+    parser.add_spec(ArgSpec::flag("dry-run", Some('n'), Some("dry-run"), "Show what would be done without moving files"));
     parser.add_spec(ArgSpec::positional("src", "Source .d2s file to organize"));
 
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {
@@ -69,9 +70,14 @@ fn main() {
     // Alpha v105 Difficulty Logic Refinement (Verified via Discussion 0156)
     // Offset 21 (active_act) bits 3-4 indicate difficulty in v105.
     // 0x00: Normal, 0x08: Nightmare (Bit 3), 0x10: Hell (Bit 4)
-    let diff_str = match (active_act & 0x18) >> 3 {
-        1 => "nightmare",
-        2 => "hell",
+    const V105_DIFFICULTY_MASK: u8 = 0x18;
+    const V105_DIFFICULTY_SHIFT: u8 = 3;
+    const V105_DIFF_NIGHTMARE: u8 = 1;
+    const V105_DIFF_HELL: u8 = 2;
+
+    let diff_str = match (active_act & V105_DIFFICULTY_MASK) >> V105_DIFFICULTY_SHIFT {
+        V105_DIFF_NIGHTMARE => "nightmare",
+        V105_DIFF_HELL => "hell",
         _ => "normal",
     };
 
@@ -97,6 +103,11 @@ fn main() {
     println!("  Target Directory:  {}", target_dir.display());
     println!("  Target Filename:   {}", new_filename);
     
+    if parsed.is_set("dry-run") {
+        println!("\n[DRY RUN] No files were copied.");
+        return;
+    }
+
     if !target_dir.exists() {
         println!("  Creating directory...");
         fs::create_dir_all(&target_dir).expect("Failed to create target directory");

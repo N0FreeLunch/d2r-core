@@ -267,4 +267,3 @@ path = "src/bin/verify/d2item_xray.rs"
 [[bin]]
 name = "forensic_scaffold"
 path = "src/bin/verify/forensic_scaffold.rs"
-

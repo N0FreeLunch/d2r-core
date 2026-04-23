@@ -9,6 +9,7 @@ use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
 struct ScaffoldOutcome {
     status: String,
     path: String,
+    registered: bool,
     hint: String,
 }
 
@@ -110,17 +111,50 @@ fn main() -> Result<()> {
     fs::write(&output_path, content)
         .with_context(|| format!("Failed to write generated file: {}", output_path))?;
 
+    // Auto-registration in Cargo.toml
+    let mut registered = false;
+    let cargo_path = "Cargo.toml";
+    if Path::new(cargo_path).exists() {
+        let cargo_content = fs::read_to_string(cargo_path)
+            .with_context(|| format!("Failed to read {}", cargo_path))?;
+        
+        let search_str = format!("name = \"{}\"", name);
+        if cargo_content.contains(&search_str) {
+            // Already registered
+            registered = true;
+        } else {
+            // Append new [[bin]] entry
+            let mut new_cargo_content = cargo_content.trim_end().to_string();
+            new_cargo_content.push_str("\n\n[[bin]]\n");
+            new_cargo_content.push_str(&format!("name = \"{}\"\n", name));
+            new_cargo_content.push_str(&format!("path = \"src/bin/verify/{}.rs\"\n", name));
+            
+            fs::write(cargo_path, new_cargo_content)
+                .with_context(|| format!("Failed to update {}", cargo_path))?;
+            registered = true;
+        }
+    }
+
     let outcome = ScaffoldOutcome {
         status: "success".to_string(),
         path: output_path.clone(),
-        hint: format!("Registered verifier boilerplate created at {}. NOTE: You must manually add the [[bin]] entry to Cargo.toml for this new tool in this slice's context.", output_path),
+        registered,
+        hint: if registered {
+            format!("Registered verifier boilerplate created at {} and registered in Cargo.toml.", output_path)
+        } else {
+            format!("Verifier boilerplate created at {}. NOTE: Cargo.toml not found, manual registration required.", output_path)
+        },
     };
 
     if is_json {
         println!("{}", serde_json::to_string_pretty(&outcome)?);
     } else {
         println!("Successfully created forensic verifier: {}", output_path);
-        println!("NOTE: You must manually add the [[bin]] entry to Cargo.toml for this new tool.");
+        if registered {
+            println!("Tool successfully registered in Cargo.toml.");
+        } else {
+            println!("WARNING: Cargo.toml not found. Please register the tool manually.");
+        }
     }
 
     Ok(())

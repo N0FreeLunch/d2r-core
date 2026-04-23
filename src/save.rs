@@ -302,11 +302,11 @@ pub fn patch_level(bytes: &[u8], new_level: u8, huffman: &HuffmanTree) -> io::Re
     let map = map_core_sections(bytes)?;
     let mut attrs = AttributeSection::parse(bytes, map.gf_pos, map.if_pos)?;
 
-    // gf 섹션의 level 수정 (stat_id=12, save_add=0, bit_width=7)
+    // Update level in gf section (stat_id=12, save_add=0, bit_width=7)
     attrs.set_raw(12, new_level as u32);
 
     let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
-    // 헤더 CHAR_LEVEL_OFFSET (27번 바이트) 동기화
+    // Synchronize header CHAR_LEVEL_OFFSET (byte 27)
     let mut working = rebuild_status_and_player_items(
         bytes,
         Some(&attrs),
@@ -681,7 +681,7 @@ pub fn rebuild_item_section(
 
     let jm1 = jm_positions[0];
     let count_u16 = items.len() as u16;
-    
+
     // Find the end of the item section based on the next marker to preserve boundary integrity
     let section_end = if jm_positions.len() > 1 {
         jm_positions[1]

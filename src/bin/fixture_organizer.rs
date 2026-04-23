@@ -8,9 +8,9 @@ fn main() {
     let mut parser = ArgParser::new("fixture-organizer")
         .description("Standardizes and organizes gameplay save fixtures based on internal data");
     
-    parser.add_spec(ArgSpec::option("char", Some('c'), Some("char"), "Character name (e.g. TESTDRUID)").required());
-    parser.add_spec(ArgSpec::option("quest", Some('q'), Some("quest"), "Quest/Progression context (e.g. Q1)").required());
-    parser.add_spec(ArgSpec::option("desc", Some('d'), Some("desc"), "Detailed description (e.g. DonePreAkara)").required());
+    parser.add_spec(ArgSpec::option("char", Some('c'), Some("char"), "Character name (e.g. TESTDRUID)"));
+    parser.add_spec(ArgSpec::option("quest", Some('q'), Some("quest"), "Quest/Progression context (e.g. Q1)"));
+    parser.add_spec(ArgSpec::option("desc", Some('d'), Some("desc"), "Detailed description (e.g. DonePreAkara)"));
     parser.add_spec(ArgSpec::positional("src", "Source .d2s file to organize"));
 
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {
@@ -29,10 +29,7 @@ fn main() {
         }
     };
 
-    let char_input = parsed.get("char").unwrap();
-    let quest_input = parsed.get("quest").unwrap();
-    let desc_input = parsed.get("desc").unwrap();
-    let src_path_str = parsed.get("src").unwrap();
+    let src_path_str = parsed.get("src").expect("Source path is required");
     let src_path = Path::new(src_path_str);
 
     if !src_path.exists() {
@@ -42,11 +39,14 @@ fn main() {
 
     let bytes = fs::read(src_path).expect("Failed to read source file");
     
-    // Basic validation
-    if let Err(e) = Save::from_bytes(&bytes) {
-        eprintln!("Error: Not a valid D2R save file: {}", e);
-        std::process::exit(1);
-    }
+    // Basic validation and parsing
+    let save = match Save::from_bytes(&bytes) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error: Not a valid D2R save file: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // Intelligence Anchor (User Provided)
     // 161 (0xA1): Normal, 162 (0xA2): NM, 163 (0xA3): Hell
@@ -59,6 +59,7 @@ fn main() {
     let hell_prog = bytes.get(163).copied().unwrap_or(0);
     
     println!("Source Analysis (Alpha v105 Focus):");
+    println!("  Character Name:             {}", save.header.char_name);
     println!("  Offset 021 (active_act):    0x{:02X} (Act {})", active_act, (active_act & 0x7) + 1);
     println!("  Offset 108 (progress_flag): 0x{:02X}", progress_flag);
     println!("  Offset 161 (Normal Prog):   0x{:02X}", normal_prog);
@@ -77,7 +78,12 @@ fn main() {
     let act_num = (active_act & 0x7) + 1;
     let act_str = format!("act{}", act_num);
 
-    let new_filename = format!("{}_{}_{}.d2s", char_input, quest_input, desc_input);
+    // Resolve naming components with automation fallbacks
+    let char_val = parsed.get("char").cloned().unwrap_or_else(|| save.header.char_name.clone());
+    let quest_val = parsed.get("quest").cloned().unwrap_or_else(|| format!("Act{}", act_num));
+    let desc_val = parsed.get("desc").cloned().unwrap_or_else(|| "AutoOrganized".to_string());
+
+    let new_filename = format!("{}_{}_{}.d2s", char_val, quest_val, desc_val);
     
     // Resolve target root
     let root = env::var("D2R_CORE_PATH")

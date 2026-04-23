@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 license-file = "LICENSE"
 
+[[example]]
+name = "item_xray"
+path = "tmp/item_xray.rs"
+
 [dependencies]
 bitstream-io = "4.9.0"
 byteorder = { version = "1.5", default-features = false }
@@ -259,4 +263,8 @@ path = "src/bin/verify/d2item_marker_probe.rs"
 [[bin]]
 name = "d2item_xray"
 path = "src/bin/verify/d2item_xray.rs"
+
+[[bin]]
+name = "forensic_scaffold"
+path = "src/bin/verify/forensic_scaffold.rs"
 

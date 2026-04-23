@@ -81,8 +81,27 @@ impl Item {
         }
 
         let count = u16::from_le_bytes([bytes[start_offset + 2], bytes[start_offset + 3]]);
-        let section_bytes = &bytes[start_offset + 4..];
         
+        let mut payload_start = start_offset + 4;
+        if alpha && count > 0 {
+            // Alpha v105 Forensic: Skip (count-1) * 8 bytes preamble.
+            // This table appears to contain 8-byte entries for socketed items or summary data.
+            let preamble_len = (count as usize).saturating_sub(1) * 8;
+            payload_start += preamble_len;
+            item_trace!("[DEBUG] Alpha v105 Preamble Skip: {} bytes", preamble_len);
+        }
+
+        if bytes.len() < payload_start {
+             return Err(ParsingFailure {
+                error: ParsingError::Io("Section too short for preamble".to_string()),
+                context_stack: vec!["read_player_items".to_string()],
+                bit_offset: (payload_start * 8) as u64,
+                context_relative_offset: 0,
+                hint: Some("The item section ended before the expected preamble.".to_string()),
+            });
+        }
+
+        let section_bytes = &bytes[payload_start..];
         Self::read_section(section_bytes, count, huffman, alpha)
     }
 
@@ -92,68 +111,57 @@ impl Item {
         let section_bits = (section_bytes.len() * 8) as u64;
 
         while items.len() < top_level_count as usize && bit_pos < section_bits {
-            let start = find_next_item_match(section_bytes, bit_pos, huffman, alpha_mode).unwrap_or(bit_pos);
+            let start = if alpha_mode {
+                find_next_item_match(section_bytes, bit_pos, huffman, alpha_mode).unwrap_or(bit_pos)
+            } else {
+                bit_pos
+            };
+            item_trace!("[DEBUG] read_section: Found item candidate at bit {}", start);
             
             // Calculate remaining bits in the section to prevent over-reading.
             let remaining_in_section = section_bits.saturating_sub(start);
 
-            let (item, consumed_bits) = match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(remaining_in_section)) {
-                Ok(res) => res,
-                Err(e) => {
-                    println!("[DEBUG] Item parsing failed at {}: {:?}", start, e);
-                    item_trace!("[DEBUG] Item parsing failed at {}: {:?}", start, e);
+            match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(remaining_in_section)) {
+                Ok((item, consumed_bits)) => {
+                    let mut end = start + consumed_bits;
                     
-                    // Critical termination: If we hit EOF or limit exceeded, don't bother retrying bit-by-bit.
-                    if let ParsingError::Io(ref s) = e.error {
-                        if s.contains("failed to fill whole buffer") || s.contains("unexpected end of file") || s.contains("Bit limit exceeded") {
-                            item_trace!("[DEBUG] EOF or Limit reached during parsing at {}. Stopping section.", start);
-                            break;
+                    if alpha_mode {
+                        // Lookahead Rescue: If there are more items, find where the next one starts.
+                        if items.len() < (top_level_count as usize - 1) {
+                            let next_byte = if end % 8 == 0 { end } else { end + (8 - (end % 8)) };
+                            if let Some(next_real_start) = find_next_item_match(section_bytes, next_byte, huffman, alpha_mode) {
+                                if next_real_start > start && next_real_start < end + 256 {
+                                    item_trace!("[DEBUG] Alpha Rescue: Adjusting item {} end from {} to {}", items.len(), end, next_real_start);
+                                    end = next_real_start;
+                                }
+                            }
                         }
+                        if end % 8 != 0 { end += 8 - (end % 8); }
                     }
 
-                    bit_pos = start + 1;
-                    continue;
+                    let mut final_item = item;
+                    final_item.range.end = end;
+                    final_item.total_bits = end - start;
+                    
+                    bit_pos = end;
+                    items.push(final_item);
                 }
-            };
-            
-            let mut end = start + consumed_bits;
-            
-            if alpha_mode {
-                // Lookahead Rescue: Alpha items are strictly byte-aligned.
-                if items.len() < (top_level_count as usize - 1) {
-                    // Start looking for the next item after the current one, at the next byte boundary.
-                    let lookahead_start = if end % 8 == 0 { end } else { end + (8 - (end % 8)) };
-                    if let Some(next_real_start) = find_next_item_match(section_bytes, lookahead_start, huffman, alpha_mode) {
-                        if next_real_start < end || true {
-                            item_trace!("[DEBUG] Alpha Rescue: Adjusting item {} end from {} to {}", items.len(), end, next_real_start);
-                            end = next_real_start;
+                Err(e) => {
+                    item_trace!("[DEBUG] read_section: Failed to parse item at bit {}: {:?}", start, e);
+                    if alpha_mode {
+                        if let Some(next_real_start) = find_next_item_match(section_bytes, start + 8, huffman, alpha_mode) {
+                            item_trace!("[DEBUG] Alpha Rescue (Error): Skipping to next item at bit {}", next_real_start);
+                            bit_pos = next_real_start;
+                            continue;
                         }
                     }
-                }
-                // Ensure end is byte-aligned if no next item found.
-                if end % 8 != 0 {
-                    end += 8 - (end % 8);
-                }
-            }
-            
-            bit_pos = end;
-            let mut final_item = item;
-            final_item.range.start = start;
-            final_item.range.end = end;
-            final_item.total_bits = end - start;
-            
-            let parent_index = items.len();
-            if final_item.is_socketed && alpha_mode {
-                let rescue_limit = 256;
-                if let Some((rescued_children, rescued_end)) = scan_socket_children(section_bytes, bit_pos, huffman, parent_index, alpha_mode, rescue_limit) {
-                    final_item.socketed_items = rescued_children;
-                    bit_pos = rescued_end;
-                    final_item.range.end = bit_pos;
-                    final_item.total_bits = bit_pos - start;
+                    
+                    if let ParsingError::Io(ref s) = e.error {
+                        if s.contains("Bit limit exceeded") || s.contains("unexpected end of file") { break; }
+                    }
+                    if alpha_mode { bit_pos = start + 8; } else { return Err(e); }
                 }
             }
-            
-            items.push(final_item);
         }
         Ok(items)
     }
@@ -182,13 +190,10 @@ impl Item {
         let start_bit = cursor.pos();
         cursor.begin_segment(ItemSegmentType::Root);
 
-        let flags = if alpha_mode {
-            let jm = cursor.read_bits::<u16>(16)?;
-            if jm != 0x4D4A { return Err(cursor.fail(ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: start_bit })); }
-            cursor.read_bits::<u32>(32)?
-        } else {
-            cursor.read_bits::<u32>(32)?
-        };
+        let flags = cursor.read_bits::<u32>(32)?;
+        if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
+             return Err(cursor.fail(ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: start_bit }));
+        }
 
         let version = cursor.read_bits::<u8>(3)? as u8;
         let mode = cursor.read_bits::<u8>(3)? as u8;
@@ -225,8 +230,8 @@ impl Item {
         }
 
         let stats = if !is_compact {
-            let socket_flag = if alpha_mode { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
-            let runeword_flag = if alpha_mode { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
+            let socket_flag = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
+            let runeword_flag = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
             Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode)?
         } else {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0)
@@ -259,9 +264,17 @@ impl Item {
             set_attributes: Vec::new(),
             properties: Vec::new(),
             is_identified: (flags & (1 << 4)) != 0,
-            is_socketed: if alpha_mode { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 },
+            is_socketed: {
+                let socketed = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
+                crate::item_trace!("[DEBUG] is_socketed logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, socketed);
+                socketed
+            },
             is_personalized: (flags & (1 << 25)) != 0,
-            is_runeword: if alpha_mode { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 },
+            is_runeword: {
+                let rw = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
+                crate::item_trace!("[DEBUG] is_runeword logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, rw);
+                rw
+            },
             is_ethereal: (flags & (1 << 22)) != 0,
             properties_complete: false,
             modules: Vec::new(),
@@ -416,7 +429,7 @@ fn read_item_stats<R: BitRead>(
     let trimmed_code = code.trim();
     let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4);
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
-    crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}", trimmed_code, version, is_runeword, quality);
+    crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     if is_alpha && quality_val == ItemQuality::Normal && !is_runeword && !trimmed_code.is_empty() {
          crate::item_trace!("[DEBUG] Skipping properties for Normal Item '{}'", trimmed_code);
@@ -498,27 +511,17 @@ pub fn peek_item_header_at(
     let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
     if reader.skip(start_bit as u32).is_err() { return None; }
 
-    let (flags, version, mode, loc, x) = if alpha_mode {
-        let jm = reader.read::<16, u16>().ok()?;
-        if jm != 0x4D4A { return None; }
-        let f = reader.read::<32, u32>().ok()?;
-        let v = reader.read::<3, u8>().ok()?;
-        let m = reader.read::<3, u8>().ok()?;
-        let l = reader.read::<3, u8>().ok()?;
-        let x = reader.read::<4, u8>().ok()?;
-        (f, v, m, l, x)
-    } else {
-        let f = reader.read::<32, u32>().ok()?;
-        if (f & 0xFFFF) != 0x4D4A { return None; }
-        let v = reader.read::<3, u8>().ok()?;
-        let m = reader.read::<3, u8>().ok()?;
-        let l = reader.read::<3, u8>().ok()?;
-        let x = reader.read::<4, u8>().ok()?;
-        (f, v, m, l, x)
-    };
+    let flags = reader.read::<32, u32>().ok()?;
+    if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
+        return None;
+    }
+    let version = reader.read::<3, u8>().ok()?;
+    let mode = reader.read::<3, u8>().ok()?;
+    let loc = reader.read::<3, u8>().ok()?;
+    let x = reader.read::<4, u8>().ok()?;
     
     let is_compact = (flags & (1 << 21)) != 0;
-    let mut header_len = if alpha_mode { 16 + 32 + 3 + 3 + 3 + 4 } else { 32 + 3 + 3 + 3 + 4 };
+    let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
         header_len += 8; // 4 (y) + 3 (page) + 1 (hint)

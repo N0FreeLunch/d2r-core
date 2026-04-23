@@ -210,6 +210,7 @@ mod roundtrip_tests {
             AttributeSection, map_core_sections, parse_quest_section, parse_skill_section,
             rebuild_status_and_player_items,
         };
+        use d2r_core::verify::sba::{SbaBaseline, flatten_item, verify_baseline};
 
         let fixtures = [
             "tests/fixtures/savegames/original/TESTAMAZON.d2s",
@@ -250,6 +251,36 @@ mod roundtrip_tests {
             let report = verifier.verify(&bytes, &rebuilt);
             
             if !report.is_success {
+                // SBA Forensic Analysis
+                let is_alpha = version == 105;
+                let mut issues = Vec::new();
+                
+                let mut exp_flattened = Vec::new();
+                for (i, item) in items.iter().enumerate() {
+                    flatten_item(item, &i.to_string(), &mut exp_flattened);
+                }
+                let expected_baseline = SbaBaseline {
+                    fixture: fixture.to_string(),
+                    items: exp_flattened,
+                };
+
+                if let Ok(rebuilt_items) = Item::read_player_items(&rebuilt, &huffman, is_alpha) {
+                    let mut act_flattened = Vec::new();
+                    for (i, item) in rebuilt_items.iter().enumerate() {
+                        flatten_item(item, &i.to_string(), &mut act_flattened);
+                    }
+                    let actual_baseline = SbaBaseline {
+                        fixture: "reproduced".to_string(),
+                        items: act_flattened,
+                    };
+
+                    let _ = verify_baseline(&expected_baseline, &actual_baseline, &mut issues);
+                }
+
+                for issue in issues {
+                    eprintln!("[FORENSIC] Structural Mismatch: {} | Kind: {}", issue.message, issue.kind);
+                }
+
                 let jm_pos = map.first_jm();
                 let section_start_bit = (jm_pos + 4) * 8;
                 for issue in &report.issues {

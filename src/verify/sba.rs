@@ -15,6 +15,7 @@ pub struct SbaItem {
     pub code: String,
     pub range: ItemBitRange,
     pub segments: Vec<BitSegment>,
+    pub bits: Vec<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -32,6 +33,7 @@ pub fn flatten_item(item: &Item, path: &str, result: &mut Vec<SbaItem>) {
         code: item.code.clone(),
         range: item.range,
         segments: item.segments.clone(),
+        bits: item.bits.iter().map(|rb| rb.bit).collect(),
     });
 
     for (i, socketed) in item.socketed_items.iter().enumerate() {
@@ -89,6 +91,22 @@ pub fn verify_baseline(expected: &SbaBaseline, actual: &SbaBaseline, issues: &mu
                     exp_item.path, j, exp_seg.label, exp_seg.start, exp_seg.end, act_seg.start, act_seg.end
                 );
                 issues.push(ReportIssue { kind: "structural_range".to_string(), message: msg.clone(), bit_offset: Some(act_item.range.start + act_seg.start as u64) });
+                anyhow::bail!(msg);
+            }
+
+            // Value comparison
+            let exp_bits = &exp_item.bits[exp_seg.start as usize..exp_seg.end as usize];
+            let act_bits = &act_item.bits[act_seg.start as usize..act_seg.end as usize];
+            if exp_bits != act_bits {
+                let msg = format!(
+                    "Item {} segment #{} ({}) value mismatch",
+                    exp_item.path, j, exp_seg.label
+                );
+                issues.push(ReportIssue {
+                    kind: "structural_value".to_string(),
+                    message: msg.clone(),
+                    bit_offset: Some(act_item.range.start + act_seg.start as u64),
+                });
                 anyhow::bail!(msg);
             }
         }

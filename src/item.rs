@@ -359,8 +359,8 @@ impl Item {
 
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if alpha_mode && (version == 5 || version == 1 || version == 4) {
             if !is_compact {
-                // Alpha v105: ID and Level are omitted, but Quality (4 bits) might be present.
-                let quality_raw = cursor.read_bits::<u8>(4)?;
+                // Alpha v105: ID and Level are omitted, but Quality (3 bits) might be present.
+                let quality_raw = cursor.read_bits::<u8>(3)?;
                 let quality = ItemQuality::from(quality_raw);
                 (Some(0u32), None, Some(quality), false, false, false)
             } else {
@@ -578,7 +578,7 @@ pub fn peek_item_header_at(
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
-        header_len += 15; // 4 (y) + 3 (page) + 8 (gap)
+        header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
     } else if alpha_mode && (version == 1 || version == 4) {
         header_len += 18; // 4 (y) + 3 (page) + 3 (hint) + 8 (gap)
     } else if !is_compact {

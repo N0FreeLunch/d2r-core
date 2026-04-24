@@ -206,7 +206,13 @@ impl Item {
         if alpha_mode && self.version == 5 {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
+            emitter.write_bits(self.header_socket_hint as u32, 1)?;
             emitter.write_bits(0, 8)?; // Alpha v105 Version 5 Header Gap
+        } else if alpha_mode && (self.version == 1 || self.version == 4) {
+            emitter.write_bits(self.y as u32, 4)?;
+            emitter.write_bits(self.page as u32, 3)?;
+            emitter.write_bits(self.header_socket_hint as u32, 3)?;
+            emitter.write_bits(0, 8)?; // Alpha v105 Version 1/4 Header Gap
         } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
@@ -415,9 +421,6 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     emitter.write_bits(terminator, 9)?;
     if version == 5 || version == 1 || version == 4 {
         emitter.write_bit(terminator_bit)?;
-        if version == 5 {
-            emitter.write_bit(false)?; // Alpha v105 extra terminal bit
-        }
         emitter.byte_align()?;
     }
     Ok(())

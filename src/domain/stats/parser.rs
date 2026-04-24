@@ -90,7 +90,7 @@ where
                 let _extra = recorder.read_bit()?;
             }
             while recorder.pos() % 8 != 0 {
-                let _ = recorder.read_bit()?;
+                let _p = recorder.read_bit()?;
             }
         }
         return Ok(Some((

@@ -374,7 +374,7 @@ fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTem
         .find(|template| template.code == code.trim())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, terminator_bit: bool, quality: ItemQuality, is_v105_shadow: bool) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, terminator_bit: bool, _quality: ItemQuality, _is_v105_shadow: bool) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
     let alpha_mode = version == 5 || version == 1 || version == 4;

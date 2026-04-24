@@ -62,10 +62,10 @@ where
 fn parse_single_property_internal<R, F>(
     recorder: &mut BitCursor<R>,
     version: u8,
-    huffman: &HuffmanTree,
+    _huffman: &HuffmanTree,
     alpha_runeword: bool,
     is_compact: bool,
-    is_v105_shadow: bool,
+    _is_v105_shadow: bool,
     mut _section_recovery: F,
 ) -> ParsingResult<Option<(ItemProperty, bool, bool)>>
 where
@@ -107,7 +107,7 @@ where
         )));
     }
 
-    let mut raw_value = 0;
+    let raw_value;
     let mut param = 0;
 
     if is_alpha_flag_model {
@@ -115,12 +115,10 @@ where
     } else if alpha_mode {
         let mapped_id = map_alpha_stat_id(stat_id as u16);
         
-        let mut width = 9;
-        let mut is_rhythm = false;
+        let width;
         if (alpha_runeword || version == 5) && !is_compact {
             // Alpha v105 / DLC forensic: FIXED 18-bit rhythm (9-bit ID + 9-bit Value)
             width = 9;
-            is_rhythm = true;
         } else {
             if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == mapped_id as u32) {
                 if stat.save_param_bits > 0 {

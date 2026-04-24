@@ -101,6 +101,7 @@ impl Item {
     pub fn read_section(section_bytes: &[u8], top_level_count: u16, huffman: &HuffmanTree, alpha_mode: bool) -> ParsingResult<Vec<Item>> {
         let mut items: Vec<Item> = Vec::new();
         let mut bit_pos = 0;
+        let mut pending_gap_bits = Vec::new();
         let section_bits = (section_bytes.len() * 8) as u64;
 
         while items.len() < top_level_count as usize && bit_pos < section_bits {
@@ -109,6 +110,18 @@ impl Item {
             } else {
                 bit_pos
             };
+
+            if start > bit_pos {
+                let mut gap_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                if gap_reader.skip(bit_pos as u32).is_ok() {
+                    for _ in 0..(start - bit_pos) {
+                        if let Ok(b) = gap_reader.read_bit() {
+                            pending_gap_bits.push(b);
+                        }
+                    }
+                }
+            }
+
             item_trace!("[DEBUG] read_section: Found item candidate at bit {}", start);
             
             // Alpha v105 Forensic: Use Lookahead to set a strict bit limit for the item.
@@ -133,10 +146,24 @@ impl Item {
                         }
                     }
 
-                    let mut end = start + consumed_bits;
+                    let end = start + consumed_bits;
                     let mut final_item = item;
                     final_item.range.end = end;
                     final_item.total_bits = consumed_bits;
+                    final_item.gap_bits = pending_gap_bits;
+                    pending_gap_bits = Vec::new();
+
+                    // Capture EXACT bits including padding for bit-perfect roundtrip
+                    let mut actual_bits = Vec::new();
+                    let mut bit_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                    if bit_reader.skip(start as u32).is_ok() {
+                        for i in 0..consumed_bits {
+                            if let Ok(b) = bit_reader.read_bit() {
+                                actual_bits.push(RecordedBit { bit: b, offset: start + i });
+                            }
+                        }
+                    }
+                    final_item.bits = actual_bits;
 
                     item_trace!("[DEBUG] read_section: Item {} ({}) consumed {} bits", items.len(), final_item.code.trim(), consumed_bits);
 
@@ -150,6 +177,16 @@ impl Item {
                     if alpha_mode {
                         if let Some(next_real_start) = find_next_item_match(section_bytes, start + 8, huffman, alpha_mode) {
                             item_trace!("[DEBUG] Alpha Rescue (Error): Skipping to next item at bit {}", next_real_start);
+                            
+                            let mut gap_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                            if gap_reader.skip(start as u32).is_ok() {
+                                for _ in 0..(next_real_start - start) {
+                                    if let Ok(b) = gap_reader.read_bit() {
+                                        pending_gap_bits.push(b);
+                                    }
+                                }
+                            }
+
                             bit_pos = next_real_start;
                             continue;
                         }
@@ -158,7 +195,21 @@ impl Item {
                     if let ParsingError::Io(ref s) = e.error {
                         if s.contains("Bit limit exceeded") || s.contains("unexpected end of file") { break; }
                     }
-                    if alpha_mode { bit_pos = start + 8; } else { return Err(e); }
+                    
+                    if alpha_mode { 
+                        let skip_bits = 8;
+                        let mut gap_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
+                        if gap_reader.skip(start as u32).is_ok() {
+                            for _ in 0..skip_bits {
+                                if let Ok(b) = gap_reader.read_bit() {
+                                    pending_gap_bits.push(b);
+                                }
+                            }
+                        }
+                        bit_pos = start + skip_bits; 
+                    } else { 
+                        return Err(e); 
+                    }
                 }
             }
         }

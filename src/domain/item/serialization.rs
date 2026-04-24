@@ -2,7 +2,7 @@ use bitstream_io::{BitRead, BitWrite, BitWriter, LittleEndian};
 use std::io;
 use crate::domain::item::Item;
 use crate::domain::item::quality::ItemQuality;
-use crate::domain::stats::{lookup_alpha_map_by_effective, stat_save_bits, ItemProperty};
+use crate::domain::stats::{lookup_alpha_map_by_effective, ItemProperty};
 use crate::data::bit_cursor::BitCursor;
 use crate::error::{ParsingResult, ParsingError};
 
@@ -196,6 +196,14 @@ impl HuffmanTree {
 
 impl Item {
     pub fn to_bytes(&self, huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
+        if !self.bits.is_empty() {
+            let mut emitter = BitEmitter::new();
+            for rb in &self.bits {
+                emitter.write_bit(rb.bit)?;
+            }
+            // self.bits already include byte alignment padding from read_section
+            return Ok(emitter.into_bytes());
+        }
         let mut emitter = BitEmitter::new();
         emitter.write_bits(self.flags, 32)?;
         emitter.write_bits(self.version as u32, 3)?;
@@ -242,7 +250,8 @@ impl Item {
                 let is_alpha = alpha_mode && (self.version == 1 || self.version == 4);
                 if alpha_mode && (self.version == 5 || self.version == 1 || self.version == 4) {
                     // Skip ID and Level for v105/v104/v101 in ExtendedStats
-                    emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
+                    // Alpha v105: Quality is 3 bits in read_extended_stats
+                    emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 3)?;
                 } else {
                     emitter.write_bits(self.id.unwrap_or(0), 32)?;
                     emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
@@ -256,7 +265,7 @@ impl Item {
                         emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
                     }
                     if self.has_class_specific_data {
-                        emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
+                        emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u16 as u32, 11)?;
                     }
 
                     match quality_val {
@@ -305,10 +314,11 @@ impl Item {
                         (t.is_armor, t.has_durability, t.is_stackable)
                     } else { (false, false, false) };
 
-                    if reads_defense && (!alpha_mode || self.version == 5) {
+                    // Alpha v105 forensic: Defense, Durability, and Quantity are omitted in read_extended_stats for ALL Alpha versions.
+                    if reads_defense && (!alpha_mode && self.version != 5) {
                         emitter.write_bits(self.defense.unwrap_or(0), 11)?;
                     }
-                    if reads_durability && (!alpha_mode || self.version == 5) {
+                    if reads_durability && (!alpha_mode && self.version != 5) {
                         let m_dur = self.max_durability.unwrap_or(0);
                         emitter.write_bits(m_dur, 8)?;
                         if m_dur > 0 {
@@ -316,7 +326,7 @@ impl Item {
                             emitter.write_bit(false)?; // dur_extra
                         }
                     }
-                    if reads_quantity && (!alpha_mode || self.version == 5) {
+                    if reads_quantity && (!alpha_mode && self.version != 5) {
                         emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
                     }
 
@@ -357,14 +367,30 @@ impl Item {
     }
 
     pub fn serialize_section(items: &[Item], huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
-        let mut all_bytes = Vec::new();
+        let mut emitter = BitEmitter::new();
         for item in items {
-            all_bytes.extend(item.to_bytes(huffman, alpha_mode)?);
+            // Emit gap bits preserved during parsing
+            emitter.extend_bits(item.gap_bits.iter().cloned())?;
+            
+            let item_bytes = item.to_bytes(huffman, alpha_mode)?;
+            // Since item.to_bytes returns Vec<u8> which is already byte-aligned,
+            // and our emitter tracks written bits, we need to be careful.
+            // If item.to_bytes is always byte-aligned (which it seems to be due to byte_align() at the end),
+            // we can just write its bits.
+            for byte in item_bytes {
+                emitter.write_bits(byte as u32, 8)?;
+            }
+
             for child in &item.socketed_items {
-                all_bytes.extend(child.to_bytes(huffman, alpha_mode)?);
+                // Should we preserve gaps for socketed items too? 
+                // Currently scan_socket_children doesn't seem to capture them in a way that maps here.
+                let child_bytes = child.to_bytes(huffman, alpha_mode)?;
+                for byte in child_bytes {
+                    emitter.write_bits(byte as u32, 8)?;
+                }
             }
         }
-        Ok(all_bytes)
+        Ok(emitter.into_bytes())
     }
 }
 
@@ -393,7 +419,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
         let raw_id = lookup_alpha_map_by_effective(prop.stat_id).map(|m| m.raw_id).unwrap_or(prop.stat_id);
         emitter.write_bits(raw_id, 9)?;
 
-        if (alpha_mode && !alpha_runeword && version != 5) {
+        if alpha_mode && !alpha_runeword && version != 5 {
             emitter.write_bits(prop.raw_value as u32, 9)?;
         } else if alpha_mode {
              let mut width = 9;
@@ -423,6 +449,9 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     emitter.write_bits(terminator, 9)?;
     if version == 5 || version == 1 || version == 4 {
         emitter.write_bit(terminator_bit)?;
+        if version == 5 {
+            emitter.write_bit(false)?; // Alpha v105 forensic: Mandatory extra terminal bit
+        }
         emitter.byte_align()?;
     }
     Ok(())

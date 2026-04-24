@@ -79,33 +79,46 @@ fn main() -> Result<()> {
 
     // 2. Simulation Logic
     let mut results = Vec::new();
+    let huffman = d2r_core::item::HuffmanTree::new();
 
     for &(t_rel, extra) in &terminator_candidates {
-        // H: Header lengths [45..120] 
-        for h in 45..120 {
+        // H: Header lengths [40..130] 
+        for h in 40..130 {
             if t_rel < h { continue; }
             let remainder = t_rel - h;
             
             let is_alpha_fit = remainder > 0 && remainder % 18 == 0;
             let is_retail_fit = remainder > 0 && remainder % 14 == 0; 
             
+            // Try decoding code
+            let mut code = String::new();
+            let mut h_reader = BitReader::endian(Cursor::new(&bytes[(start_bit / 8) as usize..]), LittleEndian);
+            let skip_bits = (start_bit % 8) + h as u64;
+            for _ in 0..skip_bits { let _ = h_reader.read_bit(); }
+            let mut h_cursor = d2r_core::data::bit_cursor::BitCursor::new(h_reader);
+            
+            for _ in 0..4 {
+                if let Ok(ch) = huffman.decode_recorded(&mut h_cursor) {
+                    code.push(ch);
+                }
+            }
+
             let mut score = 0;
             if is_alpha_fit { score += 100; }
-            if is_retail_fit { score += 50; }
             
-            // Pattern boost: Alpha version 5 often has extra bit 1
+            // Code plausibility boost
+            if code.len() == 4 && code.chars().all(|c| c.is_alphanumeric() || c == ' ') {
+                if code.trim().len() >= 3 {
+                    score += 500;
+                }
+            }
+
             if is_alpha_fit && extra {
                 score += 10;
             }
 
-            // Pattern boost: Common property counts
-            let prop_count_alpha = remainder / 18;
-            if is_alpha_fit && prop_count_alpha > 0 && prop_count_alpha <= 15 {
-                score += 20;
-            }
-
-            if score > 0 {
-                results.push((t_rel, h, remainder, score, extra));
+            if score > 500 {
+                results.push((t_rel, h, remainder, score, extra, code));
             }
         }
     }
@@ -126,12 +139,15 @@ fn main() -> Result<()> {
         }
     });
 
+    // Rank results
+    results.sort_by(|a, b| b.3.cmp(&a.3));
+
     println!("\nRanked Geometry Candidates (Relative to Start Bit {}):", start_bit);
-    println!("{:<10} {:<10} {:<10} {:<15} {:<10} {:<5}", "Term(Rel)", "Header", "PropsBits", "Rhythm", "Score", "Extra");
+    println!("{:<10} {:<10} {:<10} {:<15} {:<10} {:<10} {:<5}", "Term(Rel)", "Header", "PropsBits", "Rhythm", "Code", "Score", "Extra");
     
-    for (t, h, r, score, extra) in results.iter().take(40) {
+    for (t, h, r, score, extra, code) in results.iter().take(40) {
         let rhythm = if r % 18 == 0 { "18 (Alpha)" } else if r % 14 == 0 { "14 (Retail?)" } else { "Unknown" };
-        println!("{:<10} {:<10} {:<10} {:<15} {:<10} {:<5}", t, h, r, rhythm, score, extra);
+        println!("{:<10} {:<10} {:<10} {:<15} {:<10} {:<10} {:<5}", t, h, r, rhythm, code, score, extra);
     }
 
     if results.is_empty() {

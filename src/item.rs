@@ -229,7 +229,7 @@ impl Item {
 
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
 
-        let stats = if !is_compact {
+        let stats = if !is_compact || (alpha_mode && version == 5) {
             let socket_flag = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
             
             // Alpha v105 Runeword Heuristic
@@ -274,7 +274,7 @@ impl Item {
             is_identified: (flags & (1 << 4)) != 0,
             is_socketed: {
                 let socketed = if alpha_mode && version == 5 {
-                    (flags & (1 << 23)) != 0 || (flags & (1 << 11)) != 0
+                    !is_compact && ((flags & (1 << 23)) != 0 || (flags & (1 << 11)) != 0)
                 } else if alpha_mode {
                     (flags & (1 << 27)) != 0
                 } else {
@@ -531,12 +531,19 @@ pub fn is_plausible_item_header(
     location: u8,
     code: &str,
     flags: u32,
-    _version: u8,
+    version: u8,
     alpha_mode: bool,
 ) -> bool {
+    crate::item_trace!("[DEBUG] plausible check: code='{}', mode={}, loc={}, flags=0x{:08X}, v={}, alpha={}", code, mode, location, flags, version, alpha_mode);
     if code.len() < 3 { return false; }
     if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
-    if alpha_mode && item_template(code).is_none() && code.trim() != "hp1" { return false; }
+    if alpha_mode {
+        // Alpha v105 uses different item codes (e.g. 7pww for health potion).
+        // We should be more permissive with codes in Alpha mode.
+        if code.trim().is_empty() { return false; }
+    } else if item_template(code).is_none() && code.trim() != "hp1" { 
+        return false; 
+    }
     if !alpha_mode && (flags & 0xFFFF != 0x4D4A) { return false; }
     if alpha_mode {
         if mode > 6 || location > 15 { return false; }
@@ -578,6 +585,7 @@ pub fn peek_item_header_at(
     let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
     if n_reader.skip(start_bit as u32 + header_len as u32).is_err() { return None; }
     let mut n_cursor = BitCursor::new(n_reader);
+    
     for _ in 0..4 {
         if let Ok(ch) = huffman.decode_recorded(&mut n_cursor) { code.push(ch); }
         else { return None; }

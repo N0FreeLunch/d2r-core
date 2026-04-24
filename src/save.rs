@@ -1,4 +1,4 @@
-﻿// This software is licensed under the PolyForm Noncommercial License 1.0.0.
+// This software is licensed under the PolyForm Noncommercial License 1.0.0.
 // Required Notice: Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
 
 use crate::item::{HuffmanTree, Item};
@@ -277,17 +277,20 @@ pub fn rebuild_status_and_player_items(
     }
 
     // 4. Quest/Progression Section (Gap between IF end and first JM)
-    // For Alpha v105, quests are in header, no gap section expected.
     let jm0 = map.jm_positions[0];
     let skill_end_original = map.if_pos + 2 + SKILL_SECTION_LEN;
-    let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap_or([0; 4]));
 
-    if version != 105 {
-        if let Some(q) = quests {
+    if let Some(q) = quests {
+        if version != 105 {
             result.extend_from_slice(q.as_slice());
-        } else if jm0 > skill_end_original {
-            result.extend_from_slice(&bytes[skill_end_original..jm0]);
+        } else {
+            // For Alpha v105, quests are in header, but we still respect the gap if it exists.
+            if jm0 > skill_end_original {
+                result.extend_from_slice(&bytes[skill_end_original..jm0]);
+            }
         }
+    } else if jm0 > skill_end_original {
+        result.extend_from_slice(&bytes[skill_end_original..jm0]);
     }
 
     // 5. Item Sections (Player, Corpse, etc.)

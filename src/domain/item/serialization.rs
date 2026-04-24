@@ -207,6 +207,7 @@ impl Item {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
             emitter.write_bits(self.header_socket_hint as u32, 1)?;
+            emitter.write_bits(0, 8)?; // Alpha v105 Version 5 Header Gap
         } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
@@ -326,7 +327,7 @@ impl Item {
             }
 
             let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
-            if self.version != 5 || is_v105_shadow || self.is_runeword {
+            if self.version != 5 || is_v105_shadow || self.is_runeword || (alpha_mode && self.is_compact) {
                 write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val, is_v105_shadow)?;
                 for set_props in &self.set_attributes {
                     write_property_list(&mut emitter, set_props, self.version, false, false, quality_val, false)?;
@@ -335,12 +336,7 @@ impl Item {
         }
 
         if alpha_mode {
-            if self.version == 5 && !self.is_runeword && (self.code.trim() == "hp1" || !self.is_compact) {
-                // Alpha v105 Summary Items: Strictly 10 bytes (80 bits)
-                while emitter.written_bits() < 80 {
-                    emitter.write_bit(false)?;
-                }
-            } else if self.version != 5 {
+            if self.version != 5 {
                 emitter.write_bit(false)?;
             }
         } else if self.version != 5 {
@@ -391,13 +387,11 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
             emitter.write_bits(prop.raw_value as u32, 9)?;
         } else if alpha_mode {
              let mut width = 9;
-             let mut is_rhythm = false;
              if (alpha_runeword || version == 5) && !is_compact {
                  // Alpha v105 / DLC forensic: rhythm width
                  width = 9;
-                 is_rhythm = true;
              }
-             if !is_rhythm {
+             if version != 5 {
                  if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == mapped_id as u32) {
                      if stat.save_param_bits > 0 {
                          emitter.write_bits(prop.param as u32, stat.save_param_bits as u32)?;

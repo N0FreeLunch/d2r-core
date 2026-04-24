@@ -1,4 +1,4 @@
-// This software is licensed under the PolyForm Noncommercial License 1.0.0.
+﻿// This software is licensed under the PolyForm Noncommercial License 1.0.0.
 // Required Notice: Copyright 2026 N0FreeLunch (https://github.com/N0FreeLunch/d2r-core)
 
 use crate::item::{HuffmanTree, Item};

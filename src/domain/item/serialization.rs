@@ -325,8 +325,8 @@ impl Item {
                 }
             }
 
-            if self.version != 5 {
-                let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
+            let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
+            if self.version != 5 || is_v105_shadow || self.is_runeword {
                 write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val, is_v105_shadow)?;
                 for set_props in &self.set_attributes {
                     write_property_list(&mut emitter, set_props, self.version, false, false, quality_val, false)?;
@@ -340,7 +340,7 @@ impl Item {
                 while emitter.written_bits() < 80 {
                     emitter.write_bit(false)?;
                 }
-            } else {
+            } else if self.version != 5 {
                 emitter.write_bit(false)?;
                 emitter.byte_align()?;
             }
@@ -392,7 +392,7 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
              let mut is_rhythm = false;
              if (alpha_runeword || version == 5) && !is_compact {
                  // Alpha v105 / DLC forensic: rhythm width
-                 width = if is_v105_shadow { 9 } else { 11 };
+                 width = 9;
                  is_rhythm = true;
              }
              if !is_rhythm {
@@ -415,11 +415,12 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
     }
 
     emitter.write_bits(terminator, 9)?;
-    if version == 5 || version == 1 {
+    if version == 5 || version == 1 || version == 4 {
         emitter.write_bit(terminator_bit)?;
         if version == 5 {
             emitter.write_bit(false)?; // Alpha v105 extra terminal bit
         }
+        emitter.byte_align()?;
     }
     Ok(())
 }

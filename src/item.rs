@@ -126,9 +126,7 @@ impl Item {
                     if alpha_mode {
                         // Alpha v105 Forensic: Rescue logic is too dangerous and causes desyncs.
                         // We only align to the next byte if not version 5.
-                        if item.version != 5 {
-                            if end % 8 != 0 { end += 8 - (end % 8); }
-                        }
+                    if end % 8 != 0 { end += 8 - (end % 8); }
                     }
 
                     let mut final_item = item;
@@ -464,7 +462,13 @@ fn read_item_stats<R: BitRead>(
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
-    if is_alpha && (version == 5 || (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword) && !trimmed_code.is_empty() {
+    let is_v105_shadow = alpha_mode && version == 5 && is_v105_shadow;
+    if is_alpha && version == 5 && !is_v105_shadow && !is_runeword {
+         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
+         return Ok((Vec::new(), true, false));
+    }
+    
+    if is_alpha && version != 5 && (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword && !trimmed_code.is_empty() {
          crate::item_trace!("[DEBUG] Skipping properties for Alpha Item '{}' (v{})", trimmed_code, version);
          return Ok((Vec::new(), true, false));
     }

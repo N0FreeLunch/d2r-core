@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+﻿use serde::{Serialize, Deserialize};
 use super::quality::ItemQuality;
 use crate::domain::stats::{ItemProperty, ItemStats};
 
@@ -293,6 +293,8 @@ impl Item {
         }
         result
     }
+
+
 
     pub fn suffixes(&self) -> Vec<&'static crate::data::item_specs::Affix> {
         let mut result = Vec::new();

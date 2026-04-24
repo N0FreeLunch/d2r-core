@@ -226,7 +226,9 @@ impl Item {
             let quality_val = self.quality.unwrap_or(ItemQuality::Normal);
             let is_frag = alpha_mode && (self.version == 5 || self.version == 1) && ((self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0);
 
-            if is_frag && alpha_mode && self.version == 5 {
+            if alpha_mode && self.version == 5 && (self.is_runeword || is_frag) {
+                // Alpha v105 Runeword bow and fragments: Skip Extended Header directly to properties.
+            } else if is_frag && alpha_mode && self.version == 5 {
                 // Alpha v105 Fragment: Skip Extended Header
             } else {
                 let is_alpha = alpha_mode && (self.version == 1 || self.version == 4);
@@ -323,10 +325,12 @@ impl Item {
                 }
             }
 
-            let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
-            write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val, is_v105_shadow)?;
-            for set_props in &self.set_attributes {
-                write_property_list(&mut emitter, set_props, self.version, false, false, quality_val, false)?;
+            if self.version != 5 {
+                let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
+                write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val, is_v105_shadow)?;
+                for set_props in &self.set_attributes {
+                    write_property_list(&mut emitter, set_props, self.version, false, false, quality_val, false)?;
+                }
             }
         }
 
@@ -387,8 +391,8 @@ fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version
              let mut width = 9;
              let mut is_rhythm = false;
              if (alpha_runeword || version == 5) && !is_compact {
-                 // Alpha v105 / DLC forensic: FIXED 18-bit rhythm (9-bit ID + 9-bit Value)
-                 width = 9;
+                 // Alpha v105 / DLC forensic: rhythm width
+                 width = if is_v105_shadow { 9 } else { 11 };
                  is_rhythm = true;
              }
              if !is_rhythm {

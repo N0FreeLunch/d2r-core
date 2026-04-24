@@ -464,8 +464,8 @@ fn read_item_stats<R: BitRead>(
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
-    if is_alpha && (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword && !trimmed_code.is_empty() {
-         crate::item_trace!("[DEBUG] Skipping properties for Alpha Summary/Normal Item '{}'", trimmed_code);
+    if is_alpha && (version == 5 || (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword) && !trimmed_code.is_empty() {
+         crate::item_trace!("[DEBUG] Skipping properties for Alpha Item '{}' (v{})", trimmed_code, version);
          return Ok((Vec::new(), true, false));
     }
     

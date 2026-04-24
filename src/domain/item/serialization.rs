@@ -342,9 +342,11 @@ impl Item {
                 }
             } else if self.version != 5 {
                 emitter.write_bit(false)?;
-                emitter.byte_align()?;
             }
+        } else if self.version != 5 {
+            emitter.write_bit(false)?;
         }
+        emitter.byte_align()?;
         Ok(emitter.into_bytes())
     }
 

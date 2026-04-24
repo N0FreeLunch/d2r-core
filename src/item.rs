@@ -201,6 +201,12 @@ impl Item {
             y = cursor.read_bits::<u8>(4)? as u8;
             page = cursor.read_bits::<u8>(3)? as u8;
             header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
+            cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
+        } else if alpha_mode && (version == 1 || version == 4) {
+            y = cursor.read_bits::<u8>(4)? as u8;
+            page = cursor.read_bits::<u8>(3)? as u8;
+            header_socket_hint = cursor.read_bits::<u8>(3)? as u8;
+            cursor.read_bits::<u8>(8)?; // Alpha v105 Version 1 Header Gap
         } else if !is_compact {
             y = cursor.read_bits::<u8>(4)? as u8;
             page = cursor.read_bits::<u8>(3)? as u8;
@@ -561,7 +567,9 @@ pub fn peek_item_header_at(
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
-        header_len += 8; // 4 (y) + 3 (page) + 1 (hint)
+        header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+    } else if alpha_mode && (version == 1 || version == 4) {
+        header_len += 18; // 4 (y) + 3 (page) + 3 (hint) + 8 (gap)
     } else if !is_compact {
         header_len += 10; // 4 (y) + 3 (page) + 3 (hint)
     }

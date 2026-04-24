@@ -204,9 +204,11 @@ impl Item {
         emitter.write_bits(self.x as u32, 4)?;
         
         if alpha_mode && self.version == 5 {
-            emitter.write_bits(self.y as u32, 4)?;
-            emitter.write_bits(self.page as u32, 3)?;
-            emitter.write_bits(self.header_socket_hint as u32, 1)?;
+            if !self.is_compact {
+                emitter.write_bits(self.y as u32, 4)?;
+                emitter.write_bits(self.page as u32, 3)?;
+                emitter.write_bits(self.header_socket_hint as u32, 1)?;
+            }
             emitter.write_bits(0, 8)?; // Alpha v105 Version 5 Header Gap
         } else if alpha_mode && (self.version == 1 || self.version == 4) {
             emitter.write_bits(self.y as u32, 4)?;

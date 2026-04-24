@@ -205,9 +205,11 @@ impl Item {
         let mut header_socket_hint = 0;
 
         if alpha_mode && version == 5 {
-            y = cursor.read_bits::<u8>(4)? as u8;
-            page = cursor.read_bits::<u8>(3)? as u8;
-            header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
+            if !is_compact {
+                y = cursor.read_bits::<u8>(4)? as u8;
+                page = cursor.read_bits::<u8>(3)? as u8;
+                header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
+            }
             cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
         } else if alpha_mode && (version == 1 || version == 4) {
             y = cursor.read_bits::<u8>(4)? as u8;
@@ -236,7 +238,7 @@ impl Item {
 
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
 
-        let stats = if !is_compact || (alpha_mode && version == 5) {
+        let stats = if !is_compact {
             let socket_flag = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
             
             // Alpha v105 Runeword Heuristic
@@ -578,7 +580,11 @@ pub fn peek_item_header_at(
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
-        header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+        if !is_compact {
+            header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+        } else {
+            header_len += 8; // Alpha v105 Version 5 Compact Gap
+        }
     } else if alpha_mode && (version == 1 || version == 4) {
         header_len += 18; // 4 (y) + 3 (page) + 3 (hint) + 8 (gap)
     } else if !is_compact {

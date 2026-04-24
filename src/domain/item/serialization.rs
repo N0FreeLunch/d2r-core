@@ -27,8 +27,9 @@ impl BitEmitter {
 
     pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
         if count == 0 { return Ok(()); }
-        self.writer.write_var(count, value)?;
-        self.written += count as u64;
+        for i in 0..count {
+            self.write_bit((value >> i) & 1 != 0)?;
+        }
         Ok(())
     }
 
@@ -330,7 +331,7 @@ impl Item {
         }
 
         if alpha_mode {
-            if self.version == 5 && !self.is_runeword && !self.is_compact {
+            if self.version == 5 && !self.is_runeword && (self.code.trim() == "hp1" || !self.is_compact) {
                 // Alpha v105 Summary Items: Strictly 10 bytes (80 bits)
                 while emitter.written_bits() < 80 {
                     emitter.write_bit(false)?;

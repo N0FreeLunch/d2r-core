@@ -206,7 +206,6 @@ impl Item {
         if alpha_mode && self.version == 5 {
             emitter.write_bits(self.y as u32, 4)?;
             emitter.write_bits(self.page as u32, 3)?;
-            emitter.write_bits(self.header_socket_hint as u32, 1)?;
             emitter.write_bits(0, 8)?; // Alpha v105 Version 5 Header Gap
         } else if !self.is_compact {
             emitter.write_bits(self.y as u32, 4)?;
@@ -336,6 +335,9 @@ impl Item {
         }
 
         if alpha_mode {
+            if self.is_compact && emitter.written_bits() < 80 {
+                emitter.write_bits(0, (80 - emitter.written_bits()) as u32)?;
+            }
             if self.version != 5 {
                 emitter.write_bit(false)?;
             }

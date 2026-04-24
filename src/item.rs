@@ -113,25 +113,32 @@ impl Item {
             
             // Alpha v105 Forensic: Use Lookahead to set a strict bit limit for the item.
             let next_item_start = if alpha_mode {
-                find_next_item_match(section_bytes, start + 8, huffman, alpha_mode).unwrap_or(section_bits)
+                section_bits // Disable lookahead for Alpha to avoid ghost items in flags
             } else {
                 section_bits
             };
             let strict_limit = next_item_start - start;
-
             match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(strict_limit)) {
-                Ok((item, consumed_bits)) => {
-                    let mut end = start + consumed_bits;
-                    
+                Ok((item, mut consumed_bits)) => {
                     if alpha_mode {
-                        // Alpha v105 Forensic: Rescue logic is too dangerous and causes desyncs.
-                        // We only align to the next byte if not version 5.
-                    if end % 8 != 0 { end += 8 - (end % 8); }
+                        // Alpha v105 Forensic: All items are byte-aligned.
+                        // Compact items (like potions) are exactly 80 bits (10 bytes).
+                        if item.is_compact {
+                            if consumed_bits < 80 {
+                                consumed_bits = 80;
+                            }
+                        }
+                        if consumed_bits % 8 != 0 {
+                            consumed_bits += 8 - (consumed_bits % 8);
+                        }
                     }
 
+                    let mut end = start + consumed_bits;
                     let mut final_item = item;
                     final_item.range.end = end;
-                    final_item.total_bits = end - start;
+                    final_item.total_bits = consumed_bits;
+
+                    item_trace!("[DEBUG] read_section: Item {} ({}) consumed {} bits", items.len(), final_item.code.trim(), consumed_bits);
 
 
                     
@@ -538,16 +545,13 @@ pub fn is_plausible_item_header(
     if code.len() < 3 { return false; }
     if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
     if alpha_mode {
-        // Alpha v105 uses different item codes (e.g. 7pww for health potion).
-        // We should be more permissive with codes in Alpha mode.
+        // Alpha v105 codes are usually 4 chars (e.g. '7pww', 'hp1 ', '1pww').
+        if code.len() != 4 { return false; }
+        if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
         if code.trim().is_empty() { return false; }
-    } else if item_template(code).is_none() && code.trim() != "hp1" { 
-        return false; 
-    }
-    if !alpha_mode && (flags & 0xFFFF != 0x4D4A) { return false; }
-    if alpha_mode {
+        
         if mode > 6 || location > 15 { return false; }
-        if (flags & 0xF8000000) != 0 { return false; }
+        // The top 5 bits of flags are used in Alpha (e.g. 0x6B... for Authority).
     } else if mode > 6 || location > 15 { return false; }
     true
 }
@@ -574,7 +578,7 @@ pub fn peek_item_header_at(
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
-        header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+        header_len += 15; // 4 (y) + 3 (page) + 8 (gap)
     } else if alpha_mode && (version == 1 || version == 4) {
         header_len += 18; // 4 (y) + 3 (page) + 3 (hint) + 8 (gap)
     } else if !is_compact {

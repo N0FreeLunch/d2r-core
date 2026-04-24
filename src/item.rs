@@ -82,14 +82,7 @@ impl Item {
 
         let count = u16::from_le_bytes([bytes[start_offset + 2], bytes[start_offset + 3]]);
         
-        let mut payload_start = start_offset + 4;
-        if alpha && count > 0 {
-            // Alpha v105 Forensic: Skip (count-1) * 8 bytes preamble.
-            // This table appears to contain 8-byte entries for socketed items or summary data.
-            let preamble_len = (count as usize).saturating_sub(1) * 8;
-            payload_start += preamble_len;
-            item_trace!("[DEBUG] Alpha v105 Preamble Skip: {} bytes", preamble_len);
-        }
+        let payload_start = start_offset + 4;
 
         if bytes.len() < payload_start {
              return Err(ParsingFailure {
@@ -106,7 +99,7 @@ impl Item {
     }
 
     pub fn read_section(section_bytes: &[u8], top_level_count: u16, huffman: &HuffmanTree, alpha_mode: bool) -> ParsingResult<Vec<Item>> {
-        let mut items = Vec::new();
+        let mut items: Vec<Item> = Vec::new();
         let mut bit_pos = 0;
         let section_bits = (section_bytes.len() * 8) as u64;
 
@@ -118,30 +111,31 @@ impl Item {
             };
             item_trace!("[DEBUG] read_section: Found item candidate at bit {}", start);
             
-            // Calculate remaining bits in the section to prevent over-reading.
-            let remaining_in_section = section_bits.saturating_sub(start);
+            // Alpha v105 Forensic: Use Lookahead to set a strict bit limit for the item.
+            let next_item_start = if alpha_mode {
+                find_next_item_match(section_bytes, start + 8, huffman, alpha_mode).unwrap_or(section_bits)
+            } else {
+                section_bits
+            };
+            let strict_limit = next_item_start - start;
 
-            match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(remaining_in_section)) {
+            match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(strict_limit)) {
                 Ok((item, consumed_bits)) => {
                     let mut end = start + consumed_bits;
                     
                     if alpha_mode {
-                        // Lookahead Rescue: If there are more items, find where the next one starts.
-                        if items.len() < (top_level_count as usize - 1) {
-                            let next_byte = if end % 8 == 0 { end } else { end + (8 - (end % 8)) };
-                            if let Some(next_real_start) = find_next_item_match(section_bytes, next_byte, huffman, alpha_mode) {
-                                if next_real_start > start && next_real_start < end + 256 {
-                                    item_trace!("[DEBUG] Alpha Rescue: Adjusting item {} end from {} to {}", items.len(), end, next_real_start);
-                                    end = next_real_start;
-                                }
-                            }
+                        // Alpha v105 Forensic: Rescue logic is too dangerous and causes desyncs.
+                        // We only align to the next byte if not version 5.
+                        if item.version != 5 {
+                            if end % 8 != 0 { end += 8 - (end % 8); }
                         }
-                        if end % 8 != 0 { end += 8 - (end % 8); }
                     }
 
                     let mut final_item = item;
                     final_item.range.end = end;
                     final_item.total_bits = end - start;
+
+
                     
                     bit_pos = end;
                     items.push(final_item);
@@ -229,10 +223,20 @@ impl Item {
             }
         }
 
+        let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
+
         let stats = if !is_compact {
             let socket_flag = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
-            let runeword_flag = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
-            Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode)?
+            
+            // Alpha v105 Runeword Heuristic
+            let is_base_rw = alpha_mode && (version == 5 || version == 1) && !is_frag && 
+                ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0);
+            
+            let runeword_flag = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } 
+                else if alpha_mode && version == 5 { is_base_rw || is_frag }
+                else { (flags & (1 << 26)) != 0 };
+                
+            Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag)?
         } else {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0)
         };
@@ -265,13 +269,26 @@ impl Item {
             properties: Vec::new(),
             is_identified: (flags & (1 << 4)) != 0,
             is_socketed: {
-                let socketed = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
+                let socketed = if alpha_mode && version == 5 {
+                    (flags & (1 << 23)) != 0 || (flags & (1 << 11)) != 0
+                } else if alpha_mode {
+                    (flags & (1 << 27)) != 0
+                } else {
+                    (flags & (1 << 11)) != 0
+                };
                 crate::item_trace!("[DEBUG] is_socketed logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, socketed);
                 socketed
             },
             is_personalized: (flags & (1 << 25)) != 0,
             is_runeword: {
-                let rw = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } else { (flags & (1 << 26)) != 0 };
+                let rw = if alpha_mode && (version == 5 || version == 1) {
+                    let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
+                    !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
+                } else if alpha_mode {
+                    (flags & (1 << 11)) != 0
+                } else {
+                    (flags & (1 << 26)) != 0
+                };
                 crate::item_trace!("[DEBUG] is_runeword logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, rw);
                 rw
             },
@@ -282,7 +299,8 @@ impl Item {
 
         let mut final_item = item;
         if !is_compact {
-            let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword)?;
+            let is_v105_shadow = alpha_mode && final_item.version == 5 && (final_item.flags & (1 << 26)) != 0;
+            let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword, is_v105_shadow)?;
             final_item.properties = props;
             final_item.properties_complete = complete;
             final_item.terminator_bit = term;
@@ -301,6 +319,7 @@ impl Item {
         is_personalized: bool,
         version: u8,
         alpha_mode: bool,
+        is_fragment: bool,
     ) -> ParsingResult<(
         Option<u32>, Option<u8>, Option<ItemQuality>,
         bool, Option<u8>, bool, Option<u16>,
@@ -313,9 +332,21 @@ impl Item {
     )> {
         cursor.begin_segment(ItemSegmentType::ExtendedStats);
         let trimmed_code = code.trim();
-        let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4);
-        
-        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if is_alpha {
+        let is_alpha = alpha_mode && (version == 1 || version == 4);
+
+        if alpha_mode && version == 5 && (is_runeword || is_fragment) {
+            // Alpha v105 Runeword components skip directly to properties.
+            cursor.end_segment();
+            return Ok((
+                Some(0u32), None, Some(ItemQuality::Normal),
+                false, None, false, None,
+                None, None, None, None, None, [None; 6],
+                None, None, None, None, None, false,
+                None, None, None, None, None, 0
+            ));
+        }
+
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if alpha_mode && (version == 5 || version == 1 || version == 4) {
             if !is_compact {
                 // Alpha v105: ID and Level are omitted, but Quality (4 bits) might be present.
                 let quality_raw = cursor.read_bits::<u8>(4)?;
@@ -370,7 +401,8 @@ impl Item {
         }
 
         let (mut runeword_id, mut runeword_level) = (None, None);
-        if is_runeword {
+        if is_runeword && !is_fragment && version != 5 {
+            // Alpha v105: Runeword ID and Level are not in the extended header.
             runeword_id = Some(cursor.read_bits::<u16>(12)? as u16);
             runeword_level = Some(cursor.read_bits::<u8>(4)? as u8);
         }
@@ -390,16 +422,16 @@ impl Item {
         };
 
         let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
-        if reads_defense && !alpha_mode { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
-        if reads_durability && !alpha_mode {
+        if reads_defense && (!alpha_mode && version != 5) { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
+        if reads_durability && (!alpha_mode && version != 5) {
             let max_bits = stat_save_bits(73).unwrap_or(8);
             let cur_bits = stat_save_bits(72).unwrap_or(9);
             let m_dur = cursor.read_bits::<u32>(max_bits)?;
             max_durability = Some(m_dur);
             if m_dur > 0 { current_durability = Some(cursor.read_bits::<u32>(cur_bits)?); let _extra = cursor.read_bit()?; }
         }
-        if reads_quantity && !alpha_mode { quantity = Some(cursor.read_bits::<u32>(9)?); }
-        if is_socketed && !alpha_mode { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
+        if reads_quantity && (!alpha_mode && version != 5) { quantity = Some(cursor.read_bits::<u32>(9)?); }
+        if is_socketed && (!alpha_mode || version == 5) { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
 
         cursor.end_segment();
         Ok((
@@ -424,6 +456,7 @@ fn read_item_stats<R: BitRead>(
     alpha_mode: bool,
     quality: Option<ItemQuality>,
     is_runeword: bool,
+    is_v105_shadow: bool,
 ) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
     cursor.begin_segment(ItemSegmentType::Stats);
     let trimmed_code = code.trim();
@@ -431,8 +464,8 @@ fn read_item_stats<R: BitRead>(
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
-    if is_alpha && quality_val == ItemQuality::Normal && !is_runeword && !trimmed_code.is_empty() {
-         crate::item_trace!("[DEBUG] Skipping properties for Normal Item '{}'", trimmed_code);
+    if is_alpha && (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword && !trimmed_code.is_empty() {
+         crate::item_trace!("[DEBUG] Skipping properties for Alpha Summary/Normal Item '{}'", trimmed_code);
          return Ok((Vec::new(), true, false));
     }
     
@@ -442,7 +475,7 @@ fn read_item_stats<R: BitRead>(
         PropertyReaderContext { bytes: &[], item_start_bit: 0 }
     };
 
-    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, |_, _, _, _, _| {
+    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow, |_, _, _, _, _| {
         let r = IoBitReader::endian(Cursor::new(&[]), LittleEndian);
         let mut c = BitCursor::new(r);
         let d = Item::from_reader_with_context(&mut c, huffman, None, alpha_mode)?;
@@ -493,7 +526,7 @@ pub fn is_plausible_item_header(
 ) -> bool {
     if code.len() < 3 { return false; }
     if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
-    if alpha_mode && item_template(code).is_none() { return false; }
+    if alpha_mode && item_template(code).is_none() && code.trim() != "hp1" { return false; }
     if !alpha_mode && (flags & 0xFFFF != 0x4D4A) { return false; }
     if alpha_mode {
         if mode > 6 || location > 15 { return false; }

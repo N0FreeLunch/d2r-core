@@ -1,50 +1,56 @@
-use bitstream_io::{BitRead, BitWrite, BitWrite2, BitWriter, LittleEndian};
+use bitstream_io::{BitRead, BitWrite, BitWriter, LittleEndian};
 use std::io;
 use crate::domain::item::Item;
 use crate::domain::item::quality::ItemQuality;
-use crate::domain::stats::{lookup_alpha_map_by_effective, lookup_alpha_map_by_raw, stat_save_bits, ItemProperty};
+use crate::domain::stats::{lookup_alpha_map_by_effective, stat_save_bits, ItemProperty};
 use crate::data::bit_cursor::BitCursor;
-use crate::error::{ParsingError, ParsingResult};
+use crate::error::{ParsingResult, ParsingError};
 
 pub struct BitEmitter {
     writer: BitWriter<Vec<u8>, LittleEndian>,
-    pub written: u64,
+    written: u64,
 }
 
 impl BitEmitter {
     pub fn new() -> Self {
         BitEmitter {
-            writer: BitWriter::new(Vec::new()),
+            writer: BitWriter::endian(Vec::new(), LittleEndian),
             written: 0,
         }
     }
 
     pub fn write_bit(&mut self, bit: bool) -> io::Result<()> {
-        BitWrite::write_bit(&mut self.writer, bit)?;
+        self.writer.write_bit(bit)?;
         self.written += 1;
         Ok(())
     }
 
-    pub fn write_bits(&mut self, value: u32, bits: u32) -> io::Result<()> {
-        for i in 0..bits {
-            self.write_bit((value >> i) & 1 != 0)?;
+    pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
+        if count == 0 { return Ok(()); }
+        self.writer.write_var(count, value)?;
+        self.written += count as u64;
+        Ok(())
+    }
+
+    pub fn extend_bits<I>(&mut self, bits: I) -> io::Result<()>
+    where
+        I: IntoIterator<Item = bool>,
+    {
+        for bit in bits {
+            self.write_bit(bit)?;
         }
         Ok(())
     }
 
     pub fn byte_align(&mut self) -> io::Result<()> {
-        if self.written % 8 != 0 {
-            let bits_to_write = 8 - (self.written % 8);
-            self.write_bits(0, bits_to_write as u32)?;
-        }
+        let padding = (8 - (self.written % 8)) % 8;
+        self.writer.byte_align()?;
+        self.written += padding;
         Ok(())
     }
 
-    pub fn extend_bits(&mut self, bits: Vec<bool>) -> io::Result<()> {
-        for bit in bits {
-            self.write_bit(bit)?;
-        }
-        Ok(())
+    pub fn written_bits(&self) -> u64 {
+        self.written
     }
 
     pub fn into_bytes(self) -> Vec<u8> {
@@ -52,13 +58,11 @@ impl BitEmitter {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct HuffmanTree {
     root: Box<HuffmanNode>,
     encoding_table: std::collections::HashMap<char, Vec<bool>>,
 }
 
-#[derive(Debug, Clone)]
 struct HuffmanNode {
     symbol: Option<char>,
     left: Option<Box<HuffmanNode>>,
@@ -99,7 +103,7 @@ impl HuffmanTree {
             ('g', "11010"),
             ('h', "00011"),
             ('i', "1111110"),
-            ('j', "000101110"), // Verified 000101110 in Alpha fixture
+            ('j', "000101111"),
             ('k', "010010"),
             ('l', "11101"),
             ('m', "01101"),
@@ -155,7 +159,7 @@ impl HuffmanTree {
                     format!("Char '{}' not in Huffman table", c),
                 )
             })?;
-            bits.extend_from_slice(pattern);
+            bits.extend(pattern);
         }
         Ok(bits)
     }
@@ -176,40 +180,23 @@ impl HuffmanTree {
         }
     }
 
-    pub fn decode<R: BitRead>(&self, reader: &mut R) -> io::Result<char> {
-        self.decode_internal(|| reader.read_bit())
+    pub fn decode_recorded<R: BitRead>(&self, cursor: &mut BitCursor<R>) -> ParsingResult<char> {
+        self.decode_internal(|| cursor.read_bit().map_err(|e| io::Error::new(io::ErrorKind::Other, format!("{:?}", e))))
+            .map_err(|_| {
+                cursor.fail(ParsingError::InvalidHuffmanBit { bit_offset: cursor.pos() })
+                    .with_hint("Huffman bit pattern does not match Alpha v105 table. Possible bit drift or misalignment.")
+            })
     }
 
-    pub fn decode_recorded<R: BitRead>(&self, cursor: &mut BitCursor<R>) -> ParsingResult<char> {
-        self.decode_internal(|| {
-            cursor.read_bit().map_err(|e| {
-                io::Error::new(io::ErrorKind::Other, format!("{:?}", e))
-            })
-        })
-        .map_err(|_| {
-            cursor.fail(ParsingError::InvalidHuffmanBit { bit_offset: cursor.pos() })
-                .with_hint("Huffman bit pattern does not match Alpha v105 table.")
-        })
+    pub fn decode<R: BitRead>(&self, reader: &mut R) -> io::Result<char> {
+        self.decode_internal(|| reader.read_bit())
     }
 }
 
 impl Item {
     pub fn to_bytes(&self, huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
         let mut emitter = BitEmitter::new();
-        
-        let mut final_flags = self.flags;
-        if alpha_mode {
-            // Re-sync boolean fields to Alpha bit positions.
-            if self.is_socketed { final_flags |= 1 << 27; } else { final_flags &= !(1 << 27); }
-            if self.is_runeword { final_flags |= 1 << 11; } else { final_flags &= !(1 << 11); }
-            if self.is_identified { final_flags |= 1 << 4; } else { final_flags &= !(1 << 4); }
-            if self.is_ethereal { final_flags |= 1 << 22; } else { final_flags &= !(1 << 22); }
-            // Ensure bit 26 (Retail Runeword) is cleared in Alpha mode to prevent drift.
-            final_flags &= !(1 << 26);
-        }
-        
-        crate::item_trace!("[DEBUG] to_bytes for '{}', is_runeword={}, final_flags=0x{:08X}", self.code.trim(), self.is_runeword, final_flags);
-        emitter.write_bits(final_flags, 32)?;
+        emitter.write_bits(self.flags, 32)?;
         emitter.write_bits(self.version as u32, 3)?;
         emitter.write_bits(self.mode as u32, 3)?;
         emitter.write_bits(self.location as u32, 3)?;
@@ -235,148 +222,125 @@ impl Item {
         }
 
         if !self.is_compact {
-            if alpha_mode {
-                // Alpha v105: ID and Level are omitted, but Quality (4 bits) is present for non-compact items.
-                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
-            } else {
-                emitter.write_bits(self.id.unwrap_or(0), 32)?;
-                emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
-                emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
-            }
-
-            if !alpha_mode && self.has_multiple_graphics {
-                emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
-            }
-            if !alpha_mode && self.has_class_specific_data {
-                emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
-            }
-
             let quality_val = self.quality.unwrap_or(ItemQuality::Normal);
-            match quality_val {
-                ItemQuality::Low | ItemQuality::High if !alpha_mode => {
-                    emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
+            let is_frag = alpha_mode && (self.version == 5 || self.version == 1) && ((self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0);
+
+            if is_frag && alpha_mode && self.version == 5 {
+                // Alpha v105 Fragment: Skip Extended Header
+            } else {
+                let is_alpha = alpha_mode && (self.version == 1 || self.version == 4);
+                if alpha_mode && (self.version == 5 || self.version == 1 || self.version == 4) {
+                    // Skip ID and Level for v105/v104/v101 in ExtendedStats
+                    emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
+                } else {
+                    emitter.write_bits(self.id.unwrap_or(0), 32)?;
+                    emitter.write_bits(self.level.unwrap_or(0) as u32, 7)?;
+                    emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
                 }
-                ItemQuality::Magic if !alpha_mode => {
-                    emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
-                    emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
-                }
-                ItemQuality::Rare | ItemQuality::Crafted if !alpha_mode => {
-                    emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
-                    emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
-                    for i in 0..6 {
-                        if let Some(affix) = self.rare_affixes[i] {
-                            emitter.write_bit(true)?;
-                            emitter.write_bits(affix as u32, 11)?;
-                        } else {
-                            emitter.write_bit(false)?;
+
+                if is_alpha {
+                    // Early exit for v104/v101
+                } else {
+                    if self.has_multiple_graphics {
+                        emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
+                    }
+                    if self.has_class_specific_data {
+                        emitter.write_bits(self.class_specific_bits.unwrap_or(0) as u32, 11)?;
+                    }
+
+                    match quality_val {
+                        ItemQuality::Low | ItemQuality::High => {
+                            emitter.write_bits(self.low_high_graphic_bits.unwrap_or(0) as u32, 3)?;
+                        }
+                        ItemQuality::Magic => {
+                            emitter.write_bits(self.magic_prefix.unwrap_or(0) as u32, 11)?;
+                            emitter.write_bits(self.magic_suffix.unwrap_or(0) as u32, 11)?;
+                        }
+                        ItemQuality::Rare | ItemQuality::Crafted => {
+                            emitter.write_bits(self.rare_name_1.unwrap_or(0) as u32, 8)?;
+                            emitter.write_bits(self.rare_name_2.unwrap_or(0) as u32, 8)?;
+                            for i in 0..6 {
+                                if let Some(affix) = self.rare_affixes[i] {
+                                    emitter.write_bit(true)?;
+                                    emitter.write_bits(affix as u32, 11)?;
+                                } else {
+                                    emitter.write_bit(false)?;
+                                }
+                            }
+                        }
+                        ItemQuality::Set | ItemQuality::Unique => {
+                            emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
+                        }
+                        _ => {}
+                    }
+
+                    if self.is_runeword && !is_frag {
+                        emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
+                        emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
+                    }
+
+                    if self.is_personalized {
+                        write_player_name(&mut emitter, self.personalized_player_name.as_deref().unwrap_or(""))?;
+                    }
+
+                    if self.code.trim() == "tbk" || self.code.trim() == "ibk" {
+                        emitter.write_bits(self.tbk_ibk_teleport.unwrap_or(0) as u32, 5)?;
+                    }
+
+                    emitter.write_bit(self.timestamp_flag)?;
+
+                    let template = item_template(&self.code);
+                    let (reads_defense, reads_durability, reads_quantity) = if let Some(t) = template {
+                        (t.is_armor, t.has_durability, t.is_stackable)
+                    } else { (false, false, false) };
+
+                    if reads_defense && (!alpha_mode || self.version == 5) {
+                        emitter.write_bits(self.defense.unwrap_or(0), 11)?;
+                    }
+                    if reads_durability && (!alpha_mode || self.version == 5) {
+                        let m_dur = self.max_durability.unwrap_or(0);
+                        emitter.write_bits(m_dur, 8)?;
+                        if m_dur > 0 {
+                            emitter.write_bits(self.current_durability.unwrap_or(0), 9)?;
+                            emitter.write_bit(false)?; // dur_extra
                         }
                     }
-                }
-                ItemQuality::Set | ItemQuality::Unique if !alpha_mode => {
-                    emitter.write_bits(self.unique_id.unwrap_or(0) as u32, 12)?;
-                }
-                _ => {}
-            }
+                    if reads_quantity && (!alpha_mode || self.version == 5) {
+                        emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
+                    }
 
-            if self.is_runeword && self.version != 5 && !alpha_mode {
-                emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
-                emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
-            }
+                    if self.is_socketed && (!alpha_mode || self.version == 5) {
+                        emitter.write_bits(self.sockets.unwrap_or(0) as u32, 4)?;
+                    }
 
-            if self.is_personalized && !alpha_mode {
-                write_player_name(&mut emitter, self.personalized_player_name.as_deref().unwrap_or(""))?;
-            }
-
-            if (self.code.trim() == "tbk" || self.code.trim() == "ibk") && !alpha_mode {
-                emitter.write_bits(self.tbk_ibk_teleport.unwrap_or(0) as u32, 5)?;
-            }
-
-            if !alpha_mode {
-                emitter.write_bit(self.timestamp_flag)?;
-            }
-
-            if let Some(template) = item_template(&self.code) {
-                if template.is_armor && !alpha_mode {
-                    let bits = stat_save_bits(31).unwrap_or(11);
-                    emitter.write_bits(self.defense.unwrap_or(0), bits)?;
-                }
-                if template.has_durability && !alpha_mode {
-                    let max_bits = stat_save_bits(73).unwrap_or(8);
-                    let cur_bits = stat_save_bits(72).unwrap_or(9);
-                    let m_dur = self.max_durability.unwrap_or(0);
-                    emitter.write_bits(m_dur, max_bits)?;
-                    if m_dur > 0 {
-                        emitter.write_bits(self.current_durability.unwrap_or(0), cur_bits)?;
-                        emitter.write_bit(false)?; // dur_extra
+                    if quality_val == ItemQuality::Set {
+                        let set_list_val = match self.set_list_count {
+                            1 => 1, 2 => 3, 3 => 7, 4 => 15, 5 => 31, _ => 0
+                        };
+                        emitter.write_bits(set_list_val, 5)?;
                     }
                 }
-                if template.is_stackable && !alpha_mode {
-                    emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
-                }
             }
 
-            if self.is_socketed && !alpha_mode {
-                emitter.write_bits(self.sockets.unwrap_or(0) as u32, 4)?;
-            }
-
-            if quality_val == ItemQuality::Set && !alpha_mode {
-                let set_list_val = match self.set_list_count {
-                    1 => 1, 2 => 3, 3 => 7, 4 => 15, 5 => 31, _ => 0
-                };
-                emitter.write_bits(set_list_val, 5)?;
-            }
-
-            let is_alpha = alpha_mode && (self.version == 5 || self.version == 1);
-            let skip_property_list = is_alpha && quality_val == ItemQuality::Normal && !self.is_runeword && !self.code.trim().is_empty();
-
-            if !skip_property_list {
-                if alpha_mode && self.is_runeword {
-                    // Alpha v105 Runeword specialized shadow emission:
-                    // Base Segment: Header + properties + terminator + alignment
-                    write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
-                    emitter.write_bit(false)?; // Terminal bit
-                    emitter.byte_align()?;
-
-                    // Shadow Segment 1: Shadow Header + runeword_attributes + terminator + alignment
-                    let shadow_flags = final_flags | (1 << 26); // Set bit 26 for Shadow fragment
-                    emitter.write_bits(shadow_flags, 32)?;
-                    emitter.write_bits(self.version as u32, 3)?;
-                    emitter.write_bits(self.mode as u32, 3)?;
-                    emitter.write_bits(self.location as u32, 3)?;
-                    emitter.write_bits(self.x as u32, 4)?;
-                    if self.version == 5 {
-                        emitter.write_bits(self.y as u32, 4)?;
-                        emitter.write_bits(self.page as u32, 3)?;
-                        emitter.write_bits(self.header_socket_hint as u32, 1)?;
-                    }
-                    let encoded_code = huffman.encode(&self.code)?;
-                    emitter.extend_bits(encoded_code)?;
-                    
-                    write_property_list(&mut emitter, &self.runeword_attributes, self.version, self.is_runeword, false, quality_val)?;
-                    // Final terminal bit and alignment will be handled by the common block below.
-                } else {
-                    write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val)?;
-                    for set_props in &self.set_attributes {
-                        write_property_list(&mut emitter, set_props, self.version, self.is_runeword, false, quality_val)?;
-                    }
-                    if self.is_runeword {
-                        write_property_list(&mut emitter, &self.runeword_attributes, self.version, self.is_runeword, false, quality_val)?;
-                    }
-                }
+            let is_v105_shadow = alpha_mode && self.version == 5 && (self.flags & (1 << 26)) != 0;
+            write_property_list(&mut emitter, &self.properties, self.version, self.is_runeword, self.terminator_bit, quality_val, is_v105_shadow)?;
+            for set_props in &self.set_attributes {
+                write_property_list(&mut emitter, set_props, self.version, false, false, quality_val, false)?;
             }
         }
 
         if alpha_mode {
-            // Alpha v105 Requirement: Mandatory 1 Terminal Bit (0) + Padding to Byte Boundary
-            // This applies to the very last segment of any item (including compact and shadows).
-            emitter.write_bit(false)?; 
-            emitter.byte_align()?;
+            if self.version == 5 && !self.is_runeword && !self.is_compact {
+                // Alpha v105 Summary Items: Strictly 10 bytes (80 bits)
+                while emitter.written_bits() < 80 {
+                    emitter.write_bit(false)?;
+                }
+            } else {
+                emitter.write_bit(false)?;
+                emitter.byte_align()?;
+            }
         }
         Ok(emitter.into_bytes())
-
-
-
-
     }
 
     pub fn serialize_section(items: &[Item], huffman: &HuffmanTree, alpha_mode: bool) -> io::Result<Vec<u8>> {
@@ -400,56 +364,57 @@ fn write_player_name(emitter: &mut BitEmitter, name: &str) -> io::Result<()> {
 }
 
 fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTemplate> {
-    crate::data::item_codes::ITEM_TEMPLATES.iter().find(|t| t.code == code.trim())
+    crate::data::item_codes::ITEM_TEMPLATES
+        .iter()
+        .find(|template| template.code == code.trim())
 }
 
-fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, _terminator_bit: bool, quality: ItemQuality) -> io::Result<()> {
+fn write_property_list(emitter: &mut BitEmitter, props: &[ItemProperty], version: u8, alpha_runeword: bool, terminator_bit: bool, quality: ItemQuality, is_v105_shadow: bool) -> io::Result<()> {
     let id_bits = 9;
     let terminator = (1 << id_bits) - 1;
+    let alpha_mode = version == 5 || version == 1 || version == 4;
+    let is_compact = props.is_empty();
 
     for prop in props {
-        // Non-Normal Alpha v105 uses 10-bit property model (9-bit ID + 1-bit value).
-        // EXCEPT for Runewords, which use the Retail variable-width model.
-        let is_alpha_model = (version == 5 || version == 1) && !alpha_runeword;
+        let mapped_id = prop.stat_id as u16;
+        let raw_id = lookup_alpha_map_by_effective(prop.stat_id).map(|m| m.raw_id).unwrap_or(prop.stat_id);
+        emitter.write_bits(raw_id, 9)?;
 
-        if is_alpha_model {
-            let raw_id = lookup_alpha_map_by_effective(prop.stat_id)
-                .map(|m| m.raw_id)
-                .unwrap_or(prop.stat_id);
-            emitter.write_bits(raw_id, 9)?;
-            // Alpha model uses 1-bit value. 
-            // The parser reads this bit unconditionally if is_alpha_model is true.
-            emitter.write_bits(prop.raw_value as u32, 1)?;
+        if (alpha_mode && !alpha_runeword && version != 5) {
+            emitter.write_bits(prop.raw_value as u32, 9)?;
+        } else if alpha_mode {
+             let mut width = 9;
+             let mut is_rhythm = false;
+             if (alpha_runeword || version == 5) && !is_compact {
+                 // Alpha v105 / DLC forensic: FIXED 18-bit rhythm (9-bit ID + 9-bit Value)
+                 width = 9;
+                 is_rhythm = true;
+             }
+             if !is_rhythm {
+                 if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == mapped_id as u32) {
+                     if stat.save_param_bits > 0 {
+                         emitter.write_bits(prop.param as u32, stat.save_param_bits as u32)?;
+                     }
+                     width = stat.save_bits as u32;
+                 } else {
+                     width = 9;
+                 }
+             }
+             emitter.write_bits(prop.raw_value as u32, width)?;
         } else {
-            // Retail logic (or Alpha runeword using Retail widths)
-            let raw_id = if version == 5 || version == 1 {
-                lookup_alpha_map_by_effective(prop.stat_id)
-                    .map(|m| m.raw_id)
-                    .unwrap_or(prop.stat_id)
-            } else {
-                prop.stat_id
-            };
-            emitter.write_bits(raw_id, 9)?;
-
-            let effective_id = if version == 5 || version == 1 {
-                lookup_alpha_map_by_raw(raw_id)
-                    .map(|m| m.effective_id)
-                    .unwrap_or(raw_id)
-            } else {
-                raw_id
-            };
-
-            if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == effective_id) {
-                if stat.save_param_bits > 0 {
-                    emitter.write_bits(prop.param as u32, stat.save_param_bits as u32)?;
-                }
-                emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
-            }
+             if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == prop.stat_id) {
+                 if stat.save_param_bits > 0 { emitter.write_bits(prop.param as u32, stat.save_param_bits as u32)?; }
+                 emitter.write_bits(prop.raw_value as u32, stat.save_bits as u32)?;
+             } else { emitter.write_bits(prop.raw_value as u32, 9)?; }
         }
     }
-    emitter.write_bits(terminator, id_bits)?;
-    if (version == 5 || version == 1) && !alpha_runeword {
-        emitter.write_bit(false)?; // Terminator bit for Alpha model
+
+    emitter.write_bits(terminator, 9)?;
+    if version == 5 || version == 1 {
+        emitter.write_bit(terminator_bit)?;
+        if version == 5 {
+            emitter.write_bit(false)?; // Alpha v105 extra terminal bit
+        }
     }
     Ok(())
 }

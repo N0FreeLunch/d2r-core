@@ -218,11 +218,17 @@ mod roundtrip_tests {
             "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
         ];
 
+        let filter = std::env::var("D2R_FIXTURE_FILTER").ok();
         let huffman = HuffmanTree::new();
         unsafe {
             std::env::set_var("D2R_ITEM_TRACE", "1");
         }
         for fixture in fixtures {
+            if let Some(ref f) = filter {
+                if !fixture.contains(f) {
+                    continue;
+                }
+            }
             let path = repo_path(fixture);
             let bytes = fs::read(path).expect("fixture should be readable");
 

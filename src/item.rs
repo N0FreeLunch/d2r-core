@@ -1,5 +1,5 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
-use std::io::{self, Cursor};
+use std::io::Cursor;
 use crate::data::bit_cursor::BitCursor;
 
 pub(crate) fn item_trace_enabled() -> bool {
@@ -20,7 +20,7 @@ pub use crate::domain::header::entity::ItemSegmentType;
 pub use crate::domain::item::serialization::HuffmanTree;
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult};
 pub use crate::domain::stats::ItemProperty;
-use crate::domain::stats::{read_property_list, stat_save_bits};
+use crate::domain::stats::{read_property_list, stat_save_bits, StatsAxiom};
 
 #[derive(Debug, Clone)]
 pub struct PropertyReaderContext<'a> {
@@ -255,39 +255,41 @@ impl Item {
         let mut page = 0;
         let mut header_socket_hint = 0;
 
-        if alpha_mode && version == 5 {
-            // Alpha v105 Version 5: Runewords and Shadows use a consolidated 53-bit header.
-            // Others use a 61-bit header (45 + 16).
-            let is_v105_shadow = (flags & (1 << 26)) != 0;
-            let is_rw = {
-                let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
-                !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
-            };
+        // Use axiom to determine header geometry
+        let axiom = StatsAxiom::new(version, ItemQuality::Normal, alpha_mode); 
+        let geometry = axiom.header_geometry(flags, is_compact);
 
-            if is_rw || is_v105_shadow {
-                let gap = cursor.read_bits::<u8>(8)? as u8;
-                if !is_compact {
-                    y = (gap & 0x0F) as u8;
-                    page = ((gap >> 4) & 0x07) as u8;
-                    header_socket_hint = ((gap >> 7) & 0x01) as u8;
+        if geometry.has_header_gap {
+            if version == 5 {
+                let is_v105_shadow = (flags & (1 << 26)) != 0;
+                let is_rw = axiom.is_runeword(flags);
+                
+                if is_rw || is_v105_shadow {
+                    let gap = cursor.read_bits::<u8>(8)? as u8;
+                    if !is_compact {
+                        y = (gap & 0x0F) as u8;
+                        page = ((gap >> 4) & 0x07) as u8;
+                        header_socket_hint = ((gap >> 7) & 0x01) as u8;
+                    }
+                } else {
+                    if !is_compact {
+                        y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
+                        page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
+                        header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
+                    }
+                    cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
                 }
             } else {
-                if !is_compact {
-                    y = cursor.read_bits::<u8>(4)? as u8;
-                    page = cursor.read_bits::<u8>(3)? as u8;
-                    header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
-                }
-                cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
+                // Version 1
+                y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
+                page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
+                header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
+                cursor.read_bits::<u8>(8)?; // Alpha v105 Version 1 Header Gap
             }
-        } else if alpha_mode && version == 1 {
-            y = cursor.read_bits::<u8>(4)? as u8;
-            page = cursor.read_bits::<u8>(3)? as u8;
-            header_socket_hint = cursor.read_bits::<u8>(3)? as u8;
-            cursor.read_bits::<u8>(8)?; // Alpha v105 Version 1 Header Gap
-        } else if !alpha_mode && !is_compact {
-            y = cursor.read_bits::<u8>(4)? as u8;
-            page = cursor.read_bits::<u8>(3)? as u8;
-            header_socket_hint = cursor.read_bits::<u8>(3)? as u8;
+        } else if !geometry.skip_geometry {
+            y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
+            page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
+            header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
         }
 
         let mut code = String::new();
@@ -317,7 +319,7 @@ impl Item {
                 else if alpha_mode && version == 5 { is_base_rw || is_frag }
                 else { (flags & (1 << 26)) != 0 };
                 
-            Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag)?
+            Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag, &axiom)?
         } else {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0)
         };
@@ -350,26 +352,13 @@ impl Item {
             properties: Vec::new(),
             is_identified: (flags & (1 << 4)) != 0,
             is_socketed: {
-                let socketed = if alpha_mode && version == 5 {
-                    !is_compact && ((flags & (1 << 23)) != 0 || (flags & (1 << 11)) != 0)
-                } else if alpha_mode {
-                    (flags & (1 << 27)) != 0
-                } else {
-                    (flags & (1 << 11)) != 0
-                };
+                let socketed = axiom.is_socketed(flags, is_compact);
                 crate::item_trace!("[DEBUG] is_socketed logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, socketed);
                 socketed
             },
             is_personalized: (flags & (1 << 25)) != 0,
             is_runeword: {
-                let rw = if alpha_mode && (version == 5 || version == 1) {
-                    let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
-                    !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
-                } else if alpha_mode {
-                    (flags & (1 << 11)) != 0
-                } else {
-                    (flags & (1 << 26)) != 0
-                };
+                let rw = axiom.is_runeword(flags);
                 crate::item_trace!("[DEBUG] is_runeword logic: alpha={}, version={}, flags=0x{:08X}, result={}", alpha_mode, version, flags, rw);
                 rw
             },
@@ -401,6 +390,7 @@ impl Item {
         version: u8,
         alpha_mode: bool,
         is_fragment: bool,
+        axiom: &StatsAxiom,
     ) -> ParsingResult<(
         Option<u32>, Option<u8>, Option<ItemQuality>,
         bool, Option<u8>, bool, Option<u16>,
@@ -413,9 +403,9 @@ impl Item {
     )> {
         cursor.begin_segment(ItemSegmentType::ExtendedStats);
         let trimmed_code = code.trim();
-        let is_alpha = alpha_mode && (version == 1 || version == 4);
+        let is_alpha_early_exit = alpha_mode && (version == 1 || version == 4);
 
-        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, mut timestamp_flag) = if alpha_mode && (version == 5 || version == 1 || version == 4) {
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if axiom.is_alpha() {
             if !is_compact {
                 // Alpha v105: ID and Level are omitted, but Quality (3 bits) might be present.
                 let quality_raw = cursor.read_bits::<u8>(3)?;
@@ -450,7 +440,7 @@ impl Item {
             (Some(id), Some(level), Some(quality), false, false, false)
         };
 
-        if is_alpha {
+        if is_alpha_early_exit {
             cursor.end_segment();
             return Ok((
                 item_id, item_level, item_quality,
@@ -547,12 +537,14 @@ fn read_item_stats<R: BitRead>(
 ) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
     cursor.begin_segment(ItemSegmentType::Stats);
     let trimmed_code = code.trim();
-    let is_alpha = alpha_mode && (version == 5 || version == 1 || version == 4);
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
+    let axiom = StatsAxiom::new(version, quality_val, alpha_mode);
+    let is_alpha = axiom.is_alpha();
+
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
-    let is_v105_shadow = alpha_mode && version == 5 && is_v105_shadow;
-    if is_alpha && version == 5 && !is_v105_shadow && !is_runeword {
+    let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
+    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword {
          crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
          return Ok((Vec::new(), true, false));
     }
@@ -568,13 +560,13 @@ fn read_item_stats<R: BitRead>(
         PropertyReaderContext { bytes: &[], item_start_bit: 0 }
     };
 
-    if is_v105_shadow {
+    if is_v105_shadow_final {
         // Alpha v105 forensic: Shadow items contain a copy of the shadowed item before their own properties.
         // Bit-level discovery confirms a 47-bit gap between extended header and shadow properties.
         let _ = cursor.read_bits::<u64>(47)?;
     }
 
-    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow, |_, _, _, _, _| {
+    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow_final, &axiom, |_, _, _, _, _| {
         let r = IoBitReader::endian(Cursor::new(&[]), LittleEndian);
         let mut c = BitCursor::new(r);
         let d = Item::from_reader_with_context(&mut c, huffman, None, alpha_mode)?;
@@ -659,25 +651,24 @@ pub fn peek_item_header_at(
     let is_compact = (flags & (1 << 21)) != 0;
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
-    if alpha_mode && version == 5 {
-        let is_v105_shadow = (flags & (1 << 26)) != 0;
-        let is_rw = {
-            let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
-            !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
-        };
-        if is_rw || is_v105_shadow {
-            header_len += 8; // Alpha v105 Version 5 Consolidated Gap
-        } else {
-            if !is_compact {
-                header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+    let axiom = StatsAxiom::new(version, ItemQuality::Normal, alpha_mode);
+    let geometry = axiom.header_geometry(flags, is_compact);
+
+    if geometry.has_header_gap {
+        if version == 5 {
+            let is_v105_shadow = (flags & (1 << 26)) != 0;
+            let is_rw = axiom.is_runeword(flags);
+            if is_rw || is_v105_shadow {
+                header_len += 8; // Alpha v105 Version 5 Consolidated Gap
             } else {
-                header_len += 8; // Alpha v105 Version 5 Compact Gap
+                header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits + 8;
             }
+        } else {
+            // Version 1
+            header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits + 8;
         }
-    } else if alpha_mode && version == 1 {
-        header_len += 18; // Alpha v105 Version 1 Header Gap
-    } else if !alpha_mode && !is_compact {
-        header_len += 10; // Standard D2: 4 (y) + 3 (page) + 3 (hint)
+    } else if !geometry.skip_geometry {
+        header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits;
     }
 
     if alpha_mode && item_trace_enabled() {

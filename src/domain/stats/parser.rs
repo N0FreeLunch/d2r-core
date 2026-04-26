@@ -65,13 +65,14 @@ fn parse_single_property_internal<R, F>(
     _huffman: &HuffmanTree,
     alpha_runeword: bool,
     is_compact: bool,
-    _is_v105_shadow: bool,
+    is_v105_shadow: bool,
     mut _section_recovery: F,
 ) -> ParsingResult<Option<(ItemProperty, bool, bool)>>
 where
     R: BitRead,
     F: FnMut(&[u8], u64, &HuffmanTree, usize, bool) -> ParsingResult<(crate::domain::item::Item, u64)>,
 {
+
     let entry_start = recorder.pos();
     let alpha_mode = version == 5 || version == 1 || version == 4;
     let is_alpha_flag_model = alpha_mode && !alpha_runeword && version != 5;
@@ -117,8 +118,9 @@ where
         
         let width;
         if (alpha_runeword || version == 5) && !is_compact {
-            // Alpha v105 / DLC forensic: FIXED 18-bit rhythm (9-bit ID + 9-bit Value)
-            width = 9;
+            // Alpha v105 forensic: FIXED rhythm
+            // Version 5 shadow items (Authority) use 17-bit (9+8), others use 18-bit (9+9)
+            width = if version == 5 && is_v105_shadow { 8 } else { 9 };
         } else {
             if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == mapped_id as u32) {
                 if stat.save_param_bits > 0 {
@@ -129,7 +131,7 @@ where
                 width = 9;
             }
         }
-        raw_value = recorder.read_bits::<u32>(if (alpha_runeword || version == 5) && !is_compact { 9 } else { width })?;
+        raw_value = recorder.read_bits::<u32>(width)?;
     } else {
         if let Some(stat) = crate::data::stat_costs::STAT_COSTS.iter().find(|s| s.id == stat_id) {
             if stat.save_param_bits > 0 {

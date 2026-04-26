@@ -256,18 +256,35 @@ impl Item {
         let mut header_socket_hint = 0;
 
         if alpha_mode && version == 5 {
-            if !is_compact {
-                y = cursor.read_bits::<u8>(4)? as u8;
-                page = cursor.read_bits::<u8>(3)? as u8;
-                header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
+            // Alpha v105 Version 5: Runewords and Shadows use a consolidated 53-bit header.
+            // Others use a 61-bit header (45 + 16).
+            let is_v105_shadow = (flags & (1 << 26)) != 0;
+            let is_rw = {
+                let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
+                !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
+            };
+
+            if is_rw || is_v105_shadow {
+                let gap = cursor.read_bits::<u8>(8)? as u8;
+                if !is_compact {
+                    y = (gap & 0x0F) as u8;
+                    page = ((gap >> 4) & 0x07) as u8;
+                    header_socket_hint = ((gap >> 7) & 0x01) as u8;
+                }
+            } else {
+                if !is_compact {
+                    y = cursor.read_bits::<u8>(4)? as u8;
+                    page = cursor.read_bits::<u8>(3)? as u8;
+                    header_socket_hint = cursor.read_bits::<u8>(1)? as u8;
+                }
+                cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
             }
-            cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
-        } else if alpha_mode && (version == 1 || version == 4) {
+        } else if alpha_mode && version == 1 {
             y = cursor.read_bits::<u8>(4)? as u8;
             page = cursor.read_bits::<u8>(3)? as u8;
             header_socket_hint = cursor.read_bits::<u8>(3)? as u8;
             cursor.read_bits::<u8>(8)?; // Alpha v105 Version 1 Header Gap
-        } else if !is_compact {
+        } else if !alpha_mode && !is_compact {
             y = cursor.read_bits::<u8>(4)? as u8;
             page = cursor.read_bits::<u8>(3)? as u8;
             header_socket_hint = cursor.read_bits::<u8>(3)? as u8;
@@ -398,24 +415,30 @@ impl Item {
         let trimmed_code = code.trim();
         let is_alpha = alpha_mode && (version == 1 || version == 4);
 
-        if alpha_mode && version == 5 && (is_runeword || is_fragment) {
-            // Alpha v105 Runeword components skip directly to properties.
-            cursor.end_segment();
-            return Ok((
-                Some(0u32), None, Some(ItemQuality::Normal),
-                false, None, false, None,
-                None, None, None, None, None, [None; 6],
-                None, None, None, None, None, false,
-                None, None, None, None, None, 0
-            ));
-        }
-
-        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if alpha_mode && (version == 5 || version == 1 || version == 4) {
+        let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, mut timestamp_flag) = if alpha_mode && (version == 5 || version == 1 || version == 4) {
             if !is_compact {
                 // Alpha v105: ID and Level are omitted, but Quality (3 bits) might be present.
                 let quality_raw = cursor.read_bits::<u8>(3)?;
                 let quality = ItemQuality::from(quality_raw);
-                (Some(0u32), None, Some(quality), false, false, false)
+                if version == 5 && (is_runeword || is_fragment) {
+                    // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
+                    // Found only in runeword/shadow items.
+                    let _v5_extra = cursor.read_bits::<u8>(2)?;
+                    (Some(0u32), None, Some(quality), false, false, false)
+                } else if version == 5 {
+                    // Alpha v105 Version 5 Summary items early exit after quality.
+                    cursor.end_segment();
+                    return Ok((
+                        Some(0u32), None, Some(quality),
+                        false, None, false, None,
+                        None, None, None, None, None, [None; 6],
+                        None, None, None,
+                        None, None, false,
+                        None, None, None, None, None, 0
+                    ));
+                } else {
+                    (Some(0u32), None, Some(quality), false, false, false)
+                }
             } else {
                 (Some(0u32), None, None, false, false, false)
             }
@@ -545,6 +568,12 @@ fn read_item_stats<R: BitRead>(
         PropertyReaderContext { bytes: &[], item_start_bit: 0 }
     };
 
+    if is_v105_shadow {
+        // Alpha v105 forensic: Shadow items contain a copy of the shadowed item before their own properties.
+        // Bit-level discovery confirms a 47-bit gap between extended header and shadow properties.
+        let _ = cursor.read_bits::<u64>(47)?;
+    }
+
     read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow, |_, _, _, _, _| {
         let r = IoBitReader::endian(Cursor::new(&[]), LittleEndian);
         let mut c = BitCursor::new(r);
@@ -631,15 +660,28 @@ pub fn peek_item_header_at(
     let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
     
     if alpha_mode && version == 5 {
-        if !is_compact {
-            header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+        let is_v105_shadow = (flags & (1 << 26)) != 0;
+        let is_rw = {
+            let is_frag = (flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0;
+            !is_frag && ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0)
+        };
+        if is_rw || is_v105_shadow {
+            header_len += 8; // Alpha v105 Version 5 Consolidated Gap
         } else {
-            header_len += 8; // Alpha v105 Version 5 Compact Gap
+            if !is_compact {
+                header_len += 16; // 4 (y) + 3 (page) + 1 (hint) + 8 (gap)
+            } else {
+                header_len += 8; // Alpha v105 Version 5 Compact Gap
+            }
         }
-    } else if alpha_mode && (version == 1 || version == 4) {
-        header_len += 18; // 4 (y) + 3 (page) + 3 (hint) + 8 (gap)
-    } else if !is_compact {
-        header_len += 10; // 4 (y) + 3 (page) + 3 (hint)
+    } else if alpha_mode && version == 1 {
+        header_len += 18; // Alpha v105 Version 1 Header Gap
+    } else if !alpha_mode && !is_compact {
+        header_len += 10; // Standard D2: 4 (y) + 3 (page) + 3 (hint)
+    }
+
+    if alpha_mode && item_trace_enabled() {
+        println!("[DEBUG] peek v{}: flags=0x{:08X}, compact={}, len={}", version, flags, is_compact, header_len);
     }
 
     let mut code = String::new();

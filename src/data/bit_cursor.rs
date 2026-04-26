@@ -1,5 +1,4 @@
 use bitstream_io::{BitRead, Numeric};
-use std::io;
 use crate::domain::item::{BitSegment, RecordedBit};
 use crate::domain::item::quality::ItemQuality;
 use crate::domain::header::entity::ItemSegmentType;

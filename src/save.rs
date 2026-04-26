@@ -14,7 +14,6 @@ pub use crate::domain::header::axiom::{
 pub use crate::domain::stats::{AttributeSection, AttributeEntry};
 pub use crate::domain::character::skills::{SkillSection, SKILL_SECTION_LEN};
 pub use crate::domain::progression::{QuestSection, WaypointSection};
-use bitstream_io::LittleEndian;
 use std::io;
 use std::mem;
 

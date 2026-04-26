@@ -154,7 +154,34 @@ impl StatsAxiom {
         }
     }
 
+    /// Determines the final bit alignment for an item based on consumed bits and version.
+    pub fn calculate_alignment(&self, consumed_bits: u64, is_compact: bool) -> u64 {
+        let mut final_len = consumed_bits;
+        
+        // All versions except version 5 (Retail and some Alpha variants) 
+        // add a single terminal bit (usually false/0) before alignment.
+        if self.version != 5 {
+            final_len += 1;
+        }
+
+        if self.save_is_alpha {
+            // Alpha v105 forensic: Non-extended items are aligned to 80 bits.
+            if is_compact && final_len < 80 {
+                final_len = 80;
+            }
+            // All Alpha items are byte-aligned after the 80-bit or natural boundary.
+            if final_len % 8 != 0 {
+                final_len += 8 - (final_len % 8);
+            }
+        } else if final_len % 8 != 0 {
+            // Retail: Just byte alignment
+            final_len += 8 - (final_len % 8);
+        }
+        final_len
+    }
+
     pub fn reads_defense(&self) -> bool {
+
         !self.is_alpha()
     }
 

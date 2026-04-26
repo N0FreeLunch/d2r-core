@@ -36,4 +36,47 @@ mod tests {
         // Final assertion: we have exactly 16 items.
         assert_eq!(items.len(), 16);
     }
+
+    #[test]
+    fn test_all_alpha_v105_fixtures_bit_perfect() {
+        let fixtures = [
+            "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
+            "tests/fixtures/savegames/original/amazon_10_scrolls.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_act2_start.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_andariel_killed_no_talk.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_re_probe_zigzag_all_diff.d2s",
+        ];
+        
+        let huffman = HuffmanTree::new();
+        
+        for fixture_path in fixtures {
+            println!("Testing Alpha v105 bit-perfect roundtrip for: {}", fixture_path);
+            let bytes = fs::read(fixture_path).expect("Fixture not found");
+            
+            // 1. Recover all items
+            let items = Item::read_player_items(&bytes, &huffman, true).expect("Parsing failed");
+            
+            // 2. Reserialize section
+            let reserialized_items = Item::serialize_section(&items, &huffman, true).expect("Serialization failed");
+            
+            // 3. Compare with original bytes
+            let jm_pos = (0..bytes.len().saturating_sub(1))
+                .find(|&i| bytes[i] == b'J' && bytes[i + 1] == b'M')
+                .expect("JM header not found");
+            
+            let original_payload = &bytes[jm_pos + 4..];
+            
+            // The items section in original files might contain more data (other sections),
+            // so we compare only up to the length of our reserialized bits.
+            // But for these specific Alpha fixtures, we aim for 100% segment matching.
+            for i in 0..reserialized_items.len() {
+                assert_eq!(
+                    reserialized_items[i], 
+                    original_payload[i], 
+                    "Byte mismatch at offset {} in fixture {}", i, fixture_path
+                );
+            }
+            println!("  [PASS] {} bytes matched perfectly.", reserialized_items.len());
+        }
+    }
 }

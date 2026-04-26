@@ -376,17 +376,13 @@ impl Item {
             }
         }
 
-        if alpha_mode {
-            if self.is_compact && emitter.written_bits() < 80 {
-                emitter.write_bits(0, (80 - emitter.written_bits()) as u32)?;
-            }
-            if self.version != 5 {
-                emitter.write_bit(false)?;
-            }
-        } else if self.version != 5 {
-            emitter.write_bit(false)?;
+        // Use axiom to determine final alignment bits
+        let current_bits = emitter.written_bits();
+        let final_bits = axiom.calculate_alignment(current_bits as u64, self.is_compact);
+        if final_bits > current_bits as u64 {
+            emitter.write_bits(0, (final_bits - current_bits as u64) as u32)?;
         }
-        emitter.byte_align()?;
+
         Ok(emitter.into_bytes())
     }
 

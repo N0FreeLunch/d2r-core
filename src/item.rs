@@ -132,24 +132,15 @@ impl Item {
             };
             let strict_limit = next_item_start - start;
             match parse_item_at_with_limit(section_bytes, start, huffman, items.len(), alpha_mode, Some(strict_limit)) {
-                Ok((item, mut consumed_bits)) => {
-                    if alpha_mode {
-                        // Alpha v105 Forensic: All items are byte-aligned.
-                        // Compact items (like potions) are exactly 80 bits (10 bytes).
-                        if item.is_compact {
-                            if consumed_bits < 80 {
-                                consumed_bits = 80;
-                            }
-                        }
-                        if consumed_bits % 8 != 0 {
-                            consumed_bits += 8 - (consumed_bits % 8);
-                        }
-                    }
+                Ok((item, consumed_bits)) => {
+                    // Use axiom to determine final alignment
+                    let axiom = StatsAxiom::new(item.version, item.quality.unwrap_or(ItemQuality::Normal), alpha_mode);
+                    let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact);
 
-                    let end = start + consumed_bits;
+                    let end = start + final_consumed;
                     let mut final_item = item;
                     final_item.range.end = end;
-                    final_item.total_bits = consumed_bits;
+                    final_item.total_bits = final_consumed;
                     final_item.gap_bits = pending_gap_bits;
                     pending_gap_bits = Vec::new();
 
@@ -157,7 +148,7 @@ impl Item {
                     let mut actual_bits = Vec::new();
                     let mut bit_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
                     if bit_reader.skip(start as u32).is_ok() {
-                        for i in 0..consumed_bits {
+                        for i in 0..final_consumed {
                             if let Ok(b) = bit_reader.read_bit() {
                                 actual_bits.push(RecordedBit { bit: b, offset: start + i });
                             }
@@ -165,7 +156,7 @@ impl Item {
                     }
                     final_item.bits = actual_bits;
 
-                    item_trace!("[DEBUG] read_section: Item {} ({}) consumed {} bits", items.len(), final_item.code.trim(), consumed_bits);
+                    item_trace!("[DEBUG] read_section: Item {} ({}) consumed {} bits", items.len(), final_item.code.trim(), final_consumed);
 
 
                     

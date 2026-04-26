@@ -217,6 +217,9 @@ mod roundtrip_tests {
             "tests/fixtures/savegames/original/amazon_empty.d2s",
             "tests/fixtures/savegames/original/amazon_authority_runeword.d2s",
             "tests/fixtures/savegames/original/amazon_10_scrolls.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_act2_start.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_andariel_killed_no_talk.d2s",
+            "tests/fixtures/savegames/original/amazon_v105_re_probe_zigzag_all_diff.d2s",
         ];
 
         let filter = std::env::var("D2R_FIXTURE_FILTER").ok();

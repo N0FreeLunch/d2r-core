@@ -259,13 +259,14 @@ impl Item {
 
         if !self.is_compact {
             let quality_val = self.quality.unwrap_or(ItemQuality::Normal);
-            let is_frag = alpha_mode && (self.version == 5 || self.version == 1) && ((self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0);
+            let is_item_alpha = axiom.is_alpha();
 
-            let is_alpha = alpha_mode && (self.version == 1 || self.version == 4 || (self.version == 5 && !self.is_runeword && !is_frag));
-            if alpha_mode && (self.version == 5 || self.version == 1 || self.version == 4) {
+            if is_item_alpha {
                 // Skip ID and Level for v105/v104/v101 in ExtendedStats
                 // Alpha v105: Quality is 3 bits in read_extended_stats
                 emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 3)?;
+                
+                let is_frag = (self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0;
                 if self.version == 5 && (self.is_runeword || is_frag) {
                     // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
                     emitter.write_bits(0, 2)?;
@@ -276,8 +277,8 @@ impl Item {
                 emitter.write_bits(self.quality.map(|q| q as u8).unwrap_or(0) as u32, 4)?;
             }
 
-            if is_alpha {
-                // Early exit for v104/v101
+            if is_item_alpha && self.version != 5 {
+                // Early exit for v104/v101 in ExtendedStats
             } else {
                 if self.has_multiple_graphics {
                     emitter.write_bits(self.multi_graphics_bits.unwrap_or(0) as u32, 3)?;
@@ -312,6 +313,7 @@ impl Item {
                     _ => {}
                 }
 
+                let is_frag = (self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0;
                 if self.is_runeword && !is_frag && self.version != 5 {
                     emitter.write_bits(self.runeword_id.unwrap_or(0) as u32, 12)?;
                     emitter.write_bits(self.runeword_level.unwrap_or(0) as u32, 4)?;
@@ -332,11 +334,11 @@ impl Item {
                     (t.is_armor, t.has_durability, t.is_stackable)
                 } else { (false, false, false) };
 
-                // Alpha v105 forensic: Defense, Durability, and Quantity are omitted in read_extended_stats for ALL Alpha versions.
-                if reads_defense && (!alpha_mode && self.version != 5) {
+                // Use StatsAxiom to decide field presence
+                if reads_defense && axiom.reads_defense() {
                     emitter.write_bits(self.defense.unwrap_or(0), 11)?;
                 }
-                if reads_durability && (!alpha_mode && self.version != 5) {
+                if reads_durability && axiom.reads_durability() {
                     let m_dur = self.max_durability.unwrap_or(0);
                     emitter.write_bits(m_dur, 8)?;
                     if m_dur > 0 {
@@ -344,11 +346,11 @@ impl Item {
                         emitter.write_bit(false)?; // dur_extra
                     }
                 }
-                if reads_quantity && (!alpha_mode && self.version != 5) {
+                if reads_quantity && axiom.reads_quantity() {
                     emitter.write_bits(self.quantity.unwrap_or(0), 9)?;
                 }
 
-                if self.is_socketed && (!alpha_mode || self.version == 5) {
+                if axiom.is_socketed(self.flags, self.is_compact) {
                     emitter.write_bits(self.sockets.unwrap_or(0) as u32, 4)?;
                 }
 

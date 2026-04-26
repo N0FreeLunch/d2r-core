@@ -384,7 +384,7 @@ impl Item {
         cursor: &mut BitCursor<R>,
         code: &str,
         is_compact: bool,
-        is_socketed: bool,
+        _is_socketed: bool,
         is_runeword: bool,
         is_personalized: bool,
         version: u8,
@@ -499,16 +499,16 @@ impl Item {
         };
 
         let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
-        if reads_defense && (!alpha_mode && version != 5) { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
-        if reads_durability && (!alpha_mode && version != 5) {
+        if reads_defense && axiom.reads_defense() { defense = Some(cursor.read_bits::<u32>(stat_save_bits(31).unwrap_or(11))?); }
+        if reads_durability && axiom.reads_durability() {
             let max_bits = stat_save_bits(73).unwrap_or(8);
             let cur_bits = stat_save_bits(72).unwrap_or(9);
             let m_dur = cursor.read_bits::<u32>(max_bits)?;
             max_durability = Some(m_dur);
             if m_dur > 0 { current_durability = Some(cursor.read_bits::<u32>(cur_bits)?); let _extra = cursor.read_bit()?; }
         }
-        if reads_quantity && (!alpha_mode && version != 5) { quantity = Some(cursor.read_bits::<u32>(9)?); }
-        if is_socketed && (!alpha_mode || version == 5) { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
+        if reads_quantity && axiom.reads_quantity() { quantity = Some(cursor.read_bits::<u32>(9)?); }
+        if axiom.is_socketed(0, is_compact) { sockets = Some(cursor.read_bits::<u8>(4)? as u8); }
 
         cursor.end_segment();
         Ok((

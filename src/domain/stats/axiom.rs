@@ -154,7 +154,20 @@ impl StatsAxiom {
         }
     }
 
+    pub fn reads_defense(&self) -> bool {
+        !self.is_alpha()
+    }
+
+    pub fn reads_durability(&self) -> bool {
+        !self.is_alpha()
+    }
+
+    pub fn reads_quantity(&self) -> bool {
+        !self.is_alpha()
+    }
+
     pub fn lookup_alpha_map_by_raw(&self, raw_id: u32) -> Option<&'static AlphaStatMap> {
+
         ALPHA_STAT_MAPS.iter().find(|m| m.raw_id == raw_id)
     }
 

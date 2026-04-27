@@ -270,3 +270,7 @@ path = "src/bin/verify/forensic_scaffold.rs"
 [[bin]]
 name = "d2item_geometry_scanner"
 path = "src/bin/verify/d2item_geometry_scanner.rs"
+
+[[bin]]
+name = "d2item_probe"
+path = "src/bin/verify/d2item_probe.rs"

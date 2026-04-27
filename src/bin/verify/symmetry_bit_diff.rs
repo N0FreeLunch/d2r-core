@@ -1,5 +1,6 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use d2r_core::item::{HuffmanTree, Item};
+use d2r_core::domain::stats::lookup_alpha_map_by_raw;
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -92,8 +93,7 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
         println!(" [DIFF]");
         println!("{}  Length: Original={} bits, Rebuilt={} bits", indent, original_bits.len(), rebuilt_bits.len());
         if let Some(idx) = mismatch_idx {
-            let offset = original_bits[idx].offset;
-            let segment_name = find_segment_for_offset(item, offset).unwrap_or_else(|| "Unknown".to_string());
+            let segment_name = find_segment_for_offset(item, idx as u64).unwrap_or_else(|| "Unknown".to_string());
             println!("{}  First mismatch at bit offset {} (Segment: {})", indent, idx, segment_name);
         }
     } else {
@@ -120,8 +120,7 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
             }
         }
         if let Some(idx) = mismatch_idx {
-            let offset = item_a.bits[idx].offset;
-            let segment_name = find_segment_for_offset(item_a, offset).unwrap_or_else(|| "Unknown".to_string());
+            let segment_name = find_segment_for_offset(item_a, idx as u64).unwrap_or_else(|| "Unknown".to_string());
             println!(" [DIFF] Content mismatch at bit offset {} (Segment: {})", idx, segment_name);
         } else {
             println!(" ({} bits)", item_a.bits.len());
@@ -138,7 +137,43 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
 }
 
 fn find_segment_for_offset(item: &Item, offset: u64) -> Option<String> {
-    // Find the deepest segment that contains this offset
+    // 1. Check properties for more semantic context
+    for prop in &item.properties {
+        if offset >= prop.range.start && offset < prop.range.end {
+             let name = if prop.name.is_empty() {
+                 lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+             } else {
+                 prop.name.clone()
+             };
+             return Some(format!("Stats -> {}", name));
+        }
+    }
+    
+    for (i, list) in item.set_attributes.iter().enumerate() {
+        for prop in list {
+            if offset >= prop.range.start && offset < prop.range.end {
+                let name = if prop.name.is_empty() {
+                    lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+                } else {
+                    prop.name.clone()
+                };
+                return Some(format!("SetAttributes[{}] -> {}", i, name));
+            }
+        }
+    }
+    
+    for prop in &item.runeword_attributes {
+        if offset >= prop.range.start && offset < prop.range.end {
+            let name = if prop.name.is_empty() {
+                lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+            } else {
+                prop.name.clone()
+            };
+            return Some(format!("RunewordAttributes -> {}", name));
+        }
+    }
+
+    // 2. Find the deepest segment that contains this offset
     let mut best_segment: Option<&d2r_core::domain::item::entity::BitSegment> = None;
     
     for seg in &item.segments {

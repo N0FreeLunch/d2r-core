@@ -2,6 +2,11 @@
 use super::quality::ItemQuality;
 use crate::domain::stats::{ItemProperty, ItemStats};
 
+#[derive(Debug, Clone, Serialize)]
+pub struct BitSemantic {
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecordedBit {
     pub bit: bool,
@@ -126,6 +131,71 @@ pub struct Item {
 }
 
 impl Item {
+    pub fn query_bit(&self, offset: u64) -> Option<BitSemantic> {
+        // 1. Check properties for more semantic context
+        for prop in &self.properties {
+            if offset >= prop.range.start && offset < prop.range.end {
+                 let name = if prop.name.is_empty() {
+                     crate::domain::stats::lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+                 } else {
+                     prop.name.clone()
+                 };
+                 return Some(BitSemantic { label: format!("Stats -> {}", name) });
+            }
+        }
+        
+        for (i, list) in self.set_attributes.iter().enumerate() {
+            for prop in list {
+                if offset >= prop.range.start && offset < prop.range.end {
+                    let name = if prop.name.is_empty() {
+                        crate::domain::stats::lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+                    } else {
+                        prop.name.clone()
+                    };
+                    return Some(BitSemantic { label: format!("SetAttributes[{}] -> {}", i, name) });
+                }
+            }
+        }
+        
+        for prop in &self.runeword_attributes {
+            if offset >= prop.range.start && offset < prop.range.end {
+                let name = if prop.name.is_empty() {
+                    crate::domain::stats::lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
+                } else {
+                    prop.name.clone()
+                };
+                return Some(BitSemantic { label: format!("RunewordAttributes -> {}", name) });
+            }
+        }
+
+        // 2. Find the deepest segment that contains this offset
+        let mut best_segment: Option<&BitSegment> = None;
+        
+        for seg in &self.segments {
+            if offset >= seg.start && offset < seg.end {
+                if let Some(best) = best_segment {
+                    if seg.depth > best.depth {
+                        best_segment = Some(seg);
+                    }
+                } else {
+                    best_segment = Some(seg);
+                }
+            }
+        }
+
+        if let Some(seg) = best_segment {
+            return Some(BitSemantic { label: seg.label.clone() });
+        }
+
+        // Check children recursively
+        for child in &self.socketed_items {
+            if let Some(semantic) = child.query_bit(offset) {
+                return Some(BitSemantic { label: format!("{} -> {}", self.code.trim(), semantic.label) });
+            }
+        }
+        None
+    }
+
     pub fn empty_for_tests() -> Self {
         Self {
             bits: Vec::new(),

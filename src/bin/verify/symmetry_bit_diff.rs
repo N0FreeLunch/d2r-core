@@ -1,6 +1,5 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use d2r_core::item::{HuffmanTree, Item};
-use d2r_core::domain::stats::lookup_alpha_map_by_raw;
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -164,7 +163,7 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
         }
         if let Some(idx) = mismatch_idx {
             item_diff.first_mismatch_offset = Some(idx as u64);
-            let segment_name = find_segment_for_offset(item, idx as u64).unwrap_or_else(|| "Unknown".to_string());
+            let segment_name = item.query_bit(idx as u64).map(|s| s.label).unwrap_or_else(|| "Unknown".to_string());
             item_diff.segment = Some(segment_name.clone());
             if !is_json {
                 println!("{}  First mismatch at bit offset {} (Segment: {})", indent, idx, segment_name);
@@ -222,7 +221,7 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize,
             item_diff.is_match = false;
             item_diff.mismatch_type = Some("Content".to_string());
             item_diff.first_mismatch_offset = Some(idx as u64);
-            let segment_name = find_segment_for_offset(item_a, idx as u64).unwrap_or_else(|| "Unknown".to_string());
+            let segment_name = item_a.query_bit(idx as u64).map(|s| s.label).unwrap_or_else(|| "Unknown".to_string());
             item_diff.segment = Some(segment_name.clone());
             if !is_json {
                 println!(" [DIFF] Content mismatch at bit offset {} (Segment: {})", idx, segment_name);
@@ -266,69 +265,4 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize,
     }
 
     item_diff
-}
-
-fn find_segment_for_offset(item: &Item, offset: u64) -> Option<String> {
-    // 1. Check properties for more semantic context
-    for prop in &item.properties {
-        if offset >= prop.range.start && offset < prop.range.end {
-             let name = if prop.name.is_empty() {
-                 lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
-             } else {
-                 prop.name.clone()
-             };
-             return Some(format!("Stats -> {}", name));
-        }
-    }
-    
-    for (i, list) in item.set_attributes.iter().enumerate() {
-        for prop in list {
-            if offset >= prop.range.start && offset < prop.range.end {
-                let name = if prop.name.is_empty() {
-                    lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
-                } else {
-                    prop.name.clone()
-                };
-                return Some(format!("SetAttributes[{}] -> {}", i, name));
-            }
-        }
-    }
-    
-    for prop in &item.runeword_attributes {
-        if offset >= prop.range.start && offset < prop.range.end {
-            let name = if prop.name.is_empty() {
-                lookup_alpha_map_by_raw(prop.stat_id).map(|m| m.name.to_string()).unwrap_or_else(|| format!("Stat({})", prop.stat_id))
-            } else {
-                prop.name.clone()
-            };
-            return Some(format!("RunewordAttributes -> {}", name));
-        }
-    }
-
-    // 2. Find the deepest segment that contains this offset
-    let mut best_segment: Option<&d2r_core::domain::item::entity::BitSegment> = None;
-    
-    for seg in &item.segments {
-        if offset >= seg.start && offset < seg.end {
-            if let Some(best) = best_segment {
-                if seg.depth > best.depth {
-                    best_segment = Some(seg);
-                }
-            } else {
-                best_segment = Some(seg);
-            }
-        }
-    }
-
-    if let Some(seg) = best_segment {
-        return Some(seg.label.clone());
-    }
-
-    // Check children recursively
-    for child in &item.socketed_items {
-        if let Some(name) = find_segment_for_offset(child, offset) {
-            return Some(format!("{} -> {}", item.code.trim(), name));
-        }
-    }
-    None
 }

@@ -139,7 +139,7 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
 
 fn find_segment_for_offset(item: &Item, offset: u64) -> Option<String> {
     // Find the deepest segment that contains this offset
-    let mut best_segment: Option<&crate::domain::item::entity::BitSegment> = None;
+    let mut best_segment: Option<&d2r_core::domain::item::entity::BitSegment> = None;
     
     for seg in &item.segments {
         if offset >= seg.start && offset < seg.end {

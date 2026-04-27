@@ -6,6 +6,33 @@ use std::fs;
 use std::io::Cursor;
 use std::process;
 use d2r_core::verify::args::{ArgParser, ArgSpec, ArgError};
+use serde::Serialize;
+
+#[derive(Serialize, Default)]
+struct DiffReport {
+    success: bool,
+    operation: String,
+    item_count_a: usize,
+    item_count_b: usize,
+    items: Vec<ItemDiff>,
+}
+
+#[derive(Serialize, Default)]
+struct ItemDiff {
+    label: String,
+    code: String,
+    is_match: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mismatch_type: Option<String>,
+    original_len: usize,
+    target_len: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_mismatch_offset: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    segment: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<ItemDiff>,
+}
 
 fn main() {
     unsafe { std::env::set_var("D2R_ITEM_TRACE", "1"); }
@@ -15,6 +42,7 @@ fn main() {
     parser.add_spec(ArgSpec::positional("file_a", "path to the save file (.d2s)"));
     parser.add_spec(ArgSpec::positional("file_b", "path to the second save file (.d2s)").optional());
     parser.add_spec(ArgSpec::flag("roundtrip", Some('r'), Some("roundtrip"), "if set, compares file_a with its own reserialized items"));
+    parser.add_spec(ArgSpec::flag("json", Some('j'), Some("json"), "if set, outputs results in JSON format"));
 
     let args: Vec<_> = env::args_os().skip(1).collect();
     let parsed = match parser.parse(args) {
@@ -31,19 +59,32 @@ fn main() {
 
     let path_a = parsed.get("file_a").unwrap();
     let is_roundtrip = parsed.is_set("roundtrip");
+    let is_json = parsed.is_set("json");
 
     let bytes_a = fs::read(path_a).expect("failed to read save file A");
     let huffman = HuffmanTree::new();
     let version_a = u32::from_le_bytes(bytes_a[4..8].try_into().unwrap_or([0; 4]));
     let is_alpha_a = version_a == 105 || version_a == 6;
 
+    let mut report = DiffReport {
+        operation: if is_roundtrip { "roundtrip".to_string() } else { "compare".to_string() },
+        ..Default::default()
+    };
+
     if is_roundtrip {
-        println!("Performing memory roundtrip analysis for A...");
+        if !is_json {
+            println!("Performing memory roundtrip analysis for A...");
+        }
         let items = Item::read_player_items(&bytes_a, &huffman, is_alpha_a).expect("failed to read items from A");
-        println!("  - Recovered {} top-level items", items.len());
+        report.item_count_a = items.len();
+        report.item_count_b = items.len(); // roundtrip always has same count
+        if !is_json {
+            println!("  - Recovered {} top-level items", items.len());
+        }
 
         for (i, item) in items.iter().enumerate() {
-            compare_item_with_reserialized(item, &huffman, is_alpha_a, format!("Item {}", i), 0);
+            let item_diff = compare_item_with_reserialized(item, &huffman, is_alpha_a, format!("Item {}", i), 0, is_json);
+            report.items.push(item_diff);
         }
     } else {
         let path_b = parsed.get("file_b").expect("file_b is required when --roundtrip is not set");
@@ -53,15 +94,25 @@ fn main() {
 
         let items_a = Item::read_player_items(&bytes_a, &huffman, is_alpha_a).expect("failed to read items from A");
         let items_b = Item::read_player_items(&bytes_b, &huffman, is_alpha_b).expect("failed to read items from B");
+        report.item_count_a = items_a.len();
+        report.item_count_b = items_b.len();
 
-        println!("Comparing {} items from A with {} items from B...", items_a.len(), items_b.len());
-        for i in 0..items_a.len().min(items_b.len()) {
-            compare_two_items(&items_a[i], &items_b[i], format!("Item {}", i), 0);
+        if !is_json {
+            println!("Comparing {} items from A with {} items from B...", items_a.len(), items_b.len());
         }
+        for i in 0..items_a.len().min(items_b.len()) {
+            let item_diff = compare_two_items(&items_a[i], &items_b[i], format!("Item {}", i), 0, is_json);
+            report.items.push(item_diff);
+        }
+    }
+
+    report.success = report.item_count_a == report.item_count_b && report.items.iter().all(|i| i.is_match);
+    if is_json {
+        println!("{}", serde_json::to_string_pretty(&report).unwrap());
     }
 }
 
-fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode: bool, prefix: String, depth: usize) {
+fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode: bool, prefix: String, depth: usize, is_json: bool) -> ItemDiff {
     let indent = "  ".repeat(depth);
     let reserialized_bytes = item.to_bytes(huffman, alpha_mode).expect("failed to reserialize");
     
@@ -79,7 +130,9 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
         }
     }
 
-    print!("{}{} match: '{}'", indent, prefix, item.code.trim());
+    if !is_json {
+        print!("{}{} match: '{}'", indent, prefix, item.code.trim());
+    }
     
     let mut mismatch_idx = None;
     for i in 0..original_bits.len().min(rebuilt_bits.len()) {
@@ -89,28 +142,74 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
         }
     }
 
+    let mut item_diff = ItemDiff {
+        label: prefix,
+        code: item.code.trim().to_string(),
+        original_len: original_bits.len(),
+        target_len: rebuilt_bits.len(),
+        ..Default::default()
+    };
+
     if mismatch_idx.is_some() || original_bits.len() != rebuilt_bits.len() {
-        println!(" [DIFF]");
-        println!("{}  Length: Original={} bits, Rebuilt={} bits", indent, original_bits.len(), rebuilt_bits.len());
+        item_diff.is_match = false;
+        if original_bits.len() != rebuilt_bits.len() {
+            item_diff.mismatch_type = Some("Length".to_string());
+        } else {
+            item_diff.mismatch_type = Some("Content".to_string());
+        }
+
+        if !is_json {
+            println!(" [DIFF]");
+            println!("{}  Length: Original={} bits, Rebuilt={} bits", indent, original_bits.len(), rebuilt_bits.len());
+        }
         if let Some(idx) = mismatch_idx {
+            item_diff.first_mismatch_offset = Some(idx as u64);
             let segment_name = find_segment_for_offset(item, idx as u64).unwrap_or_else(|| "Unknown".to_string());
-            println!("{}  First mismatch at bit offset {} (Segment: {})", indent, idx, segment_name);
+            item_diff.segment = Some(segment_name.clone());
+            if !is_json {
+                println!("{}  First mismatch at bit offset {} (Segment: {})", indent, idx, segment_name);
+            }
         }
     } else {
-        println!(" ({} bits)", original_bits.len());
+        item_diff.is_match = true;
+        if !is_json {
+            println!(" ({} bits)", original_bits.len());
+        }
     }
 
     for (i, child) in item.socketed_items.iter().enumerate() {
-        compare_item_with_reserialized(child, huffman, alpha_mode, format!("Child {}", i), depth + 1);
+        let child_diff = compare_item_with_reserialized(child, huffman, alpha_mode, format!("Child {}", i), depth + 1, is_json);
+        item_diff.children.push(child_diff);
     }
+    
+    // If any child doesn't match, this item doesn't match either
+    if !item_diff.children.iter().all(|c| c.is_match) {
+        item_diff.is_match = false;
+    }
+
+    item_diff
 }
 
-fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize) {
+fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize, is_json: bool) -> ItemDiff {
     let indent = "  ".repeat(depth);
-    print!("{}{} match: '{}' vs '{}'", indent, prefix, item_a.code.trim(), item_b.code.trim());
+    if !is_json {
+        print!("{}{} match: '{}' vs '{}'", indent, prefix, item_a.code.trim(), item_b.code.trim());
+    }
+
+    let mut item_diff = ItemDiff {
+        label: prefix.clone(),
+        code: item_a.code.trim().to_string(),
+        original_len: item_a.bits.len(),
+        target_len: item_b.bits.len(),
+        ..Default::default()
+    };
 
     if item_a.bits.len() != item_b.bits.len() {
-        println!(" [DIFF] Length mismatch (A={} bits, B={} bits)", item_a.bits.len(), item_b.bits.len());
+        item_diff.is_match = false;
+        item_diff.mismatch_type = Some("Length".to_string());
+        if !is_json {
+            println!(" [DIFF] Length mismatch (A={} bits, B={} bits)", item_a.bits.len(), item_b.bits.len());
+        }
     } else {
         let mut mismatch_idx = None;
         for i in 0..item_a.bits.len() {
@@ -120,20 +219,53 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
             }
         }
         if let Some(idx) = mismatch_idx {
+            item_diff.is_match = false;
+            item_diff.mismatch_type = Some("Content".to_string());
+            item_diff.first_mismatch_offset = Some(idx as u64);
             let segment_name = find_segment_for_offset(item_a, idx as u64).unwrap_or_else(|| "Unknown".to_string());
-            println!(" [DIFF] Content mismatch at bit offset {} (Segment: {})", idx, segment_name);
+            item_diff.segment = Some(segment_name.clone());
+            if !is_json {
+                println!(" [DIFF] Content mismatch at bit offset {} (Segment: {})", idx, segment_name);
+            }
         } else {
-            println!(" ({} bits)", item_a.bits.len());
+            item_diff.is_match = true;
+            if !is_json {
+                println!(" ({} bits)", item_a.bits.len());
+            }
         }
     }
 
     for i in 0..item_a.socketed_items.len().max(item_b.socketed_items.len()) {
         if i < item_a.socketed_items.len() && i < item_b.socketed_items.len() {
-            compare_two_items(&item_a.socketed_items[i], &item_b.socketed_items[i], format!("Child {}", i), depth + 1);
+            let child_diff = compare_two_items(&item_a.socketed_items[i], &item_b.socketed_items[i], format!("Child {}", i), depth + 1, is_json);
+            item_diff.children.push(child_diff);
         } else {
-            println!("{}  Child count mismatch at index {}", indent, i);
+            item_diff.is_match = false;
+            let mut child_diff = ItemDiff {
+                label: format!("Child {}", i),
+                is_match: false,
+                mismatch_type: Some("ChildCount".to_string()),
+                ..Default::default()
+            };
+            if i < item_a.socketed_items.len() {
+                child_diff.code = item_a.socketed_items[i].code.trim().to_string();
+                child_diff.original_len = item_a.socketed_items[i].bits.len();
+            } else {
+                child_diff.code = item_b.socketed_items[i].code.trim().to_string();
+                child_diff.target_len = item_b.socketed_items[i].bits.len();
+            }
+            item_diff.children.push(child_diff);
+            if !is_json {
+                println!("{}  Child count mismatch at index {}", indent, i);
+            }
         }
     }
+    
+    if !item_diff.children.iter().all(|c| c.is_match) {
+        item_diff.is_match = false;
+    }
+
+    item_diff
 }
 
 fn find_segment_for_offset(item: &Item, offset: u64) -> Option<String> {

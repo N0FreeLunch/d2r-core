@@ -230,6 +230,7 @@ impl Item {
         cursor.set_trace(item_trace_enabled());
         let start_bit = cursor.pos();
         cursor.begin_segment(ItemSegmentType::Root);
+        cursor.begin_segment(ItemSegmentType::Header);
 
         let flags = cursor.read_bits::<u32>(32)?;
         if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
@@ -282,19 +283,24 @@ impl Item {
             page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
             header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
         }
+        cursor.end_segment(); // End Header
 
         let mut code = String::new();
         let is_ear = (flags & (1 << 24)) != 0;
         let (mut ear_class, mut ear_level, mut ear_player_name) = (None, None, None);
 
         if is_ear {
+            cursor.begin_segment(ItemSegmentType::Unknown);
             ear_class = Some(cursor.read_bits::<u8>(3)? as u8);
             ear_level = Some(cursor.read_bits::<u8>(7)? as u8);
             ear_player_name = Some(read_player_name(cursor)?);
+            cursor.end_segment();
         } else {
+            cursor.begin_segment(ItemSegmentType::Code);
             for _ in 0..4 {
                 code.push(huff.decode_recorded(cursor)?);
             }
+            cursor.end_segment();
         }
 
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);

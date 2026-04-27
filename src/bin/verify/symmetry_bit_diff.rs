@@ -1,6 +1,5 @@
-use bitstream_io::{LittleEndian};
+use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use d2r_core::item::{HuffmanTree, Item};
-use d2r_core::save::{map_core_sections, AttributeSection, parse_skill_section, parse_quest_section};
 use std::env;
 use std::fs;
 use std::io::Cursor;
@@ -93,7 +92,9 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
         println!(" [DIFF]");
         println!("{}  Length: Original={} bits, Rebuilt={} bits", indent, original_bits.len(), rebuilt_bits.len());
         if let Some(idx) = mismatch_idx {
-            println!("{}  First mismatch at bit offset {}", indent, idx);
+            let offset = original_bits[idx].offset;
+            let segment_name = find_segment_for_offset(item, offset).unwrap_or_else(|| "Unknown".to_string());
+            println!("{}  First mismatch at bit offset {} (Segment: {})", indent, idx, segment_name);
         }
     } else {
         println!(" ({} bits)", original_bits.len());
@@ -119,7 +120,9 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
             }
         }
         if let Some(idx) = mismatch_idx {
-            println!(" [DIFF] Content mismatch at bit offset {}", idx);
+            let offset = item_a.bits[idx].offset;
+            let segment_name = find_segment_for_offset(item_a, offset).unwrap_or_else(|| "Unknown".to_string());
+            println!(" [DIFF] Content mismatch at bit offset {} (Segment: {})", idx, segment_name);
         } else {
             println!(" ({} bits)", item_a.bits.len());
         }
@@ -132,4 +135,33 @@ fn compare_two_items(item_a: &Item, item_b: &Item, prefix: String, depth: usize)
             println!("{}  Child count mismatch at index {}", indent, i);
         }
     }
+}
+
+fn find_segment_for_offset(item: &Item, offset: u64) -> Option<String> {
+    // Find the deepest segment that contains this offset
+    let mut best_segment: Option<&crate::domain::item::entity::BitSegment> = None;
+    
+    for seg in &item.segments {
+        if offset >= seg.start && offset < seg.end {
+            if let Some(best) = best_segment {
+                if seg.depth > best.depth {
+                    best_segment = Some(seg);
+                }
+            } else {
+                best_segment = Some(seg);
+            }
+        }
+    }
+
+    if let Some(seg) = best_segment {
+        return Some(seg.label.clone());
+    }
+
+    // Check children recursively
+    for child in &item.socketed_items {
+        if let Some(name) = find_segment_for_offset(child, offset) {
+            return Some(format!("{} -> {}", item.code.trim(), name));
+        }
+    }
+    None
 }

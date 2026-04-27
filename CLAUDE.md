@@ -1,41 +1,42 @@
-# Claude Entry Instructions (Bootstrap)
+# Claude Entry Instructions (Public Bootstrap)
+
+This file is a small public bootstrap for Claude-class agents working in `d2r-core`.
+It must stay concise and publishable. Detailed private workflow, indexing, skill discovery, and task-routing rules belong in the Strategy Hub resolved from `D2R_SPEC_PATH`.
 
 ## Canonical References
 Read these in order:
-1. `AGENTS.md` (Public Safety Floor)
-2. `NAVIGATOR.md` (Public Index)
-3. Optional local Strategy Hub files resolved from `D2R_SPEC_PATH` when that environment is available:
-   - a spec-side `CLAUDE.md` companion note
-   - the local `AGENTS.md` and `AI_WORKFLOW.md`
-   - local `.agents/tasks/*.md` files when they are actually relevant
+1. `AGENTS.md` (public safety floor)
+2. `NAVIGATOR.md` (public implementation and verification index)
+3. If a local Strategy Hub is available, prefer its model-specific authority:
+   - `<D2R_SPEC_PATH>/CLAUDE.md`
+   - `<D2R_SPEC_PATH>/AGENTS.md`
+   - `<D2R_SPEC_PATH>/AI_WORKFLOW.md`
+   - relevant `<D2R_SPEC_PATH>/.agents/tasks/*.md`
 
-This document is a **bootstrap entrypoint**. Prefer public root docs first, then use any local Strategy Hub material resolved from `D2R_SPEC_PATH` only as an optional companion overlay when that environment exists.
+If the Strategy Hub is absent or inaccessible, continue with only the public root documents and source tree. Do not block normal core usage on private overlay material.
+
+## Strategy Hub Shape
+When available, the Strategy Hub is expected to provide the private operating context that this public bootstrap intentionally does not duplicate:
+- model entrypoints such as `GEMINI.md` or `CLAUDE.md`;
+- `NAVIGATOR.md` for private domain routing;
+- `AGENTS.md` and `AI_WORKFLOW.md` for workflow and publication-boundary rules;
+- `.agents/tasks/` for parent tasks and mini-spec handoffs;
+- `discussion/`, `research/`, or local navigation/cache files for deeper provenance and recent-delta context.
+
+Core-side agents should use those files when present, but should not copy private detail back into public core documents.
 
 ## Role
 Act as a bounded implementation and review model.
-Do not invent architecture or reverse-engineering rules when a task spec is missing or ambiguous.
+Use this core-side file only to enter the public project safely; use the spec-side `CLAUDE.md` for detailed Claude workflow when available.
 
-## Operating Rules
-- When a local Strategy Hub is available, local task artifacts under `D2R_SPEC_PATH` may be used as execution context for bounded slices.
-- Otherwise, only use a sanitized public-safe task note if one exists.
-- Keep changes within the planned file scope.
-- Enforce the data boundary from `AGENTS.md`/`NAVIGATOR.md`: extracted game tables belong to `d2r-data/`, while `d2r-core` should only use `src/data/mod.rs` as the gateway.
-- If local `AGENTS.md` or `AI_WORKFLOW.md` files resolved from `D2R_SPEC_PATH` exist, treat them as an optional private overlay for research and publication-boundary nuance, not as a reason to expose private detail in public docs.
-- If the parent task spans `3+ files` or involves deep logic, do not execute the full task; only implement explicitly bounded executor-safe slices and otherwise recommend delegation to a stronger secondary model.
-- If the task expands beyond `1 feature + 1 verification + 1-2 files`, stop and request a smaller slice.
-- Trust fixtures, verifiers, and any available local Strategy Hub notes over generic prior knowledge.
-- If the same logical failure repeats twice, stop and produce a failure report instead of retrying blindly.
+Keep implementation within the planned scope. If the work expands beyond a bounded slice, stop and request a smaller slice or planning pass.
 
-## Directive Consistency Addendum (2026-03-23)
-- **Filename Normalization**: The canonical filename is `CLAUDE.md`. `cloude.md` is treated as a typo alias and MUST resolve to this file.
-- **Shared Safety Gates (Inherited from `AGENTS.md`)**:
-  - Never execute `git push` without explicit user command.
-  - Keep strict repository/data boundaries (`d2r-core` implementation vs `d2r-data` tables/assets).
-  - Before modifying directive files or skills, run `Conflict Check -> Action Plan -> Side-Effect Scan`.
-  - For complex PowerShell operations, use temporary script-first harness flow in `tmp/`, then purge temporary artifacts.
-- **Execution Output Contract**:
-  - For implementation/review results, include `Outcome`, `Verification`, and `Residual Risk` before the required next-model line.
+## Public Safety Rules
+- Never execute `git push` without an explicit user command.
+- Preserve repository boundaries: `d2r-core` contains public implementation logic; extracted game data belongs in `d2r-data`; private reasoning belongs in `d2r-spec`.
+- Keep public docs free of private reverse-engineering detail. Link or summarize only public-safe conclusions.
+- Prefer verifier-backed conclusions over guesses. Use public verification tools documented in `NAVIGATOR.md`.
+- If Strategy Hub guidance conflicts with public safety constraints, keep the public safety constraints intact.
 
-## Required Final Field
-End meaningful outputs with:
-`Recommended Next Model: <model> - <short reason>`
+## Directive Updates
+Before modifying directive files such as `AGENTS.md`, `GEMINI.md`, `CLAUDE.md`, or `CONSTITUTION.md`, follow the public `AGENTS.md` directive-update protocol: conflict check, action plan, side-effect scan, then the smallest safe edit.

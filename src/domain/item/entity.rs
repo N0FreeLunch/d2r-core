@@ -40,7 +40,7 @@ pub struct CursedItemData {
 pub use crate::domain::header::entity::ItemHeader;
 
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ItemBody {
     pub code: String,
     pub x: u8,
@@ -71,6 +71,10 @@ pub enum ItemModule {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Item {
+    pub header: ItemHeader,
+    pub body: ItemBody,
+    pub stats: ItemStats,
+
     pub bits: Vec<RecordedBit>,
     pub code: String,
     pub flags: u32,
@@ -198,6 +202,31 @@ impl Item {
 
     pub fn empty_for_tests() -> Self {
         Self {
+            header: ItemHeader {
+                flags: 0,
+                version: 0,
+                mode: 0,
+                location: 0,
+                x: 0,
+                y: 0,
+                page: 0,
+                socket_hint: 0,
+                id: None,
+                quality: None,
+                is_compact: false,
+                is_identified: false,
+                is_socketed: false,
+                is_personalized: false,
+                is_runeword: false,
+                is_ethereal: false,
+                is_ear: false,
+            },
+            body: ItemBody::default(),
+            stats: ItemStats {
+                properties: Vec::new(),
+                set_attributes: Vec::new(),
+                runeword_attributes: Vec::new(),
+            },
             bits: Vec::new(),
             code: String::new(),
             flags: 0,

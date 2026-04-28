@@ -15,11 +15,11 @@ macro_rules! item_trace {
     };
 }
 
-pub use crate::domain::item::{Item, ItemQuality, ItemBitRange, RecordedBit, ItemModule, BitSegment};
-pub use crate::domain::header::entity::ItemSegmentType;
+pub use crate::domain::item::{Item, ItemQuality, ItemBitRange, RecordedBit, ItemModule, BitSegment, ItemBody};
+pub use crate::domain::header::entity::{ItemSegmentType, ItemHeader};
 pub use crate::domain::item::serialization::HuffmanTree;
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult};
-pub use crate::domain::stats::ItemProperty;
+pub use crate::domain::stats::{ItemProperty, ItemStats};
 use crate::domain::stats::{read_property_list, stat_save_bits, StatsAxiom};
 
 #[derive(Debug, Clone)]
@@ -323,6 +323,43 @@ impl Item {
 
         let end_bit = cursor.pos();
         let item = Item {
+            header: ItemHeader {
+                flags,
+                version,
+                mode,
+                location,
+                x,
+                y,
+                page,
+                socket_hint: header_socket_hint,
+                id: stats.0,
+                quality: stats.2,
+                is_compact,
+                is_identified: (flags & (1 << 4)) != 0,
+                is_socketed: axiom.is_socketed(flags, is_compact),
+                is_personalized: (flags & (1 << 25)) != 0,
+                is_runeword: axiom.is_runeword(flags),
+                is_ethereal: (flags & (1 << 22)) != 0,
+                is_ear,
+            },
+            body: ItemBody {
+                code: code.clone(),
+                x,
+                y,
+                page,
+                location,
+                mode,
+                defense: stats.19,
+                max_durability: stats.20,
+                current_durability: stats.21,
+                quantity: stats.22,
+            },
+            stats: ItemStats {
+                properties: Vec::new(),
+                set_attributes: Vec::new(),
+                runeword_attributes: Vec::new(),
+            },
+
             bits: cursor.recorded_bits().to_vec(),
             flags, version, mode, location, x, y, page, header_socket_hint,
             is_ear, ear_class, ear_level, ear_player_name,
@@ -368,7 +405,8 @@ impl Item {
         if !is_compact {
             let is_v105_shadow = alpha_mode && final_item.version == 5 && (final_item.flags & (1 << 26)) != 0;
             let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword, is_v105_shadow)?;
-            final_item.properties = props;
+            final_item.properties = props.clone();
+            final_item.stats.properties = props;
             final_item.properties_complete = complete;
             final_item.terminator_bit = term;
         }
@@ -585,136 +623,10 @@ fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTem
     crate::data::item_codes::ITEM_TEMPLATES.iter().find(|t| t.code == code.trim())
 }
 
-pub fn find_next_item_match(bytes: &[u8], pos: u64, huffman: &HuffmanTree, alpha: bool) -> Option<u64> {
-    let limit = (bytes.len() * 8) as u64;
-    let mut probe = pos;
-    while probe < limit {
-        // Alpha v105 items are strictly byte-aligned.
-        if alpha && probe % 8 != 0 {
-            probe += 1;
-            continue;
-        }
-        if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, probe, huffman, alpha) {
-            if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
-                return Some(probe);
-            }
-        }
-        probe += 1;
-    }
-    None
-}
-
-pub fn is_plausible_item_header(
-    mode: u8,
-    location: u8,
-    code: &str,
-    flags: u32,
-    version: u8,
-    alpha_mode: bool,
-) -> bool {
-    crate::item_trace!("[DEBUG] plausible check: code='{}', mode={}, loc={}, flags=0x{:08X}, v={}, alpha={}", code, mode, location, flags, version, alpha_mode);
-    if code.len() < 3 { return false; }
-    if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
-    if alpha_mode {
-        // Alpha v105 codes are usually 4 chars (e.g. '7pww', 'hp1 ', '1pww').
-        if code.len() != 4 { return false; }
-        if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
-        if code.trim().is_empty() { return false; }
-        
-        if mode > 6 || location > 15 { return false; }
-        // The top 5 bits of flags are used in Alpha (e.g. 0x6B... for Authority).
-    } else if mode > 6 || location > 15 { return false; }
-    true
-}
-
-pub fn peek_item_header_at(
-    section_bytes: &[u8],
-    start_bit: u64,
-    huffman: &HuffmanTree,
-    alpha_mode: bool,
-) -> Option<(u8, u8, u8, String, u32, u8, bool, u64, i8)> {
-    let mut reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    if reader.skip(start_bit as u32).is_err() { return None; }
-
-    let flags = reader.read::<32, u32>().ok()?;
-    if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
-        return None;
-    }
-    let version = reader.read::<3, u8>().ok()?;
-    let mode = reader.read::<3, u8>().ok()?;
-    let loc = reader.read::<3, u8>().ok()?;
-    let x = reader.read::<4, u8>().ok()?;
-    
-    let is_compact = (flags & (1 << 21)) != 0;
-    let mut header_len = 32 + 3 + 3 + 3 + 4; // flags(32) + v(3) + m(3) + l(3) + x(4)
-    
-    let axiom = StatsAxiom::new(version, ItemQuality::Normal, alpha_mode);
-    let geometry = axiom.header_geometry(flags, is_compact);
-
-    if geometry.has_header_gap {
-        if version == 5 {
-            let is_v105_shadow = (flags & (1 << 26)) != 0;
-            let is_rw = axiom.is_runeword(flags);
-            if is_rw || is_v105_shadow {
-                header_len += 8; // Alpha v105 Version 5 Consolidated Gap
-            } else {
-                header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits + 8;
-            }
-        } else {
-            // Version 1
-            header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits + 8;
-        }
-    } else if !geometry.skip_geometry {
-        header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits;
-    }
-
-    if alpha_mode && item_trace_enabled() {
-        println!("[DEBUG] peek v{}: flags=0x{:08X}, compact={}, len={}", version, flags, is_compact, header_len);
-    }
-
-    let mut code = String::new();
-    let mut n_reader = IoBitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    if n_reader.skip(start_bit as u32 + header_len as u32).is_err() { return None; }
-    let mut n_cursor = BitCursor::new(n_reader);
-    
-    for _ in 0..4 {
-        if let Ok(ch) = huffman.decode_recorded(&mut n_cursor) { code.push(ch); }
-        else { return None; }
-    }
-    
-    if is_plausible_item_header(mode, loc, &code, flags, version, alpha_mode) {
-        return Some((mode, loc, x, code, flags, version, is_compact, header_len as u64, 0));
-    }
-    None
-}
-
-pub fn parse_item_at(
-    bytes: &[u8],
-    bit: u64,
-    huffman: &HuffmanTree,
-    idx: usize,
-    alpha: bool,
-) -> ParsingResult<(Item, u64)> {
-    parse_item_at_with_limit(bytes, bit, huffman, idx, alpha, None)
-}
-
-pub fn parse_item_at_with_limit(
-    bytes: &[u8],
-    bit: u64,
-    huffman: &HuffmanTree,
-    _idx: usize,
-    alpha: bool,
-    limit: Option<u64>,
-) -> ParsingResult<(Item, u64)> {
-    let mut reader = IoBitReader::endian(Cursor::new(bytes), LittleEndian);
-    let _ = reader.skip(bit as u32);
-    let mut cursor = BitCursor::new(reader);
-    if let Some(l) = limit {
-        cursor.set_limit(l);
-    }
-    let item = Item::from_reader_with_context(&mut cursor, huffman, Some((bytes, bit)), alpha)?;
-    Ok((item, cursor.pos()))
-}
+pub use crate::domain::item::serialization::{
+    find_next_item_match, is_plausible_item_header, parse_item_at, parse_item_at_with_limit,
+    peek_item_header_at,
+};
 
 fn scan_socket_children(
     bytes: &[u8],

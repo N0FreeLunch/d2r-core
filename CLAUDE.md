@@ -31,6 +31,16 @@ Use this core-side file only to enter the public project safely; use the spec-si
 
 Keep implementation within the planned scope. If the work expands beyond a bounded slice, stop and request a smaller slice or planning pass.
 
+## Core Work Must-Do Floor
+Use this section when working on `d2r-core` from a wider `d2r` workspace where Strategy Hub instructions may not be automatically loaded.
+- Resolve the Strategy Hub through `D2R_SPEC_PATH` first; if unset, check the sibling `../d2r-spec/` path.
+- Before non-trivial core edits, read the relevant Strategy Hub entrypoint and task context when available: `CLAUDE.md`, `AGENTS.md`, `AI_WORKFLOW.md`, and active `.agents/tasks/*.md`.
+- Keep implementation bounded to the active task or explicitly requested slice; if scope expands beyond 1 feature + 1 verification + 2 files, stop for planning.
+- Use verifier JSON output (`--json`) when supported, and trust structured `hints`/`metadata` over guesses.
+- Do not invent offsets, bit widths, data mappings, or file-layout assumptions when fixture evidence or task anchors are missing.
+- If the same logical failure repeats twice, stop and produce a concise failure report instead of retrying blindly.
+- If the Strategy Hub is unavailable and the task depends on private fixture/research truth, stop and report the missing context rather than inventing assumptions.
+
 ## Public Safety Rules
 - Never execute `git push` without an explicit user command.
 - Preserve repository boundaries: `d2r-core` contains public implementation logic; extracted game data belongs in `d2r-data`; private reasoning belongs in `d2r-spec`.

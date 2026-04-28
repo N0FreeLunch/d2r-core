@@ -24,6 +24,15 @@ When available, the Strategy Hub is expected to provide the private context that
 
 Core-side Copilot output should use those files when present, but should not copy private detail back into public core documents.
 
+## Core Work Must-Do Floor
+Use this section when Copilot is assisting inside `d2r-core` from a wider `d2r` workspace where Strategy Hub instructions may not be automatically loaded.
+- Resolve the Strategy Hub through `D2R_SPEC_PATH` first; if unset, check the sibling `../d2r-spec/` path.
+- Before non-trivial core edits, consult the relevant Strategy Hub task or discussion context when available.
+- For quick recent-delta context, prefer `<D2R_SPEC_PATH>/.agents/navigation/active-context.md` or `d2map-query context` when those tools/files are available; do not duplicate detailed indexing rules here.
+- Use verifier JSON output (`--json`) when supported, and prefer structured diagnostics over guesses.
+- If scope expands beyond a bounded implementation slice, stop for Strategy Hub planning instead of broad direct implementation.
+- If the Strategy Hub is unavailable and the task depends on private fixture/research truth, report the missing context rather than inventing assumptions.
+
 ## Working Rules
 - Keep changes atomic and verifier-backed.
 - Preserve repository boundaries: `d2r-core` contains public implementation logic; extracted game data belongs in `d2r-data`; private reasoning belongs in `d2r-spec`.

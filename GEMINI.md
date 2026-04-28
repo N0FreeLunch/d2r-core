@@ -31,6 +31,17 @@ Use this core-side file only to enter the public project safely; use the spec-si
 
 For simple, well-bounded execution or review requests with clear scope, respond directly. For complex work, bit-level ambiguity, multi-file planning, or handoff preparation, route planning through the Strategy Hub when available.
 
+## Core Work Must-Do Floor
+Use this section when working on `d2r-core` from a wider `d2r` workspace where Strategy Hub instructions may not be automatically loaded.
+- If Gemini CLI was launched from the top-level `d2r` workspace, first follow the workspace `GEMINI.md` (tracked source: `d2r-spec/.gemini/UPPER-ROOT-GEMINI.md`).
+- Resolve the Strategy Hub through `D2R_SPEC_PATH` first; if unset, check the sibling `../d2r-spec/` path.
+- Before non-trivial core edits, read the relevant Strategy Hub entrypoint and task context when available: `GEMINI.md`, `AGENTS.md`, `AI_WORKFLOW.md`, and active `.agents/tasks/*.md`.
+- For quick recent-delta context, prefer `<D2R_SPEC_PATH>/.agents/navigation/active-context.md` or `d2map-query context` when those tools/files are available; do not duplicate detailed indexing rules here.
+- Use verifier JSON output (`--json`) when supported, and trust structured `hints`/`metadata` over guesses.
+- On Windows/Gemini CLI, follow the workspace `GEMINI.md` `Gemini CLI Encoding Floor`: use the UTF-8 PowerShell preamble or Strategy Hub helper for non-trivial shell commands, and stop immediately on mojibake.
+- If the work spans 3+ files, reopens bit-level ambiguity, or needs private reasoning, stop for Strategy Hub planning instead of broad direct implementation.
+- If the Strategy Hub is unavailable and the task depends on private fixture/research truth, stop and report the missing context rather than inventing assumptions.
+
 ## Public Safety Rules
 - Never execute `git push` without an explicit user command.
 - Preserve repository boundaries: `d2r-core` contains public implementation logic; extracted game data belongs in `d2r-data`; private reasoning belongs in `d2r-spec`.

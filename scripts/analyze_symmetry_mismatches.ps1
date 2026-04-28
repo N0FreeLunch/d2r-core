@@ -63,8 +63,8 @@ if ($mismatchRows.Count -eq 0) {
     # Detailed Table
     $report += "## Detailed Mismatches"
     $report += ""
-    $report += "| File | Item Label | Code | Segment | Offset | Type |"
-    $report += "| :--- | :--- | :--- | :--- | :--- | :--- |"
+    $report += "| File | Item Label | Code | Segment | Offset | Type | Drill-down Command |"
+    $report += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
     
     foreach ($row in $mismatchRows) {
         $file = $row.file
@@ -74,7 +74,13 @@ if ($mismatchRows.Count -eq 0) {
         $offset = if ($null -eq $row.first_mismatch_offset) { "-" } else { $row.first_mismatch_offset }
         $type = if ($null -eq $row.mismatch_type -or $row.mismatch_type -eq "") { "-" } else { $row.mismatch_type }
         
-        $report += "| $file | $label | ``$code`` | $segment | $offset | $type |"
+        $drillCmd = if ($offset -ne "-") {
+            "``pwsh -File ./scripts/drill_down.ps1 -FileA <ORIGINAL> -FileB $file -BitOffset $offset``"
+        } else {
+            "-"
+        }
+        
+        $report += "| $file | $label | ``$code`` | $segment | $offset | $type | $drillCmd |"
     }
     $report += ""
 

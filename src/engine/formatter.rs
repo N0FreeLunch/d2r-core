@@ -1,7 +1,7 @@
 use crate::data::affixes::{PREFIXES, SUFFIXES};
 use crate::data::item_codes::ITEM_TEMPLATES;
 use crate::data::localization::LOCALIZATIONS;
-use crate::data::monsters::MONSTER_TYPES;
+// use crate::data::monsters::MONSTER_TYPES;
 use crate::data::rare_names::{RARE_PREFIXES, RARE_SUFFIXES};
 use crate::data::runewords::RUNEWORDS;
 use crate::data::set_items::SET_ITEMS;
@@ -408,10 +408,12 @@ fn skill_name(skill_id: u32, language: &str) -> String {
 }
 
 fn monster_type_name(montype_id: u32, language: &str) -> String {
+    /*
     let key = MONSTER_TYPES.iter().find(|m| m.id == montype_id).map(|m| m.key);
     if let Some(k) = key {
         return get_loc(k, language).to_string();
     }
+    */
 
     if language == "ko" {
         format!("몬스터 유형 #{}", montype_id)

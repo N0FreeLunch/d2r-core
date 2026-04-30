@@ -272,5 +272,9 @@ name = "d2item_geometry_scanner"
 path = "src/bin/verify/d2item_geometry_scanner.rs"
 
 [[bin]]
+name = "d2save_fix_checksum"
+path = "src/bin/verify/d2save_fix_checksum.rs"
+
+[[bin]]
 name = "d2item_probe"
 path = "src/bin/verify/d2item_probe.rs"

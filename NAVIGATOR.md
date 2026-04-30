@@ -96,6 +96,7 @@ This catalog includes **public verification tools** residing in the `d2r-core` r
 | :--- | :--- | :--- |
 | **`d2save_verify`** | Save | Validates checksum, file size, and basic JM marker structure. |
 | **`d2save_map`**    | Save | Dumps the memory map of a `.d2s` file (JM offsets, item counts). |
+| **`d2save_gap`**    | Save | **GAP Core**: Brute-forces header lengths and calculates alignment scores. |
 | **`SymmetryBitDiff`**| Item | **Roundtrip Master**: Compares bit-by-bit symmetry. Use `--roundtrip` for instant verification. |
 | **`d2save_diff`**   | Save | Byte-level diff between two saves (header vs item section). |
 | **`d2save_bit_xor_diff`**| Save | **Semantic Shift Detector**: Bit-level XOR diff with section context. |

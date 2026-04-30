@@ -159,7 +159,12 @@ impl BitEmitter {
     pub fn write_bits(&mut self, value: u32, count: u32) -> io::Result<()> {
         if count == 0 { return Ok(()); }
         for i in 0..count {
-            self.write_bit((value >> i) & 1 != 0)?;
+            let bit = if i < 32 {
+                (value >> i) & 1 != 0
+            } else {
+                false
+            };
+            self.write_bit(bit)?;
         }
         Ok(())
     }

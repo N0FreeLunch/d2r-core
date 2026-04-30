@@ -360,7 +360,7 @@ impl Item {
                 runeword_attributes: Vec::new(),
             },
 
-            bits: cursor.recorded_bits().to_vec(),
+            bits: Vec::new(),
             flags, version, mode, location, x, y, page, header_socket_hint,
             is_ear, ear_class, ear_level, ear_player_name,
             code: code.clone(), is_compact,
@@ -376,11 +376,11 @@ impl Item {
             set_list_count: stats.24,
             num_socketed_items: 0,
             socketed_items: Vec::new(),
-            range: ItemBitRange { start: start_bit, end: end_bit },
-            total_bits: end_bit - start_bit,
+            range: ItemBitRange { start: start_bit, end: 0 },
+            total_bits: 0,
             gap_bits: Vec::new(),
             terminator_bit: false,
-            segments: cursor.segments().to_vec(),
+            segments: Vec::new(),
             runeword_attributes: Vec::new(),
             set_attributes: Vec::new(),
             properties: Vec::new(),
@@ -410,6 +410,26 @@ impl Item {
             final_item.properties_complete = complete;
             final_item.terminator_bit = term;
         }
+
+        let consumed_bits = cursor.pos() - start_bit;
+        let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact);
+        if final_consumed > consumed_bits {
+            let _ = cursor.read_bits::<u64>((final_consumed - consumed_bits) as u32)?;
+        }
+        
+        final_item.range.end = cursor.pos();
+        final_item.total_bits = final_item.range.end - final_item.range.start;
+        
+        let start_idx = start_bit as usize;
+        let end_idx = cursor.pos() as usize;
+        if end_idx <= cursor.recorded_bits().len() {
+             final_item.bits = cursor.recorded_bits()[start_idx..end_idx].to_vec();
+        }
+        
+        final_item.segments = cursor.segments().iter()
+            .filter(|s| s.start >= start_bit && s.end <= cursor.pos())
+            .cloned()
+            .collect();
 
         cursor.end_segment();
         Ok(final_item)
@@ -579,22 +599,12 @@ fn read_item_stats<R: BitRead>(
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
-    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword {
-         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
-         return Ok((Vec::new(), true, false));
-    }
-    
-    if is_alpha && version != 5 && (quality_val == ItemQuality::Normal || trimmed_code == "hp1") && !is_runeword && !trimmed_code.is_empty() {
-         crate::item_trace!("[DEBUG] Skipping properties for Alpha Item '{}' (v{})", trimmed_code, version);
-         return Ok((Vec::new(), true, false));
-    }
-    
+
     let section_recovery = if let Some((bytes, start)) = ctx {
         PropertyReaderContext { bytes, item_start_bit: start }
     } else {
         PropertyReaderContext { bytes: &[], item_start_bit: 0 }
     };
-
     if is_v105_shadow_final {
         // Alpha v105 forensic: Shadow items contain a copy of the shadowed item before their own properties.
         // Bit-level discovery confirms a 47-bit gap between extended header and shadow properties.

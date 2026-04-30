@@ -132,25 +132,24 @@ impl StatsAxiom {
         }
     }
 
-    pub fn property_rhythm(&self, is_runeword: bool, is_shadow: bool, is_compact: bool) -> PropertyRhythm {
-        let is_item_alpha = self.version == 5 || self.version == 1 || self.version == 4;
-        let is_alpha_flag_model = is_item_alpha && !is_runeword && self.version != 5;
+    pub fn property_rhythm(&self, _is_runeword: bool, _is_shadow: bool, _is_compact: bool) -> PropertyRhythm {
+        let is_item_alpha = self.save_is_alpha && (self.version == 5 || self.version == 1 || self.version == 4);
 
-        PropertyRhythm {
-            id_bits: 9,
-            value_bits: if is_alpha_flag_model {
-                Some(9)
-            } else if is_item_alpha {
-                if (is_runeword || self.version == 5) && !is_compact {
-                    Some(if self.version == 5 && is_shadow { 8 } else { 9 })
-                } else {
-                    None // use STAT_COSTS
-                }
-            } else {
-                None // use STAT_COSTS
-            },
-            has_terminal_bit: is_item_alpha,
-            has_extra_terminal_bit: is_item_alpha && self.version == 5,
+        if is_item_alpha {
+            // Alpha v105 Property Rhythm: 7-bit ID, 6-bit Value (Verified by GAP tool)
+            PropertyRhythm {
+                id_bits: 7,
+                value_bits: Some(6),
+                has_terminal_bit: true,
+                has_extra_terminal_bit: self.version == 5,
+            }
+        } else {
+            PropertyRhythm {
+                id_bits: 9,
+                value_bits: None, // use STAT_COSTS
+                has_terminal_bit: false,
+                has_extra_terminal_bit: false,
+            }
         }
     }
 

@@ -210,8 +210,10 @@ fn main() {
                     }
 
                     if i == 0 {
-                        // Peek at next bits using recorder
+                        // Peek at next bits using recorder (careful not to advance)
+                        let cp = recorder.checkpoint();
                         let next: u64 = recorder.read_bits::<u64>(64).unwrap_or(0);
+                        recorder.rollback(cp);
                         println!("Next 64 bits from here: {:064b}", next);
                     }
                 }

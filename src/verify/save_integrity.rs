@@ -140,14 +140,16 @@ pub fn verify_save_integrity(path: &str, bytes: &[u8]) -> (Report<D2SaveVerifyPa
             calculated_checksum_opt = Some(calculated_checksum);
             if stored_checksum != calculated_checksum {
                 issues.push(ReportIssue {
-                    kind: "checksum".to_string(),
+                    kind: if alpha_mode { "checksum_info".to_string() } else { "checksum".to_string() },
                     message: format!(
                         "stored=0x{:08X}, calculated=0x{:08X}",
                         stored_checksum, calculated_checksum
                     ),
                     bit_offset: None,
                 });
-                fail = true;
+                if !alpha_mode {
+                    fail = true;
+                }
             }
         }
         Err(err) => {
@@ -249,6 +251,7 @@ fn synthesize_hints(issues: &[ReportIssue]) -> Vec<String> {
                 hints.push("File size in header must match the actual byte count. Truncation suspected.".to_string())
             }
             "checksum" => hints.push("Checksum must be refreshed after any file mutation (lives at offset 12).".to_string()),
+            "checksum_info" => hints.push("Alpha v105: Checksum mismatch ignored for forensic bit-perfect baseline.".to_string()),
             "jm_markers" => hints.push("Missing JM markers suggest the file is not a valid character save or is severely truncated.".to_string()),
             "structural" => hints.push("Alpha v105: Structural markers (Woo!, WS, w4) are missing (critical) or displaced (non-fatal).".to_string()),
             "jm_coherence" => hints.push("JM header item count does not match parsed item count; file may be truncated or structurally corrupted.".to_string()),

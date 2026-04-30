@@ -1,0 +1,261 @@
+use crate::domain::header::axiom::{ACTIVE_ACT_OFFSET, EXPANSION_FLAG_OFFSET, PROGRESS_FLAG_OFFSET};
+use crate::domain::progression::axiom::{V105_NPC_OFFSET, V105_QUEST_OFFSET, V105_WAYPOINT_OFFSET};
+use crate::item::{HuffmanTree, Item, ParsingError};
+use crate::save::{find_jm_markers, map_core_sections, recalculate_checksum, Save};
+use crate::verify::{Report, ReportIssue, ReportMetadata, ReportStatus};
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct D2SaveVerifyPayload {
+    pub header_version: u32,
+    pub alpha_mode: bool,
+    pub file_size_header: usize,
+    pub file_size_actual: usize,
+    pub file_size_delta: i64,
+    pub checksum_stored: String,
+    pub checksum_calculated: Option<String>,
+    pub jm_marker_count: usize,
+    pub active_act: u8,
+    pub progression_flag: u8,
+    pub expansion_flag: u8,
+    pub issue_count: usize,
+}
+
+pub fn verify_save_integrity(path: &str, bytes: &[u8]) -> (Report<D2SaveVerifyPayload>, bool) {
+    let mut issues = Vec::new();
+    let mut fail = false;
+
+    let save = match Save::from_bytes(bytes) {
+        Ok(s) => s,
+        Err(err) => {
+            issues.push(ReportIssue {
+                kind: "header_parse".to_string(),
+                message: format!("Header parse: {}", err),
+                bit_offset: None,
+            });
+            let report = Report::<D2SaveVerifyPayload>::new(
+                ReportMetadata::new("d2save_verify", path, "corrupted"),
+                ReportStatus::Fail,
+            )
+            .with_issues(issues)
+            .with_hints(vec!["Header is corrupted or in an unsupported format.".to_string()]);
+            return (report, true);
+        }
+    };
+
+    let huffman = HuffmanTree::new();
+    let alpha_mode = save.header.version == 105;
+
+    if alpha_mode {
+        if let Ok(map) = map_core_sections(bytes) {
+            for (name, found, expected) in [
+                ("Woo!", map.woo_pos, V105_QUEST_OFFSET),
+                ("WS", map.ws_pos, V105_WAYPOINT_OFFSET),
+                ("w4", map.w4_pos, V105_NPC_OFFSET),
+            ] {
+                match found {
+                    Some(pos) if pos != expected => issues.push(ReportIssue {
+                        kind: "structural".into(),
+                        message: format!(
+                            "Alpha v105: {} marker displaced (found at 0x{:03X}, expected 0x{:03X})",
+                            name, pos, expected
+                        ),
+                        bit_offset: Some(pos as u64 * 8),
+                    }),
+                    None => {
+                        issues.push(ReportIssue {
+                            kind: "structural".into(),
+                            message: format!("Alpha v105: {} marker missing", name),
+                            bit_offset: None,
+                        });
+                        fail = true;
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            issues.push(ReportIssue {
+                kind: "structural".into(),
+                message: "Alpha v105: Failed to map core sections".into(),
+                bit_offset: None,
+            });
+            fail = true;
+        }
+    }
+
+    let items = match Item::read_player_items(bytes, &huffman, alpha_mode) {
+        Ok(items) => items,
+        Err(err) => {
+            issues.push(ReportIssue {
+                kind: "item_parse".to_string(),
+                message: format!("{}", err),
+                bit_offset: parsing_error_offset(&err.error),
+            });
+            fail = true;
+            Vec::new()
+        }
+    };
+
+    for item in &items {
+        let item_bits = match item.to_bytes(&huffman, alpha_mode) {
+            Ok(b) => b,
+            Err(e) => {
+                issues.push(ReportIssue {
+                    kind: "item_parse".to_string(),
+                    message: format!("Item to_bytes ({}): {}", item.code, e),
+                    bit_offset: None,
+                });
+                fail = true;
+                continue;
+            }
+        };
+        if let Err(e) = Item::from_bytes(&item_bits, &huffman, alpha_mode) {
+            issues.push(ReportIssue {
+                kind: "item_parse".to_string(),
+                message: format!("Item round-trip parse failure ({}): {}", item.code, e),
+                bit_offset: parsing_error_offset(&e.error),
+            });
+            fail = true;
+        }
+    }
+
+    let header_size = save.header.file_size as usize;
+    let actual_size = bytes.len();
+    if header_size != actual_size {
+        issues.push(ReportIssue {
+            kind: "file_size".to_string(),
+            message: format!(
+                "File size header: {} bytes, actual: {} bytes",
+                header_size, actual_size
+            ),
+            bit_offset: None,
+        });
+        fail = true;
+    }
+
+    let stored_checksum = save.header.checksum;
+    let mut calculated_checksum_opt = None;
+    match recalculate_checksum(bytes) {
+        Ok(calculated_checksum) => {
+            calculated_checksum_opt = Some(calculated_checksum);
+            if stored_checksum != calculated_checksum {
+                issues.push(ReportIssue {
+                    kind: "checksum".to_string(),
+                    message: format!(
+                        "stored=0x{:08X}, calculated=0x{:08X}",
+                        stored_checksum, calculated_checksum
+                    ),
+                    bit_offset: None,
+                });
+                fail = true;
+            }
+        }
+        Err(err) => {
+            issues.push(ReportIssue {
+                kind: "checksum".to_string(),
+                message: format!("recalculation error: {}", err),
+                bit_offset: None,
+            });
+            fail = true;
+        }
+    }
+
+    let jm_markers = find_jm_markers(bytes);
+    if jm_markers.is_empty() {
+        issues.push(ReportIssue {
+            kind: "jm_markers".to_string(),
+            message: "No JM markers found".to_string(),
+            bit_offset: None,
+        });
+    }
+
+    if let Some(&jm0) = jm_markers.first() {
+        if jm0 + 3 < bytes.len() {
+            let expected = u16::from_le_bytes([bytes[jm0 + 2], bytes[jm0 + 3]]) as usize;
+            if expected != items.len() {
+                issues.push(ReportIssue {
+                    kind: "jm_coherence".into(),
+                    message: format!("JM header count ({}) != parsed items ({})", expected, items.len()),
+                    bit_offset: Some((jm0 + 2) as u64 * 8),
+                });
+                fail = true;
+            }
+        }
+    }
+
+    let hints = synthesize_hints(&issues);
+    let issue_count = issues.len();
+    let status = if fail { ReportStatus::Fail } else { ReportStatus::Ok };
+    let version = format!("0x{:04X}", save.header.version);
+    let report = Report::<D2SaveVerifyPayload>::new(
+        ReportMetadata::new("d2save_verify", path, &version),
+        status,
+    )
+    .with_issues(issues)
+    .with_hints(hints)
+    .with_results(D2SaveVerifyPayload {
+        header_version: save.header.version,
+        alpha_mode,
+        file_size_header: header_size,
+        file_size_actual: actual_size,
+        file_size_delta: actual_size as i64 - header_size as i64,
+        checksum_stored: format!("0x{:08X}", stored_checksum),
+        checksum_calculated: calculated_checksum_opt.map(|c| format!("0x{:08X}", c)),
+        jm_marker_count: jm_markers.len(),
+        active_act: if alpha_mode && bytes.len() > ACTIVE_ACT_OFFSET {
+            bytes[ACTIVE_ACT_OFFSET]
+        } else {
+            0
+        },
+        progression_flag: if alpha_mode && bytes.len() > PROGRESS_FLAG_OFFSET {
+            bytes[PROGRESS_FLAG_OFFSET]
+        } else {
+            0
+        },
+        expansion_flag: if alpha_mode && bytes.len() > EXPANSION_FLAG_OFFSET {
+            bytes[EXPANSION_FLAG_OFFSET]
+        } else {
+            0
+        },
+        issue_count,
+    });
+
+    (report, fail)
+}
+
+fn parsing_error_offset(error: &ParsingError) -> Option<u64> {
+    match error {
+        ParsingError::InvalidHuffmanBit { bit_offset }
+        | ParsingError::UnexpectedSegmentEnd { bit_offset }
+        | ParsingError::BitSymmetryFailure { bit_offset } => Some(*bit_offset),
+        ParsingError::InvalidStatId { bit_offset, .. } => Some(*bit_offset),
+        _ => None,
+    }
+}
+
+fn synthesize_hints(issues: &[ReportIssue]) -> Vec<String> {
+    let mut hints = Vec::new();
+    for issue in issues {
+        match issue.kind.as_str() {
+            "header_parse" => hints.push("Header is corrupted or in an unsupported format.".to_string()),
+            "item_parse" => {
+                if let Some(offset) = issue.bit_offset {
+                    hints.push(format!("Investigate bit-width or alignment logic near bit offset {}.", offset));
+                } else {
+                    hints.push("Check item data structure or Huffman encoding table.".to_string());
+                }
+            }
+            "file_size" => {
+                hints.push("File size in header must match the actual byte count. Truncation suspected.".to_string())
+            }
+            "checksum" => hints.push("Checksum must be refreshed after any file mutation (lives at offset 12).".to_string()),
+            "jm_markers" => hints.push("Missing JM markers suggest the file is not a valid character save or is severely truncated.".to_string()),
+            "structural" => hints.push("Alpha v105: Structural markers (Woo!, WS, w4) are missing (critical) or displaced (non-fatal).".to_string()),
+            "jm_coherence" => hints.push("JM header item count does not match parsed item count; file may be truncated or structurally corrupted.".to_string()),
+            _ => {}
+        }
+    }
+    hints.sort();
+    hints.dedup();
+    hints
+}

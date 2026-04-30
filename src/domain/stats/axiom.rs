@@ -31,7 +31,7 @@ impl StatsAxiom {
     }
 
     pub fn is_alpha(&self) -> bool {
-        self.save_is_alpha && (self.version == 5 || self.version == 1 || self.version == 4)
+        self.save_is_alpha
     }
 
     /// Maps an Alpha v105 raw stat ID to its effective (standard) ID.

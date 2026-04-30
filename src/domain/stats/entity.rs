@@ -30,7 +30,7 @@ pub const ALPHA_STAT_MAPS: &[AlphaStatMap] = &[
     AlphaStatMap { raw_id: 496, effective_id: 99,  name: "item_fastergethitrate" },
     AlphaStatMap { raw_id: 499, effective_id: 16,  name: "item_enandefense_percent" },
     AlphaStatMap { raw_id: 289, effective_id: 9,   name: "maxmana" },
-    AlphaStatMap { raw_id: 26,  effective_id: 16,  name: "item_defense_percent" },
+    AlphaStatMap { raw_id: 26,  effective_id: 31,  name: "item_defense_percent" },
     AlphaStatMap { raw_id: 312, effective_id: 72,  name: "item_durability" },
     AlphaStatMap { raw_id: 207, effective_id: 73,  name: "item_maxdurability" },
     AlphaStatMap { raw_id: 380, effective_id: 194, name: "item_indestructible" },

@@ -24,6 +24,14 @@ struct Candidate {
     markers: Vec<Marker>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+struct StatResult {
+    id_w: u32,
+    val_w: u32,
+    depth: usize,
+    terminator_pos: u64,
+}
+
 fn scan_jm_markers(bytes: &[u8], start_bit: u64, limit_bits: u64) -> Vec<u64> {
     let mut markers = Vec::new();
     let total_bits = (bytes.len() as u64) * 8;
@@ -52,12 +60,27 @@ fn scan_jm_markers(bytes: &[u8], start_bit: u64, limit_bits: u64) -> Vec<u64> {
     markers
 }
 
+fn read_bits_runtime<R: BitRead>(reader: &mut R, count: u32) -> std::io::Result<u32> {
+    let mut val = 0u32;
+    for i in 0..count {
+        if reader.read_bit()? {
+            val |= 1 << i;
+        }
+    }
+    Ok(val)
+}
+
 fn main() -> Result<()> {
     let mut parser = ArgParser::new("d2save_gap");
     parser.add_spec(ArgSpec::positional("path", "Path to the d2s file"));
     parser.add_spec(ArgSpec::option("min", None, Some("min"), "Minimum header bit length").with_default("56"));
     parser.add_spec(ArgSpec::option("max", None, Some("max"), "Maximum header bit length").with_default("72"));
     parser.add_spec(ArgSpec::option("item-offset", None, Some("offset"), "Byte offset to item section"));
+    parser.add_spec(ArgSpec::flag("probe-stats", None, Some("probe-stats"), "Enable stat bit-width probing"));
+    parser.add_spec(ArgSpec::option("id-min", None, Some("id-min"), "Min ID bits").with_default("7"));
+    parser.add_spec(ArgSpec::option("id-max", None, Some("id-max"), "Max ID bits").with_default("11"));
+    parser.add_spec(ArgSpec::option("val-min", None, Some("val-min"), "Min Value bits").with_default("6"));
+    parser.add_spec(ArgSpec::option("val-max", None, Some("val-max"), "Max Value bits").with_default("14"));
     parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Output in JSON format"));
 
     let args: Vec<_> = env::args_os().skip(1).collect();
@@ -179,6 +202,66 @@ fn main() -> Result<()> {
             let drifts: Vec<String> = c.markers.iter().take(5).map(|m| m.drift.to_string()).collect();
             let drift_str = drifts.join(",");
             println!("{:<10} {:<10.1} {:<10.4} {:<10} {:<15} {:<15}", c.length, c.readability_score, c.score, c.markers.len(), c.code, drift_str);
+        }
+    }
+
+    if parsed.is_set("probe-stats") && !candidates.is_empty() {
+        let id_min: u32 = parsed.get("id-min").unwrap().parse().context("Invalid id-min")?;
+        let id_max: u32 = parsed.get("id-max").unwrap().parse().context("Invalid id-max")?;
+        let val_min: u32 = parsed.get("val-min").unwrap().parse().context("Invalid val-min")?;
+        let val_max: u32 = parsed.get("val-max").unwrap().parse().context("Invalid val-max")?;
+
+        let best_header = candidates[0].length;
+        let stat_start_bit = item_start_bit + (best_header as u64) + 32;
+
+        let mut stat_results = Vec::new();
+
+        for id_w in id_min..=id_max {
+            for val_w in val_min..=val_max {
+                let mut reader = BitReader::endian(Cursor::new(&bytes[(stat_start_bit / 8) as usize..]), LittleEndian);
+                let skip = (stat_start_bit % 8) as u32;
+                if skip > 0 { let _ = reader.skip(skip).unwrap_or(()); }
+
+                let mut depth = 0;
+                let terminator = (1 << id_w) - 1;
+                let mut current_pos = stat_start_bit;
+
+                loop {
+                    let id: u32 = match read_bits_runtime(&mut reader, id_w) {
+                        Ok(v) => v,
+                        Err(_) => break,
+                    };
+                    current_pos += id_w as u64;
+
+                    if id == terminator {
+                        stat_results.push(StatResult { id_w, val_w, depth, terminator_pos: current_pos });
+                        break;
+                    }
+
+                    match reader.skip(val_w) {
+                        Ok(_) => {},
+                        Err(_) => break,
+                    }
+                    current_pos += val_w as u64;
+                    depth += 1;
+
+                    if depth > 200 || current_pos > stat_start_bit + 5000 {
+                        break;
+                    }
+                }
+            }
+        }
+
+        stat_results.sort_by(|a, b| b.depth.cmp(&a.depth).then_with(|| a.id_w.cmp(&b.id_w)));
+
+        if is_json {
+            println!("{}", serde_json::to_string_pretty(&stat_results)?);
+        } else {
+            println!("\n--- Stat Probing (Header: {}) ---", best_header);
+            println!("{:<10} {:<10} {:<10} {:<15}", "ID Bits", "Val Bits", "Depth", "Terminator Bit");
+            for r in stat_results.iter().take(20) {
+                println!("{:<10} {:<10} {:<10} {:<15}", r.id_w, r.val_w, r.depth, r.terminator_pos);
+            }
         }
     }
 

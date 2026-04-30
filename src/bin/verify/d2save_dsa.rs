@@ -48,14 +48,28 @@ fn main() {
     let allowed_bits_str = parsed.get("allowed-bits").map(|s| s.as_str()).unwrap_or("");
     let is_json = parsed.is_json();
 
-    let allowed_bits: Vec<usize> = if allowed_bits_str.is_empty() {
-        Vec::new()
-    } else {
-        allowed_bits_str
-            .split(',')
-            .filter_map(|s| s.trim().parse::<usize>().ok())
-            .collect()
-    };
+    let mut allowed_bits: Vec<usize> = Vec::new();
+    if !allowed_bits_str.is_empty() {
+        for part in allowed_bits_str.split(',') {
+            let part = part.trim();
+            if part.contains('-') {
+                let bounds: Vec<&str> = part.split('-').collect();
+                if bounds.len() == 2 {
+                    if let (Ok(start), Ok(end)) = (bounds[0].trim().parse::<usize>(), bounds[1].trim().parse::<usize>()) {
+                        if start <= end {
+                            for bit in start..=end {
+                                allowed_bits.push(bit);
+                            }
+                        }
+                    }
+                }
+            } else if let Ok(bit) = part.parse::<usize>() {
+                allowed_bits.push(bit);
+            }
+        }
+        allowed_bits.sort_unstable();
+        allowed_bits.dedup();
+    }
 
     let bytes_a = match fs::read(path_a) {
         Ok(b) => b,

@@ -306,15 +306,8 @@ impl Item {
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
 
         let stats = if !is_compact {
-            let socket_flag = if alpha_mode && version != 5 { (flags & (1 << 27)) != 0 } else { (flags & (1 << 11)) != 0 };
-            
-            // Alpha v105 Runeword Heuristic
-            let is_base_rw = alpha_mode && (version == 5 || version == 1) && !is_frag && 
-                ((flags & (1 << 11)) != 0 || (flags & (1 << 12)) != 0 || (flags & (1 << 13)) != 0 || (flags & 0x800) != 0);
-            
-            let runeword_flag = if alpha_mode && version != 5 { (flags & (1 << 11)) != 0 } 
-                else if alpha_mode && version == 5 { is_base_rw || is_frag }
-                else { (flags & (1 << 26)) != 0 };
+            let socket_flag = axiom.is_socketed(flags, is_compact);
+            let runeword_flag = axiom.is_runeword(flags);
                 
             Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag, &axiom)?
         } else {
@@ -599,6 +592,10 @@ fn read_item_stats<R: BitRead>(
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
+    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword {
+         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
+         return Ok((Vec::new(), true, false));
+    }
 
     let section_recovery = if let Some((bytes, start)) = ctx {
         PropertyReaderContext { bytes, item_start_bit: start }

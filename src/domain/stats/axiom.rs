@@ -132,14 +132,14 @@ impl StatsAxiom {
         }
     }
 
-    pub fn property_rhythm(&self, _is_runeword: bool, _is_shadow: bool, _is_compact: bool) -> PropertyRhythm {
-        let is_item_alpha = self.save_is_alpha && (self.version == 5 || self.version == 1 || self.version == 4);
+    pub fn property_rhythm(&self, is_runeword: bool, _is_shadow: bool, _is_compact: bool) -> PropertyRhythm {
+        let is_item_alpha = self.version == 5 || self.version == 1 || self.version == 4;
 
         if is_item_alpha {
-            // Alpha v105 Property Rhythm: 7-bit ID, 6-bit Value (Verified by GAP tool)
+            // Alpha v105 Property Rhythm (Verified by GAP tool)
             PropertyRhythm {
                 id_bits: 7,
-                value_bits: Some(6),
+                value_bits: Some(if is_runeword { 7 } else { 6 }),
                 has_terminal_bit: true,
                 has_extra_terminal_bit: self.version == 5,
             }
@@ -152,6 +152,7 @@ impl StatsAxiom {
             }
         }
     }
+
 
     /// Determines the final bit alignment for an item based on consumed bits and version.
     pub fn calculate_alignment(&self, consumed_bits: u64, is_compact: bool) -> u64 {
@@ -209,8 +210,14 @@ mod tests {
     #[test]
     fn test_alpha_id_mapping() {
         let axiom = StatsAxiom::new(5, ItemQuality::Unique, true);
+        assert_eq!(axiom.map_alpha_id(26), 31);   // item_defense_percent
+        assert_eq!(axiom.map_alpha_id(312), 72);  // item_durability
+        assert_eq!(axiom.map_alpha_id(207), 73);  // item_maxdurability
+        assert_eq!(axiom.map_alpha_id(380), 194); // item_indestructible
         assert_eq!(axiom.map_alpha_id(256), 127); // item_allskills
         assert_eq!(axiom.map_alpha_id(496), 99);  // item_fastergethitrate
+        assert_eq!(axiom.map_alpha_id(499), 16);  // item_enandefense_percent
+        assert_eq!(axiom.map_alpha_id(289), 9);   // maxmana
         assert_eq!(axiom.map_alpha_id(999), 999); // identity mapping for unknown
     }
 
@@ -218,7 +225,7 @@ mod tests {
     fn test_alpha_rhythm() {
         let axiom = StatsAxiom::new(5, ItemQuality::Unique, true);
         let rhythm = axiom.property_rhythm(true, false, false);
-        assert_eq!(rhythm.value_bits, Some(9));
+        assert_eq!(rhythm.value_bits, Some(6));
         assert!(rhythm.has_terminal_bit);
         assert!(rhythm.has_extra_terminal_bit);
     }

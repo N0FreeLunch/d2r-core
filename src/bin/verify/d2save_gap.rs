@@ -6,6 +6,8 @@ use bitstream_io::{BitRead, BitReader, LittleEndian};
 use serde::Serialize;
 
 use d2r_core::verify::args::{ArgParser, ArgSpec};
+use d2r_core::item::HuffmanTree;
+use d2r_core::data::bit_cursor::BitCursor;
 
 #[derive(Debug, Serialize, Clone)]
 struct Marker {
@@ -17,6 +19,8 @@ struct Marker {
 struct Candidate {
     length: u32,
     score: f64,
+    readability_score: f64,
+    code: String,
     markers: Vec<Marker>,
 }
 
@@ -35,7 +39,7 @@ fn scan_jm_markers(bytes: &[u8], start_bit: u64, limit_bits: u64) -> Vec<u64> {
 
         let mut reader = BitReader::endian(Cursor::new(&bytes[byte_offset..]), LittleEndian);
         if bit_offset > 0 {
-            let _ = reader.skip(bit_offset);
+            let _ = reader.skip(bit_offset).unwrap_or(());
         }
 
         let b1: u8 = reader.read::<8, u8>().unwrap_or(0);
@@ -79,6 +83,7 @@ fn main() -> Result<()> {
     let is_json = parsed.is_set("json");
 
     let bytes = fs::read(&path).with_context(|| format!("Failed to read file: {}", path))?;
+    let huffman = HuffmanTree::new();
 
     // Find item section start
     let item_start_byte = if let Some(offset) = item_offset_arg {
@@ -100,27 +105,66 @@ fn main() -> Result<()> {
 
     for length in min_len..=max_len {
         let first_item_start = item_start_bit + (length as u64);
+        
+        // 1. Readability Scoring
+        let mut code = String::new();
+        let mut readability_score = 0.0;
+        
+        let mut r_reader = BitReader::endian(Cursor::new(&bytes[(first_item_start / 8) as usize..]), LittleEndian);
+        let skip_bits = (first_item_start % 8) as u32;
+        if skip_bits > 0 {
+            let _ = r_reader.skip(skip_bits).unwrap_or(());
+        }
+        let mut r_cursor = BitCursor::new(r_reader);
+        
+        for _ in 0..4 {
+            match huffman.decode_recorded(&mut r_cursor) {
+                Ok(ch) => {
+                    code.push(ch);
+                    if ch.is_alphanumeric() || ch == ' ' {
+                        readability_score += 1.0;
+                    } else {
+                        readability_score -= 0.5;
+                    }
+                }
+                Err(_) => {
+                    readability_score -= 0.5;
+                }
+            }
+        }
+        
+        // Code plausibility boost
+        if code.len() == 4 && code.chars().all(|c| c.is_alphanumeric() || c == ' ') {
+            if code.trim().len() >= 3 {
+                readability_score += 500.0;
+            }
+        }
+
+        // 2. Alignment Scoring (Drift)
         // Scan for subsequent JMs (limit to a reasonable range, e.g., 20000 bits)
         let found_bits = scan_jm_markers(&bytes, first_item_start, 20000);
 
         let mut markers = Vec::new();
-        let mut score = 0.0;
+        let mut alignment_score = 0.0;
 
         for abs_bit in found_bits {
             let drift = abs_bit % 8;
-            score += 1.0 / (1.0 + drift as f64);
+            alignment_score += 1.0 / (1.0 + drift as f64);
             markers.push(Marker { abs_bit, drift });
         }
 
         candidates.push(Candidate {
             length,
-            score,
+            score: alignment_score,
+            readability_score,
+            code,
             markers,
         });
     }
 
     candidates.sort_by(|a, b| {
-        b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal)
+        b.readability_score.partial_cmp(&a.readability_score).unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal))
             .then_with(|| a.length.cmp(&b.length))
     });
 
@@ -130,13 +174,14 @@ fn main() -> Result<()> {
         println!("--- D2 Save GAP (Geometric Auto-Pilot) ---");
         println!("File: {}", path);
         println!("Item Section Heuristic Start: Byte {} (Bit {})", item_start_byte, item_start_bit);
-        println!("\n{:<10} {:<10} {:<10} {:<15}", "Header", "Score", "Markers", "Drifts");
+        println!("\n{:<10} {:<10} {:<10} {:<10} {:<15} {:<15}", "Header", "R-Score", "Score", "Markers", "Code", "Drifts");
         for c in candidates.iter().take(20) {
             let drifts: Vec<String> = c.markers.iter().take(5).map(|m| m.drift.to_string()).collect();
             let drift_str = drifts.join(",");
-            println!("{:<10} {:<10.4} {:<10} {:<15}", c.length, c.score, c.markers.len(), drift_str);
+            println!("{:<10} {:<10.1} {:<10.4} {:<10} {:<15} {:<15}", c.length, c.readability_score, c.score, c.markers.len(), c.code, drift_str);
         }
     }
 
     Ok(())
 }
+

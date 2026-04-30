@@ -58,6 +58,7 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+    use crate::save::{Save, recalculate_checksum};
 
     fn fixture_bytes() -> Vec<u8> {
         let repo_root = env!("CARGO_MANIFEST_DIR");

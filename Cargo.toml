@@ -52,6 +52,10 @@ name = "d2save_diff"
 path = "src/bin/verify/d2save_diff.rs"
 
 [[bin]]
+name = "d2save_dsa"
+path = "src/bin/verify/d2save_dsa.rs"
+
+[[bin]]
 name = "d2save_structural_diff"
 path = "src/bin/verify/d2save_structural_diff.rs"
 

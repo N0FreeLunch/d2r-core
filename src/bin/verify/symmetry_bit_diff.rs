@@ -113,7 +113,11 @@ fn main() {
 
 fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode: bool, prefix: String, depth: usize, is_json: bool) -> ItemDiff {
     let indent = "  ".repeat(depth);
-    let reserialized_bytes = item.to_bytes(huffman, alpha_mode).expect("failed to reserialize");
+    
+    // Force strict reconstruction by clearing bits in a clone
+    let mut strict_item = item.clone();
+    strict_item.bits.clear();
+    let reserialized_bytes = strict_item.to_bytes(huffman, alpha_mode).expect("failed to reserialize");
     
     // Original bits from parsing
     let original_bits = &item.bits;

@@ -41,6 +41,14 @@ impl VerificationReport {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum FailureCategory {
+    Integrity,
+    Symmetry,
+    Baseline,
+    ToolError,
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReportStatus {

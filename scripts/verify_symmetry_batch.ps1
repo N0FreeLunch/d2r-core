@@ -24,7 +24,12 @@ $OutputJsonPath = if ([System.IO.Path]::IsPathRooted($OutputJson)) {
 }
 
 # Find all .d2s files
-$d2sFiles = Get-ChildItem -Path $InputDir -Filter "*.d2s" -Recurse
+if (Test-Path $InputDir -PathType Leaf) {
+    $d2sFiles = @(Get-Item $InputDir)
+} else {
+    $d2sFiles = Get-ChildItem -Path $InputDir -Filter "*.d2s" -Recurse
+}
+
 if ($d2sFiles.Count -eq 0) {
     Write-Error "No .d2s files found in $InputDir"
     exit 1
@@ -44,39 +49,55 @@ foreach ($file in $d2sFiles) {
     if ($file.FullName.StartsWith($InputDir)) {
         $relativeName = $file.FullName.Substring($InputDir.Length).TrimStart("\")
     }
-    Write-Host "[$totalFiles/$($d2sFiles.Count)] Processing: $relativeName" -NoNewline
-
-    # Run SymmetryBitDiff
-    $process = Start-Process -FilePath "cargo" -ArgumentList "run", "--bin", "SymmetryBitDiff", "--quiet", "--", "`"$($file.FullName)`"", "--roundtrip", "--json" -NoNewWindow -PassThru -RedirectStandardOutput "tmp_stdout.txt" -RedirectStandardError "tmp_stderr.txt"
-    $process.WaitForExit()
+    if ([string]::IsNullOrEmpty($relativeName)) { $relativeName = $file.Name }
     
-    $stdout = Get-Content "tmp_stdout.txt" -Raw -ErrorAction SilentlyContinue
-    $stderr = Get-Content "tmp_stderr.txt" -Raw -ErrorAction SilentlyContinue
+    Write-Host "[$totalFiles/$($d2sFiles.Count)] Processing: $relativeName" -NoNewline
 
     $fileResult = @{
         file = $relativeName
         success = $false
         error = $null
+        failure_family = $null
     }
 
-    if ($process.ExitCode -ne 0) {
-        Write-Host " - FAILED (ExitCode: $($process.ExitCode))" -ForegroundColor Red
-        $fileResult.error = "ExitCode: $($process.ExitCode). Stderr: $stderr"
+    # Phase 1: Structural Integrity Audit (d2save_verify)
+    # Using direct execution instead of Start-Process for better exit code capture
+    & cargo run --bin d2save_verify --quiet -- "$($file.FullName)" > tmp_v_stdout.txt 2> tmp_v_stderr.txt
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host " - CHECKSUM/HEADER FAIL" -ForegroundColor Magenta
+        $fileResult.failure_family = "Checksum/Header"
+        $vStderr = Get-Content "tmp_v_stderr.txt" -Raw -ErrorAction SilentlyContinue
+        $fileResult.error = "d2save_verify failed. Stderr: $vStderr"
+        $failedFiles++
+        $allResults += $fileResult
+        continue
+    }
+
+    # Phase 2: Semantic Symmetry Analysis (SymmetryBitDiff)
+    & cargo run --bin SymmetryBitDiff --quiet -- "$($file.FullName)" --roundtrip --json > tmp_stdout.txt 2> tmp_stderr.txt
+    $exitCode = $LASTEXITCODE
+    
+    $stdout = Get-Content "tmp_stdout.txt" -Raw -ErrorAction SilentlyContinue
+    $stderr = Get-Content "tmp_stderr.txt" -Raw -ErrorAction SilentlyContinue
+
+    if ($exitCode -ne 0) {
+        Write-Host " - TOOL ERROR (ExitCode: $exitCode)" -ForegroundColor Red
+        $fileResult.failure_family = "Tool Error"
+        $fileResult.error = "SymmetryBitDiff ExitCode: $exitCode. Stderr: $stderr"
         $failedFiles++
     } else {
         try {
-            # Find the JSON block (starting with {"success" and ending with })
-            # We use (?s) for dot-matches-newline
             if ($stdout -match '(?s)(\{\s*"success".*\})') {
                 $cleanJson = $Matches[1]
                 $report = $cleanJson | ConvertFrom-Json
                 $fileResult.success = $report.success
                 
                 if (-not $report.success) {
-                    Write-Host " - MISMATCH" -ForegroundColor Yellow
+                    Write-Host " - ITEM MISMATCH" -ForegroundColor Yellow
+                    $fileResult.failure_family = "Item Symmetry"
                     $failedFiles++
                     
-                    # Recursive helper to flatten mismatches
                     function Get-Mismatches($items, $parentLabel = "", $fileName = "") {
                         $rows = @()
                         if ($items -isnot [array]) { $items = @($items) }
@@ -106,19 +127,21 @@ foreach ($file in $d2sFiles) {
                     Write-Host " - OK" -ForegroundColor Green
                 }
             } else {
-                # No success JSON found, check if there's a Rust error/panic
                 if ($stdout -match '\{ error: (.*) \}') {
                     $rustError = $Matches[1]
                     Write-Host " - TOOL ERROR ($rustError)" -ForegroundColor Red
+                    $fileResult.failure_family = "Tool Error"
                     $fileResult.error = "Tool Error: $rustError"
                 } else {
                     Write-Host " - UNKNOWN OUTPUT" -ForegroundColor Red
+                    $fileResult.failure_family = "Tool Error"
                     $fileResult.error = "No JSON report found. Raw output: $stdout"
                 }
                 $failedFiles++
             }
         } catch {
             Write-Host " - JSON PARSE ERROR ($($_.Exception.Message))" -ForegroundColor Red
+            $fileResult.failure_family = "Tool Error"
             $fileResult.error = "JSON Parse Failure: $($_.Exception.Message)"
             $failedFiles++
         }
@@ -134,7 +157,6 @@ $summary = @{
     results = $allResults
 }
 
-# Ensure output directory exists
 $outputDir = [System.IO.Path]::GetDirectoryName($OutputJsonPath)
 if (-not (Test-Path $outputDir)) {
     New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
@@ -148,6 +170,7 @@ Write-Host "Failed/Mismatch Files: $failedFiles"
 Write-Host "Mismatch Rows: $($mismatchRows.Count)"
 Write-Host "Summary saved to: $OutputJsonPath"
 
-# Cleanup temp files
 Remove-Item "tmp_stdout.txt" -ErrorAction SilentlyContinue
 Remove-Item "tmp_stderr.txt" -ErrorAction SilentlyContinue
+Remove-Item "tmp_v_stdout.txt" -ErrorAction SilentlyContinue
+Remove-Item "tmp_v_stderr.txt" -ErrorAction SilentlyContinue

@@ -54,16 +54,33 @@ fn main() {
             let part = part.trim();
             if part.contains('-') {
                 let bounds: Vec<&str> = part.split('-').collect();
-                if bounds.len() == 2 {
-                    if let (Ok(start), Ok(end)) = (bounds[0].trim().parse::<usize>(), bounds[1].trim().parse::<usize>()) {
-                        if start <= end {
-                            for bit in start..=end {
-                                allowed_bits.push(bit);
-                            }
-                        }
-                    }
+                if bounds.len() != 2 {
+                    eprintln!("[ERROR] Invalid range format: '{}'. Expected 'start-end'.", part);
+                    process::exit(1);
                 }
-            } else if let Ok(bit) = part.parse::<usize>() {
+                let start_str = bounds[0].trim();
+                let end_str = bounds[1].trim();
+                let start = start_str.parse::<usize>().map_err(|_| {
+                    eprintln!("[ERROR] Invalid bit offset: '{}' in range '{}'.", start_str, part);
+                    process::exit(1);
+                }).unwrap();
+                let end = end_str.parse::<usize>().map_err(|_| {
+                    eprintln!("[ERROR] Invalid bit offset: '{}' in range '{}'.", end_str, part);
+                    process::exit(1);
+                }).unwrap();
+
+                if start > end {
+                    eprintln!("[ERROR] Reverse range is not allowed: '{}' ({} > {}).", part, start, end);
+                    process::exit(1);
+                }
+                for bit in start..=end {
+                    allowed_bits.push(bit);
+                }
+            } else {
+                let bit = part.parse::<usize>().map_err(|_| {
+                    eprintln!("[ERROR] Invalid bit offset: '{}'.", part);
+                    process::exit(1);
+                }).unwrap();
                 allowed_bits.push(bit);
             }
         }

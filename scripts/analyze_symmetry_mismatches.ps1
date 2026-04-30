@@ -1,7 +1,7 @@
 param (
     [Parameter(Mandatory=$true)]
     [string]$InputJson,
-    
+
     [Parameter(Mandatory=$true)]
     [string]$OutputMd
 )
@@ -29,6 +29,30 @@ $report += "- **Failed/Mismatch Files:** $failedFiles"
 $report += "- **Total Mismatch Rows:** $($mismatchRows.Count)"
 $report += ""
 
+# File-level Integrity Summary
+$report += "## File Integrity Summary"
+$report += ""
+$report += "| File | Symmetry | Baseline | Bits | Note |"
+$report += "| :--- | :--- | :--- | :--- | :--- |"
+
+foreach ($res in $summary.results) {
+    $symStatus = if ($res.success) { "✅ OK" } else { "❌ FAIL" }
+    $baseStatus = switch ($res.baseline_match) {
+        $true { "✅ OK" }
+        $false { "❌ FAIL" }
+        default { "-" }
+    }
+    $bits = if ($null -eq $res.baseline_mismatch_count) { "-" } else { $res.baseline_mismatch_count }
+
+    $note = ""
+    if ($res.success -and $res.baseline_match -eq $false) {
+        $note = "⚠️ **Semantic Shift Risk**"
+    }
+
+    $report += "| $($res.file) | $symStatus | $baseStatus | $bits | $note |"
+}
+$report += ""
+
 if ($mismatchRows.Count -eq 0) {
     $report += "### ✅ ALL CLEAR"
     $report += ""
@@ -39,7 +63,7 @@ if ($mismatchRows.Count -eq 0) {
     $report += ""
     $report += "| Segment | Count |"
     $report += "| :--- | :--- |"
-    
+
     $segmentCounts = $mismatchRows | Group-Object -Property segment | Sort-Object Count -Descending
     foreach ($group in $segmentCounts) {
         $label = if ($null -eq $group.Name -or $group.Name -eq "") { "Unknown Segment" } else { $group.Name }
@@ -52,7 +76,7 @@ if ($mismatchRows.Count -eq 0) {
     $report += ""
     $report += "| Type | Count |"
     $report += "| :--- | :--- |"
-    
+
     $typeCounts = $mismatchRows | Group-Object -Property mismatch_type | Sort-Object Count -Descending
     foreach ($group in $typeCounts) {
         $label = if ($null -eq $group.Name -or $group.Name -eq "") { "Unknown Type" } else { $group.Name }
@@ -65,7 +89,7 @@ if ($mismatchRows.Count -eq 0) {
     $report += ""
     $report += "| File | Item Label | Code | Segment | Offset | Type | Drill-down Command |"
     $report += "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-    
+
     foreach ($row in $mismatchRows) {
         $file = $row.file
         $label = $row.item_label
@@ -73,13 +97,13 @@ if ($mismatchRows.Count -eq 0) {
         $segment = if ($null -eq $row.segment -or $row.segment -eq "") { "-" } else { $row.segment }
         $offset = if ($null -eq $row.first_mismatch_offset) { "-" } else { $row.first_mismatch_offset }
         $type = if ($null -eq $row.mismatch_type -or $row.mismatch_type -eq "") { "-" } else { $row.mismatch_type }
-        
+
         $drillCmd = if ($offset -ne "-") {
             "``pwsh -File ./scripts/drill_down.ps1 -FileA <ORIGINAL> -FileB $file -BitOffset $offset``"
         } else {
             "-"
         }
-        
+
         $report += "| $file | $label | ``$code`` | $segment | $offset | $type | $drillCmd |"
     }
     $report += ""

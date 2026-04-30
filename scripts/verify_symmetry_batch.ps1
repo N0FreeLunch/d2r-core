@@ -81,6 +81,27 @@ foreach ($file in $d2sFiles) {
     $stdout = Get-Content "tmp_stdout.txt" -Raw -ErrorAction SilentlyContinue
     $stderr = Get-Content "tmp_stderr.txt" -Raw -ErrorAction SilentlyContinue
 
+    $fileResult.baseline_match = $null
+    $fileResult.baseline_mismatch_count = 0
+
+    # Phase 3: Baseline Integrity Audit (d2save_baseline_audit)
+    # Search for original fixture in standard location
+    $originalDir = Join-Path $InputDir "..\original"
+    if (-not (Test-Path $originalDir)) {
+        $originalDir = Join-Path (Get-Location) "tests/fixtures/savegames/original"
+    }
+    $originalFile = Join-Path $originalDir $file.Name
+
+    if (Test-Path $originalFile) {
+        & cargo run --bin d2save_baseline_audit --quiet -- "$originalFile" "$($file.FullName)" --json > tmp_b_stdout.txt 2> tmp_b_stderr.txt
+        $bStdout = Get-Content "tmp_b_stdout.txt" -Raw -ErrorAction SilentlyContinue
+        if ($bStdout -match '(?s)(\{\s*"is_match".*\})') {
+            $bReport = $Matches[1] | ConvertFrom-Json
+            $fileResult.baseline_match = $bReport.is_match
+            $fileResult.baseline_mismatch_count = $bReport.mismatch_count
+        }
+    }
+
     if ($exitCode -ne 0) {
         Write-Host " - TOOL ERROR (ExitCode: $exitCode)" -ForegroundColor Red
         $fileResult.failure_family = "Tool Error"

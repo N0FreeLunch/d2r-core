@@ -278,3 +278,7 @@ path = "src/bin/verify/d2save_fix_checksum.rs"
 [[bin]]
 name = "d2item_probe"
 path = "src/bin/verify/d2item_probe.rs"
+
+[[bin]]
+name = "d2save_baseline_audit"
+path = "src/bin/verify/d2save_baseline_audit.rs"

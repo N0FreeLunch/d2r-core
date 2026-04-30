@@ -146,6 +146,7 @@ fn main() {
     let huffman = HuffmanTree::new();
     let reader = IoBitReader::endian(Cursor::new(&bytes[jm_pos + 4..]), LittleEndian);
     let mut recorder = BitCursor::new(reader);
+    recorder.set_trace(true);
 
     let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
     let mut json_items = Vec::new();

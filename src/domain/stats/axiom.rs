@@ -132,14 +132,17 @@ impl StatsAxiom {
         }
     }
 
-    pub fn property_rhythm(&self, is_runeword: bool, _is_shadow: bool, _is_compact: bool) -> PropertyRhythm {
-        let is_item_alpha = self.version == 5 || self.version == 1 || self.version == 4;
-
-        if is_item_alpha {
-            // Alpha v105 Property Rhythm (Verified by GAP tool)
+    pub fn property_rhythm(&self, is_runeword: bool, is_shadow: bool, is_compact: bool) -> PropertyRhythm {
+        if self.save_is_alpha {
+            // Alpha v105 Property Rhythm: 9-bit ID (Confirmed by existing ALPHA_STAT_MAPS)
             PropertyRhythm {
-                id_bits: 7,
-                value_bits: Some(if is_runeword { 7 } else { 6 }),
+                id_bits: 9,
+                value_bits: if is_compact {
+                    None // Use STAT_COSTS (e.g. for quantity)
+                } else {
+                    // For extended items, Alpha often uses a fixed 9-bit width
+                    Some(if self.version == 5 && is_shadow { 8 } else { 9 })
+                },
                 has_terminal_bit: true,
                 has_extra_terminal_bit: self.version == 5,
             }
@@ -152,6 +155,7 @@ impl StatsAxiom {
             }
         }
     }
+
 
 
     /// Determines the final bit alignment for an item based on consumed bits and version.

@@ -404,6 +404,7 @@ impl Item {
             final_item.terminator_bit = term;
         }
 
+
         let consumed_bits = cursor.pos() - start_bit;
         let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact);
         if final_consumed > consumed_bits {

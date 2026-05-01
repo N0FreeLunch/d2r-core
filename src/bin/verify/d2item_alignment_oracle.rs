@@ -78,58 +78,40 @@ fn main() {
     let start_bit = (jm_pos * 8) as u64 + offset;
     let total_bits = (bytes.len() * 8) as u64;
     
-    let mut last_marker_pos = start_bit;
-    let mut last_marker_code = "[Start]".to_string();
+    let mut last_marker_pos = (jm_pos * 8) as u64 + 32;
     let mut found_count = 0;
     let mut intervals = Vec::new();
     let mut contextual_mapping: HashMap<String, Vec<u64>> = HashMap::new();
 
-    for bit_idx in start_bit..total_bits - 16 {
-        let byte_start = (bit_idx / 8) as usize;
-        let bit_shift = (bit_idx % 8) as u32;
-        
-        let found = if byte_start + 4 > bytes.len() {
-            let mut buf = [0u8; 4];
-            let remaining = bytes.len() - byte_start;
-            buf[..remaining].copy_from_slice(&bytes[byte_start..]);
-            let mut reader = BitReader::endian(Cursor::new(&buf), LittleEndian);
-            let _ = reader.skip(bit_shift);
-            reader.read::<16, u16>().unwrap_or(0) == 0x4D4A
-        } else {
-            let mut reader = BitReader::endian(Cursor::new(&bytes[byte_start..byte_start + 4]), LittleEndian);
-            let _ = reader.skip(bit_shift);
-            reader.read::<16, u16>().unwrap_or(0) == 0x4D4A
-        };
-
-        if found {
-            let interval = bit_idx - last_marker_pos;
-            
-            // Peek at header for code
-            let current_code = if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = 
-                peek_item_header_at(&bytes, bit_idx, &huffman, is_alpha) 
-            {
-                if is_plausible_item_header(mode, location, &code, flags, version, is_alpha) {
-                    code.trim().to_string()
-                } else {
-                    "[Invalid]".to_string()
+    let mut bit_idx = last_marker_pos;
+    while bit_idx < total_bits - 100 {
+        if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = 
+            peek_item_header_at(&bytes, bit_idx, &huffman, is_alpha) 
+        {
+            if is_plausible_item_header(mode, location, &code, flags, version, is_alpha) {
+                // Heuristic: v105 items should be version 5 or similar
+                if !is_alpha || version == 5 {
+                    if found_count > 0 {
+                        let interval = bit_idx - last_marker_pos;
+                        intervals.push(interval);
+                        contextual_mapping.entry(code.trim().to_string()).or_default().push(interval);
+                    }
+                    
+                    let trimmed_code = code.trim().to_string();
+                    if !use_json {
+                        println!("{:12} | {:10.2} | {:>15} | v={}", bit_idx, bit_idx as f64 / 8.0, trimmed_code, version);
+                    }
+                    
+                    last_marker_pos = bit_idx;
+                    found_count += 1;
+                    
+                    // Jump ahead by at least 72 bits (minimum item size)
+                    bit_idx += 72;
+                    continue;
                 }
-            } else {
-                "[Unknown]".to_string()
-            };
-
-            if !use_json {
-                println!("{:12} | {:10.2} | {:10} | {:>15}", bit_idx, bit_idx as f64 / 8.0, interval, current_code);
             }
-            
-            if found_count > 0 {
-                intervals.push(interval);
-                contextual_mapping.entry(last_marker_code.clone()).or_default().push(interval);
-            }
-            
-            last_marker_pos = bit_idx;
-            last_marker_code = current_code;
-            found_count += 1;
         }
+        bit_idx += 8; // Byte-aligned search
     }
 
     let mut distribution = HashMap::new();

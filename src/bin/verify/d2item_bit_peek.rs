@@ -1,6 +1,6 @@
 use bitstream_io::{BitRead, BitReader as IoBitReader, LittleEndian};
 use d2r_core::data::bit_cursor::BitCursor;
-use d2r_core::item::{HuffmanTree, Item, BitSegment};
+use d2r_core::item::{HuffmanTree, Item, BitSegment, find_next_item_match};
 use d2r_core::verify::args::{ArgParser, ArgSpec};
 use d2r_core::verify::{Report, ReportMetadata, ReportStatus, ReportIssue};
 use serde::Serialize;
@@ -160,6 +160,14 @@ fn main() {
             is_alpha,
         ) {
             Ok(item) => {
+                // [Slice 3] Apply axiomatic alignment to sync for the next item
+                let consumed_bits = recorder.pos() - (bit_start as u64 - ((jm_pos + 4) * 8) as u64);
+                let axiom = d2r_core::domain::stats::StatsAxiom::new(item.header.version, item.header.quality.unwrap_or(d2r_core::item::ItemQuality::Normal), is_alpha);
+                let final_bits = axiom.calculate_alignment(consumed_bits, item.header.is_compact);
+                if final_bits > consumed_bits {
+                    let _ = recorder.skip_and_record((final_bits - consumed_bits) as u32);
+                }
+
                 if is_json {
                     let range_bits = item.range.end - item.range.start;
                     if range_bits != item.bits.len() as u64 {
@@ -228,6 +236,47 @@ fn main() {
                     });
                 } else {
                     println!("Error at Item {}: {}", i, e);
+                }
+
+                // [Slice 3] Recovery Mode: Scan for the next item
+                if is_alpha {
+                    let current_bit_pos = recorder.pos();
+                    let absolute_pos = ((jm_pos + 4) * 8) as u64 + current_bit_pos;
+                    println!("  [DEBUG] Recovery Mode triggered at bit {}. Scanning for next item candidate...", absolute_pos);
+                    
+                    let mut probe = absolute_pos + 1;
+                    let limit = (bytes.len() * 8) as u64;
+                    let mut found = false;
+                    while probe < limit {
+                        // Alpha v105 items are byte-aligned.
+                        if probe % 8 != 0 {
+                            probe += 1;
+                            continue;
+                        }
+                        
+                        if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = 
+                            d2r_core::item::peek_item_header_at(&bytes, probe, &huffman, true) 
+                        {
+                            if d2r_core::item::is_plausible_item_header(mode, location, &code, flags, version, true) {
+                                let gap_from_start = probe as i64 - bit_start as i64;
+                                println!("  [RECOVERY] Next item candidate '{}' found at bit {} (Gap from Item {} start: {} bits, version={})", code, probe, i, gap_from_start, version);
+                                
+                                // Re-sync recorder to the next item
+                                let recorder_new_pos = probe - ((jm_pos + 4) * 8) as u64;
+                                let skip_bits = recorder_new_pos - current_bit_pos;
+                                let _ = recorder.skip_and_record(skip_bits as u32);
+                                found = true;
+                                break;
+                            }
+                        }
+                        probe += 8;
+                    }
+                    
+                    if found {
+                         continue;
+                    } else {
+                         println!("  [DEBUG] No next item candidate found after scanning to end of file.");
+                    }
                 }
                 break;
             }

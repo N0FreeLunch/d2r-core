@@ -17,7 +17,7 @@ macro_rules! item_trace {
 
 pub use crate::domain::item::{Item, ItemQuality, ItemBitRange, RecordedBit, ItemModule, BitSegment, ItemBody};
 pub use crate::domain::header::entity::{ItemSegmentType, ItemHeader};
-pub use crate::domain::item::serialization::HuffmanTree;
+pub use crate::domain::item::serialization::{HuffmanTree, find_next_item_match, peek_item_header_at, is_plausible_item_header};
 pub use crate::error::{ParsingError, ParsingFailure, ParsingResult};
 pub use crate::domain::stats::{ItemProperty, ItemStats};
 use crate::domain::stats::{read_property_list, stat_save_bits, StatsAxiom};
@@ -395,7 +395,7 @@ impl Item {
         };
 
         let mut final_item = item;
-        if !is_compact {
+        if !is_compact || (alpha_mode && version == 5) {
             let is_v105_shadow = alpha_mode && final_item.version == 5 && (final_item.flags & (1 << 26)) != 0;
             let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword, is_v105_shadow)?;
             final_item.properties = props.clone();
@@ -408,7 +408,7 @@ impl Item {
         let consumed_bits = cursor.pos() - start_bit;
         let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact);
         if final_consumed > consumed_bits {
-            let _ = cursor.read_bits::<u64>((final_consumed - consumed_bits) as u32)?;
+            let _ = cursor.with_context("AlphaAlignmentPadding", |c| c.read_bits::<u64>((final_consumed - consumed_bits) as u32))?;
         }
         
         final_item.range.end = cursor.pos();
@@ -462,7 +462,7 @@ impl Item {
                 if version == 5 && (is_runeword || is_fragment) {
                     // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
                     // Found only in runeword/shadow items.
-                    let _v5_extra = cursor.read_bits::<u8>(2)?;
+                    let _v5_extra = cursor.with_context("AlphaV5RunewordExtra", |c| c.read_bits::<u8>(2))?;
                     (Some(0u32), None, Some(quality), false, false, false)
                 } else if version == 5 {
                     // Alpha v105 Version 5 Summary items early exit after quality.
@@ -606,7 +606,7 @@ fn read_item_stats<R: BitRead>(
     if is_v105_shadow_final {
         // Alpha v105 forensic: Shadow items contain a copy of the shadowed item before their own properties.
         // Bit-level discovery confirms a 47-bit gap between extended header and shadow properties.
-        let _ = cursor.read_bits::<u64>(47)?;
+        let _ = cursor.with_context("AlphaShadowSkip", |c| c.read_bits::<u64>(47))?;
     }
 
     read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow_final, &axiom, |_, _, _, _, _| {
@@ -631,10 +631,7 @@ fn item_template(code: &str) -> Option<&'static crate::data::item_codes::ItemTem
     crate::data::item_codes::ITEM_TEMPLATES.iter().find(|t| t.code == code.trim())
 }
 
-pub use crate::domain::item::serialization::{
-    find_next_item_match, is_plausible_item_header, parse_item_at, parse_item_at_with_limit,
-    peek_item_header_at,
-};
+pub use crate::domain::item::serialization::{parse_item_at, parse_item_at_with_limit};
 
 fn scan_socket_children(
     bytes: &[u8],

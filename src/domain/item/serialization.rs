@@ -17,9 +17,6 @@ pub fn find_next_item_match(bytes: &[u8], pos: u64, huffman: &HuffmanTree, alpha
         }
         if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = peek_item_header_at(bytes, probe, huffman, alpha) {
             if is_plausible_item_header(mode, location, &code, flags, version, alpha) {
-                if alpha && crate::item::item_trace_enabled() {
-                    eprintln!("[DEBUG] find_next_item_match: Found plausible header '{}' at bit {} (v={})", code.trim(), probe, version);
-                }
                 return Some(probe);
             }
         }

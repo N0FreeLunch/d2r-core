@@ -136,10 +136,6 @@ impl Item {
                     // Use axiom to determine final alignment
                     let axiom = StatsAxiom::new(item.version, item.quality.unwrap_or(ItemQuality::Normal), alpha_mode);
                     let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact, &item.code);
-                    
-                    if alpha_mode {
-                        println!("[DEBUG] read_section: Item {} ({}) start_bit={}, consumed_bits={}, aligned={}", items.len(), item.code.trim(), start, consumed_bits, final_consumed);
-                    }
 
                     let end = start + final_consumed;
                     let mut final_item = item;

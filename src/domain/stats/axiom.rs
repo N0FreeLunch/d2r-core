@@ -189,10 +189,6 @@ impl StatsAxiom {
                     72 // 9 bytes for scrolls
                 } else if trimmed.starts_with('r') && (trimmed.len() == 3 || (trimmed.len() == 4 && trimmed[1..].chars().all(|c| c.is_ascii_digit()))) {
                     88 // 11 bytes for runes
-                } else if trimmed == "7mgw" {
-                    112 // 14 bytes for certain armors (e.g. Chain Mail)
-                } else if trimmed == "wwsu" {
-                    192 // 24 bytes for certain weapons
                 } else {
                     80 // 10 bytes for potions and other compacts
                 };
@@ -206,6 +202,11 @@ impl StatsAxiom {
             } else if is_scroll {
                 // Extended scrolls
                 if final_len < 72 { final_len = 72; }
+            } else {
+                // Alpha v105 forensic: Non-compact items align to at least 88 bits (11 bytes).
+                if final_len < 88 {
+                    final_len = 88;
+                }
             }
 
             // All Alpha items are byte-aligned.

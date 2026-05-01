@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, serde::Serialize)]
 pub enum ItemQuality {
     Low = 1,
     Normal = 2,

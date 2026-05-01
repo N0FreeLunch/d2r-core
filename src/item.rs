@@ -138,7 +138,7 @@ impl Item {
                     let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact, &item.code);
                     
                     if alpha_mode {
-                        println!("[DEBUG] read_section: Item {} ({}) consumed_bits={}, aligned={}", items.len(), item.code.trim(), consumed_bits, final_consumed);
+                        println!("[DEBUG] read_section: Item {} ({}) start_bit={}, consumed_bits={}, aligned={}", items.len(), item.code.trim(), start, consumed_bits, final_consumed);
                     }
 
                     let end = start + final_consumed;
@@ -253,6 +253,9 @@ impl Item {
         let x = cursor.read_bits::<u8>(4)? as u8;
         
         let is_compact = (flags & (1 << 21)) != 0;
+        if alpha_mode {
+            println!("[DEBUG] Header flags=0x{:08X} is_compact={} bit={}", flags, is_compact, cursor.pos() - 32);
+        }
         let mut y = 0;
         let mut page = 0;
         let mut header_socket_hint = 0;
@@ -280,6 +283,11 @@ impl Item {
                         y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
                         page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
                         header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
+                        if flags & (1 << 11) != 0 {
+                            let raw_sockets = cursor.read_bits::<u8>(3)?;
+                            println!("[DEBUG] Raw socket count bits: {}", raw_sockets);
+                            // item.num_socketed = Some(raw_sockets);
+                        }
                     }
                     alpha_header_gap = Some(cursor.read_bits::<u8>(8)? as u8);
                 }
@@ -303,15 +311,19 @@ impl Item {
 
         if is_ear {
             cursor.begin_segment(ItemSegmentType::Unknown);
+            let start = cursor.pos();
             ear_class = Some(cursor.read_bits::<u8>(3)? as u8);
             ear_level = Some(cursor.read_bits::<u8>(7)? as u8);
             ear_player_name = Some(read_player_name(cursor)?);
+            println!("[DEBUG] Ear segment length: {}", cursor.pos() - start);
             cursor.end_segment();
         } else {
             cursor.begin_segment(ItemSegmentType::Code);
+            let start = cursor.pos();
             for _ in 0..4 {
                 code.push(huff.decode_recorded(cursor)?);
             }
+            println!("[DEBUG] Code segment length: {}", cursor.pos() - start);
             cursor.end_segment();
         }
 
@@ -638,9 +650,9 @@ fn read_item_stats<R: BitRead>(
     let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
     let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || (trimmed_code.starts_with('r') && trimmed_code.len() <= 3);
     
-    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword && 
+    if is_alpha && version == 5 && !is_v105_shadow_final && 
        (is_potion || is_scroll || quality_val < ItemQuality::Magic) {
-         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
+         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}' (is_rw={})", trimmed_code, is_runeword);
          return Ok((Vec::new(), true, false));
     }
 

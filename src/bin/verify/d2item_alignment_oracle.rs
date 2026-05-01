@@ -1,4 +1,5 @@
 use bitstream_io::{BitRead, BitReader, LittleEndian};
+use d2r_core::item::{HuffmanTree, peek_item_header_at, is_plausible_item_header};
 use d2r_core::verify::args::{ArgParser, ArgSpec};
 use serde::Serialize;
 use std::collections::HashMap;
@@ -11,6 +12,7 @@ struct AlignmentReport {
     total_markers: usize,
     intervals: Vec<u64>,
     distribution: HashMap<u64, usize>,
+    contextual_mapping: HashMap<String, Vec<u64>>,
     inferred_alignment: Option<u64>,
 }
 
@@ -61,27 +63,32 @@ fn main() {
         }
     };
 
+    let huffman = HuffmanTree::new();
+    let is_alpha = bytes[4..8] == [0x69, 0, 0, 0];
+
     if !use_json {
         println!("Starting exhaustive bit-level JM search from byte {} (bit {})...", jm_pos, jm_pos * 8);
         println!("Marker Pattern: 0x4D4A ('JM' in LittleEndian)");
-        println!("{:-<60}", "");
-        println!("{:>12} | {:>10} | {:>10}", "Bit Offset", "Abs Byte", "Interval");
-        println!("{:-<60}", "");
+        println!("Mode: {}", if is_alpha { "Alpha v105" } else { "Retail" });
+        println!("{:-<75}", "");
+        println!("{:>12} | {:>10} | {:>10} | {:>15}", "Bit Offset", "Abs Byte", "Interval", "Item Code");
+        println!("{:-<75}", "");
     }
 
     let start_bit = (jm_pos * 8) as u64 + offset;
     let total_bits = (bytes.len() * 8) as u64;
     
     let mut last_marker_pos = start_bit;
+    let mut last_marker_code = "[Start]".to_string();
     let mut found_count = 0;
     let mut intervals = Vec::new();
+    let mut contextual_mapping: HashMap<String, Vec<u64>> = HashMap::new();
 
     for bit_idx in start_bit..total_bits - 16 {
         let byte_start = (bit_idx / 8) as usize;
         let bit_shift = (bit_idx % 8) as u32;
         
         let found = if byte_start + 4 > bytes.len() {
-            // Near EOF, read carefully
             let mut buf = [0u8; 4];
             let remaining = bytes.len() - byte_start;
             buf[..remaining].copy_from_slice(&bytes[byte_start..]);
@@ -96,13 +103,31 @@ fn main() {
 
         if found {
             let interval = bit_idx - last_marker_pos;
+            
+            // Peek at header for code
+            let current_code = if let Some((mode, location, _x, code, flags, version, _is_compact, _header_bits, _nudge)) = 
+                peek_item_header_at(&bytes, bit_idx, &huffman, is_alpha) 
+            {
+                if is_plausible_item_header(mode, location, &code, flags, version, is_alpha) {
+                    code.trim().to_string()
+                } else {
+                    "[Invalid]".to_string()
+                }
+            } else {
+                "[Unknown]".to_string()
+            };
+
             if !use_json {
-                println!("{:12} | {:10.2} | {:10}", bit_idx, bit_idx as f64 / 8.0, interval);
+                println!("{:12} | {:10.2} | {:10} | {:>15}", bit_idx, bit_idx as f64 / 8.0, interval, current_code);
             }
+            
             if found_count > 0 {
                 intervals.push(interval);
+                contextual_mapping.entry(last_marker_code.clone()).or_default().push(interval);
             }
+            
             last_marker_pos = bit_idx;
+            last_marker_code = current_code;
             found_count += 1;
         }
     }
@@ -121,14 +146,22 @@ fn main() {
             total_markers: found_count,
             intervals,
             distribution,
+            contextual_mapping,
             inferred_alignment,
         };
         println!("{}", serde_json::to_string_pretty(&report).unwrap());
     } else {
-        println!("{:-<60}", "");
+        println!("{:-<75}", "");
         println!("Search complete. Found {} markers.", found_count);
         if let Some(align) = inferred_alignment {
             println!("Inferred Alignment Rule: {} bits (most frequent interval)", align);
+        }
+        
+        println!("\nContextual Mapping (Item Code -> Observed Intervals):");
+        let mut sorted_keys: Vec<_> = contextual_mapping.keys().collect();
+        sorted_keys.sort();
+        for key in sorted_keys {
+            println!("  {:<10}: {:?}", key, contextual_mapping[key]);
         }
     }
 }

@@ -237,6 +237,7 @@ impl Item {
         cursor.begin_segment(ItemSegmentType::Header);
 
         let flags = cursor.read_bits::<u32>(32)?;
+        crate::item_trace!("[DEBUG] Header: bits={}, flags=0x{:08X}", cursor.pos() - start_bit, flags);
         if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
              return Err(cursor.fail(ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: start_bit }));
         }
@@ -245,8 +246,10 @@ impl Item {
         let mode = cursor.read_bits::<u8>(3)? as u8;
         let location = cursor.read_bits::<u8>(3)? as u8;
         let x = cursor.read_bits::<u8>(4)? as u8;
+        crate::item_trace!("[DEBUG] Header: v={}, mode={}, loc={}, x={}", version, mode, location, x);
         
         let is_compact = (flags & (1 << 21)) != 0;
+        crate::item_trace!("[DEBUG] Header: is_compact={}", is_compact);
         let mut y = 0;
         let mut page = 0;
         let mut header_socket_hint = 0;

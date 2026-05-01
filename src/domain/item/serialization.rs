@@ -356,11 +356,14 @@ impl Item {
                 let is_rw = axiom.is_runeword(self.flags);
 
                 if is_rw || is_v105_shadow {
-                    let mut gap = 0u8;
+                    let mut gap = self.body.alpha_header_gap.unwrap_or(0);
                     if !self.is_compact {
-                        gap |= self.y & 0x0F;
-                        gap |= (self.page & 0x07) << 4;
-                        gap |= (self.header_socket_hint & 0x01) << 7;
+                        // Ensure fields are synced if gap was captured
+                        if self.body.alpha_header_gap.is_none() {
+                            gap |= self.y & 0x0F;
+                            gap |= (self.page & 0x07) << 4;
+                            gap |= (self.header_socket_hint & 0x01) << 7;
+                        }
                     }
                     emitter.write_bits(gap as u32, 8)?;
                 } else {
@@ -369,14 +372,14 @@ impl Item {
                         emitter.write_bits(self.page as u32, geometry.page_bits)?;
                         emitter.write_bits(self.header_socket_hint as u32, geometry.socket_hint_bits)?;
                     }
-                    emitter.write_bits(0, 8)?; // Alpha v105 Version 5 Header Gap
+                    emitter.write_bits(self.body.alpha_header_gap.unwrap_or(0) as u32, 8)?;
                 }
             } else {
                 // Version 1
                 emitter.write_bits(self.y as u32, geometry.y_bits)?;
                 emitter.write_bits(self.page as u32, geometry.page_bits)?;
                 emitter.write_bits(self.header_socket_hint as u32, geometry.socket_hint_bits)?;
-                emitter.write_bits(0, 8)?; // Alpha v105 Version 1 Header Gap
+                emitter.write_bits(self.body.alpha_header_gap.unwrap_or(0) as u32, 8)?;
             }
         } else if !geometry.skip_geometry {
             emitter.write_bits(self.y as u32, geometry.y_bits)?;
@@ -405,7 +408,7 @@ impl Item {
                 let is_frag = (self.flags & (1 << 26)) != 0 || (self.flags & (1 << 27)) != 0;
                 if self.version == 5 && (self.is_runeword || is_frag) {
                     // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
-                    emitter.write_bits(0, 2)?;
+                    emitter.write_bits(self.body.v5_runeword_extra.unwrap_or(0) as u32, 2)?;
                 }
             } else {
                 emitter.write_bits(self.id.unwrap_or(0), 32)?;
@@ -516,7 +519,14 @@ impl Item {
         let current_bits = emitter.written_bits();
         let final_bits = axiom.calculate_alignment(current_bits as u64, self.is_compact);
         if final_bits > current_bits as u64 {
-            emitter.write_bits(0, (final_bits - current_bits as u64) as u32)?;
+            let padding_needed = (final_bits - current_bits as u64) as u32;
+            if !self.body.alpha_alignment_padding.is_empty() {
+                for &bit in &self.body.alpha_alignment_padding {
+                    emitter.write_bit(bit)?;
+                }
+            } else {
+                emitter.write_bits(0, padding_needed)?;
+            }
         }
 
         Ok(emitter.into_bytes())

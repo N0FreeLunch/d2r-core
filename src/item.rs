@@ -316,7 +316,7 @@ impl Item {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0, None)
         };
 
-        let item = Item {
+        let mut item = Item {
             header: ItemHeader {
                 flags,
                 version,
@@ -347,7 +347,7 @@ impl Item {
                 max_durability: stats.20,
                 current_durability: stats.21,
                 quantity: stats.22,
-                alpha_header_gap: None,
+                alpha_header_gap,
                 v5_runeword_extra: stats.25,
                 alpha_alignment_padding: Vec::new(),
             },
@@ -415,39 +415,46 @@ impl Item {
             segments: Vec::new(),
         };
 
-        let mut final_item = item;
         if !is_compact || (alpha_mode && version == 5) {
-            let is_v105_shadow = alpha_mode && final_item.version == 5 && (final_item.flags & (1 << 26)) != 0;
-            let (props, complete, term) = read_item_stats(cursor, &final_item.code, final_item.version, ctx, huff, alpha_mode, final_item.quality, final_item.is_runeword, is_v105_shadow)?;
-            final_item.properties = props.clone();
-            final_item.stats.properties = props;
-            final_item.properties_complete = complete;
-            final_item.terminator_bit = term;
+            let is_v105_shadow = alpha_mode && item.version == 5 && (item.flags & (1 << 26)) != 0;
+            let (props, complete, term) = read_item_stats(cursor, &item.code, item.version, ctx, huff, alpha_mode, item.quality, item.is_runeword, is_v105_shadow)?;
+            item.properties = props.clone();
+            item.stats.properties = props;
+            item.properties_complete = complete;
+            item.terminator_bit = term;
         }
 
 
         let consumed_bits = cursor.pos() - start_bit;
         let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact);
         if final_consumed > consumed_bits {
-            let _ = cursor.with_context("AlphaAlignmentPadding", |c| c.read_bits::<u64>((final_consumed - consumed_bits) as u32))?;
+            let padding_count = (final_consumed - consumed_bits) as u32;
+            let padding = cursor.with_context("AlphaAlignmentPadding", |c| {
+                let mut bits = Vec::new();
+                for _ in 0..padding_count {
+                    bits.push(c.read_bit()?);
+                }
+                Ok(bits)
+            })?;
+            item.body.alpha_alignment_padding = padding;
         }
         
-        final_item.range.end = cursor.pos();
-        final_item.total_bits = final_item.range.end - final_item.range.start;
+        item.range.end = cursor.pos();
+        item.total_bits = item.range.end - item.range.start;
         
         let start_idx = start_bit as usize;
         let end_idx = cursor.pos() as usize;
         if end_idx <= cursor.recorded_bits().len() {
-             final_item.bits = cursor.recorded_bits()[start_idx..end_idx].to_vec();
+             item.bits = cursor.recorded_bits()[start_idx..end_idx].to_vec();
         }
         
-        final_item.segments = cursor.segments().iter()
+        item.segments = cursor.segments().iter()
             .filter(|s| s.start >= start_bit && s.end <= cursor.pos())
             .cloned()
             .collect();
 
         cursor.end_segment();
-        Ok(final_item)
+        Ok(item)
     }
 
     fn read_extended_stats<R: BitRead>(

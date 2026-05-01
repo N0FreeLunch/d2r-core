@@ -2,7 +2,7 @@ use d2r_core::item::{Item, HuffmanTree, is_plausible_item_header};
 use std::fs;
 
 fn main() {
-    let fixture_path = "tests/fixtures/savegames/original/amazon_10_scrolls.d2s";
+    let fixture_path = "tests/fixtures/savegames/original/amazon_authority_runeword.d2s";
     let bytes = fs::read(fixture_path).expect("Fixture not found");
     
     let jm_pos = (0..bytes.len().saturating_sub(1))
@@ -13,13 +13,15 @@ fn main() {
     let section_bytes = &bytes[jm_pos + 4..];
     let limit = (section_bytes.len() * 8) as u64;
     
-    println!("Scanning for item headers in section 0...");
-    for bit_offset in 0..limit {
+    println!("Scanning for item headers in section 0 (Byte-aligned)...");
+    for bit_offset in (0..limit).step_by(8) {
         if let Some((mode, location, x, code, flags, version, is_compact, header_bits, nudge)) = 
             d2r_core::item::peek_item_header_at(section_bytes, bit_offset, &huffman, true) {
             if d2r_core::item::is_plausible_item_header(mode, location, &code, flags, version, true) {
-                println!("Found plausible header at bit {}: code='{}', compact={}, mode={}, loc={}, version={}", 
-                    bit_offset, code, is_compact, mode, location, version);
+                if version == 0 || version == 1 || version == 4 || version == 5 {
+                    println!("Found plausible header at bit {}: code='{}', compact={}, mode={}, loc={}, version={}", 
+                        bit_offset, code, is_compact, mode, location, version);
+                }
             }
         }
     }

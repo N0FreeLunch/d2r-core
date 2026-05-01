@@ -180,14 +180,14 @@ impl StatsAxiom {
 
         if self.save_is_alpha {
             if is_compact {
-                // Alpha v105 forensic: Compact items have variable minimum lengths (multiples of 8 bits).
+                // Alpha v105 forensic: Compact items have variable minimum byte-aligned lengths.
                 let trimmed = code.trim();
                 let min_bits = if trimmed == "tsc" || trimmed == "isc" {
                     72 // 9 bytes for scrolls
-                } else if trimmed.starts_with('r') && trimmed.len() <= 3 {
-                    88 // 11 bytes for runes (heuristic)
+                } else if trimmed.starts_with('r') && (trimmed.len() == 3 || (trimmed.len() == 4 && trimmed[1..].chars().all(|c| c.is_ascii_digit()))) {
+                    88 // 11 bytes for runes/socketed items
                 } else {
-                    80 // 10 bytes for potions/others
+                    80 // 10 bytes for potions and other compacts
                 };
 
                 if final_len < min_bits {

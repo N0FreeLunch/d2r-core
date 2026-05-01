@@ -150,7 +150,11 @@ impl Item {
                     if bit_reader.skip(start as u32).is_ok() {
                         for i in 0..final_consumed {
                             if let Ok(b) = bit_reader.read_bit() {
-                                actual_bits.push(RecordedBit { bit: b, offset: start + i });
+                                let recorded = RecordedBit { bit: b, offset: start + i };
+                                actual_bits.push(recorded);
+                                if alpha_mode && i >= consumed_bits {
+                                    final_item.body.alpha_alignment_padding.push(b);
+                                }
                             }
                         }
                     }
@@ -453,7 +457,7 @@ impl Item {
             .cloned()
             .collect();
 
-        cursor.end_segment();
+        cursor.end_segment(); // End Root
         Ok(item)
     }
 

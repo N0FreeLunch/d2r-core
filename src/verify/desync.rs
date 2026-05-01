@@ -1,3 +1,4 @@
+use bitstream_io::BitRead;
 use serde::Serialize;
 use crate::item::{Item, HuffmanTree, peek_item_header_at, is_plausible_item_header};
 use crate::error::ParsingResult;

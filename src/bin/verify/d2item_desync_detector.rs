@@ -44,22 +44,33 @@ fn main() {
             } else {
                 println!("Cascading Desync Report for: {}", path);
                 println!("Mode: {}", if is_alpha { "Alpha v105" } else { "Retail" });
-                println!("{:-<80}", "");
-                println!("{:>5} | {:>12} | {:>12} | {:>8} | {:>10} | {:>5}", "Index", "Oracle Start", "Parser Start", "Drift", "Code", "Match");
-                println!("{:-<80}", "");
+                println!("{:-<100}", "");
+                println!("{:>5} | {:>12} | {:>12} | {:>8} | {:>10} | {:>10} | {:>5}", "Index", "Oracle Start", "Parser Start", "Drift", "Oracle Code", "Parser Code", "Match");
+                println!("{:-<100}", "");
                 
-                let mut first_desync = None;
+                let mut first_desync_report = None;
                 for r in &reports {
-                    println!("{:5} | {:12} | {:12} | {:8} | {:10} | {:5}", 
-                        r.item_index, r.oracle_start, r.parser_start, r.drift, r.item_code, if r.is_match { "OK" } else { "FAIL" }
+                    println!("{:5} | {:12} | {:12} | {:8} | {:11} | {:11} | {:5}", 
+                        r.item_index, r.oracle_start, r.parser_start, r.drift, r.oracle_code, r.parser_code, if r.is_match { "OK" } else { "FAIL" }
                     );
-                    if !r.is_match && first_desync.is_none() {
-                        first_desync = Some(r.item_index);
+                    if !r.is_match && first_desync_report.is_none() {
+                        first_desync_report = Some(r.clone());
                     }
                 }
-                println!("{:-<80}", "");
-                if let Some(idx) = first_desync {
-                    println!("[ALERT] First desync detected at Item Index {}.", idx);
+                println!("{:-<100}", "");
+                
+                if let Some(r) = first_desync_report {
+                    println!("[ALERT] First desync detected at Item Index {}.", r.item_index);
+                    println!("\nForensic Bit Comparison at Drift Point:");
+                    println!("  Oracle Start ({:12}): {}", r.oracle_start, d2r_core::verify::desync::dump_bits_at(&bytes, r.oracle_start, 64));
+                    println!("  Parser Start ({:12}): {}", r.parser_start, d2r_core::verify::desync::dump_bits_at(&bytes, r.parser_start, 64));
+                    
+                    if r.drift > 0 {
+                        println!("\n  [Drift Analysis] Parser skipped {} bits.", r.drift);
+                        println!("  Bits between boundaries: {}", d2r_core::verify::desync::dump_bits_at(&bytes, r.oracle_start, r.drift as u32));
+                    } else if r.drift < 0 {
+                        println!("\n  [Drift Analysis] Parser started {} bits early.", -r.drift);
+                    }
                 } else {
                     println!("[PASS] No bitstream drift detected across {} items.", reports.len());
                 }

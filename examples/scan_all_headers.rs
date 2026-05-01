@@ -2,7 +2,7 @@ use d2r_core::item::{Item, HuffmanTree, is_plausible_item_header};
 use std::fs;
 
 fn main() {
-    let fixture_path = "tests/fixtures/savegames/original/amazon_authority_runeword.d2s";
+    let fixture_path = "tests/fixtures/savegames/original/amazon_10_scrolls.d2s";
     let bytes = fs::read(fixture_path).expect("Fixture not found");
     
     let jm_pos = (0..bytes.len().saturating_sub(1))

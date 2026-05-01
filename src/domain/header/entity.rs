@@ -18,7 +18,7 @@ impl Default for ItemSegmentType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ItemHeader {
     pub flags: u32,
     pub version: u8,

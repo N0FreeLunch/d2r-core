@@ -1,7 +1,7 @@
 use serde::Serialize;
 use crate::domain::item::entity::ItemBitRange;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
 pub struct ItemStats {
     pub properties: Vec<ItemProperty>,
     pub set_attributes: Vec<Vec<ItemProperty>>,

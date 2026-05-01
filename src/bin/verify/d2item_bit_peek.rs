@@ -163,7 +163,7 @@ fn main() {
                 // [Slice 3] Apply axiomatic alignment to sync for the next item
                 let consumed_bits = recorder.pos() - (bit_start as u64 - ((jm_pos + 4) * 8) as u64);
                 let axiom = d2r_core::domain::stats::StatsAxiom::new(item.header.version, item.header.quality.unwrap_or(d2r_core::item::ItemQuality::Normal), is_alpha);
-                let final_bits = axiom.calculate_alignment(consumed_bits, item.header.is_compact);
+                let final_bits = axiom.calculate_alignment(consumed_bits, item.header.is_compact, &item.code);
                 if final_bits > consumed_bits {
                     let _ = recorder.skip_and_record((final_bits - consumed_bits) as u32);
                 }

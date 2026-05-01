@@ -1,4 +1,4 @@
-﻿use serde::{Serialize, Deserialize};
+use serde::{Serialize, Deserialize};
 use super::quality::ItemQuality;
 use crate::domain::stats::{ItemProperty, ItemStats};
 
@@ -26,12 +26,11 @@ pub struct BitSegment {
     pub depth: usize,
 }
 
-... (rest of the file)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CharmBagData {
+    pub size: u8,
+}
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct Item {
-    pub header: ItemHeader,
-...
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursedItemData {
     pub curse_id: u32,
@@ -73,7 +72,7 @@ pub enum ItemModule {
     Opaque(Vec<bool>),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Item {
     pub header: ItemHeader,
     pub body: ItemBody,
@@ -205,90 +204,7 @@ impl Item {
     }
 
     pub fn empty_for_tests() -> Self {
-        Self {
-            header: ItemHeader {
-                flags: 0,
-                version: 0,
-                mode: 0,
-                location: 0,
-                x: 0,
-                y: 0,
-                page: 0,
-                socket_hint: 0,
-                id: None,
-                quality: None,
-                is_compact: false,
-                is_identified: false,
-                is_socketed: false,
-                is_personalized: false,
-                is_runeword: false,
-                is_ethereal: false,
-                is_ear: false,
-            },
-            body: ItemBody::default(),
-            stats: ItemStats {
-                properties: Vec::new(),
-                set_attributes: Vec::new(),
-                runeword_attributes: Vec::new(),
-            },
-            bits: Vec::new(),
-            code: String::new(),
-            flags: 0,
-            version: 0,
-            is_ear: false,
-            ear_class: None,
-            ear_level: None,
-            ear_player_name: None,
-            personalized_player_name: None,
-            mode: 0,
-            x: 0,
-            y: 0,
-            page: 0,
-            location: 0,
-            header_socket_hint: 0,
-            has_multiple_graphics: false,
-            multi_graphics_bits: None,
-            has_class_specific_data: false,
-            class_specific_bits: None,
-            id: None,
-            level: None,
-            quality: None,
-            low_high_graphic_bits: None,
-            is_compact: false,
-            is_socketed: false,
-            is_identified: false,
-            is_personalized: false,
-            is_runeword: false,
-            is_ethereal: false,
-            magic_prefix: None,
-            magic_suffix: None,
-            rare_name_1: None,
-            rare_name_2: None,
-            rare_affixes: [None; 6],
-            unique_id: None,
-            runeword_id: None,
-            runeword_level: None,
-            properties: Vec::new(),
-            set_attributes: Vec::new(),
-            runeword_attributes: Vec::new(),
-            num_socketed_items: 0,
-            socketed_items: Vec::new(),
-            timestamp_flag: false,
-            properties_complete: false,
-            terminator_bit: false,
-            set_list_count: 0,
-            tbk_ibk_teleport: None,
-            defense: None,
-            max_durability: None,
-            current_durability: None,
-            quantity: None,
-            sockets: None,
-            modules: Vec::new(),
-            range: ItemBitRange::default(),
-            total_bits: 0,
-            gap_bits: Vec::new(),
-            segments: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn header_view(&self) -> ItemHeader {
@@ -420,4 +336,3 @@ impl Item {
         result
     }
 }
-

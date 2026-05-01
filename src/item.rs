@@ -415,7 +415,7 @@ impl Item {
             segments: Vec::new(),
         };
 
-        if !is_compact || (alpha_mode && version == 5) {
+        if !is_compact {
             let is_v105_shadow = alpha_mode && item.version == 5 && (item.flags & (1 << 26)) != 0;
             let (props, complete, term) = read_item_stats(cursor, &item.code, item.version, ctx, huff, alpha_mode, item.quality, item.is_runeword, is_v105_shadow)?;
             item.properties = props.clone();

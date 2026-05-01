@@ -179,13 +179,16 @@ impl StatsAxiom {
         }
 
         if self.save_is_alpha {
+            let trimmed = code.trim();
+            let is_potion = trimmed.starts_with('h') || trimmed.starts_with('m') || (trimmed.starts_with('r') && trimmed.len() <= 3);
+            let is_scroll = trimmed == "tsc" || trimmed == "isc";
+
             if is_compact {
-                // Alpha v105 forensic: Compact items have variable minimum byte-aligned lengths.
-                let trimmed = code.trim();
-                let min_bits = if trimmed == "tsc" || trimmed == "isc" {
+                // Alpha v105 forensic: Compact items have specific fixed bit-lengths.
+                let min_bits = if is_scroll {
                     72 // 9 bytes for scrolls
                 } else if trimmed.starts_with('r') && (trimmed.len() == 3 || (trimmed.len() == 4 && trimmed[1..].chars().all(|c| c.is_ascii_digit()))) {
-                    88 // 11 bytes for runes/socketed items
+                    88 // 11 bytes for runes
                 } else {
                     80 // 10 bytes for potions and other compacts
                 };
@@ -193,6 +196,12 @@ impl StatsAxiom {
                 if final_len < min_bits {
                     final_len = min_bits;
                 }
+            } else if is_potion {
+                // Extended potions (unlikely but possible in Alpha)
+                if final_len < 80 { final_len = 80; }
+            } else if is_scroll {
+                // Extended scrolls
+                if final_len < 72 { final_len = 72; }
             }
 
             // All Alpha items are byte-aligned.
@@ -253,5 +262,25 @@ mod tests {
         assert_eq!(rhythm.value_bits, Some(6));
         assert!(rhythm.has_terminal_bit);
         assert!(rhythm.has_extra_terminal_bit);
+    }
+
+    #[test]
+    fn test_alpha_contextual_alignment() {
+        let axiom = StatsAxiom::new(5, ItemQuality::Normal, true);
+        
+        // Scroll (tsc) should align to 72 bits
+        assert_eq!(axiom.calculate_alignment(64, true, "tsc"), 72);
+        assert_eq!(axiom.calculate_alignment(71, true, "tsc"), 72);
+        assert_eq!(axiom.calculate_alignment(72, true, "tsc"), 72);
+        
+        // Potion (hp1) should align to 80 bits
+        assert_eq!(axiom.calculate_alignment(64, true, "hp1"), 80);
+        assert_eq!(axiom.calculate_alignment(79, true, "hp1"), 80);
+        assert_eq!(axiom.calculate_alignment(80, true, "hp1"), 80);
+        
+        // Rune (r01) should align to 88 bits
+        assert_eq!(axiom.calculate_alignment(64, true, "r01"), 88);
+        assert_eq!(axiom.calculate_alignment(87, true, "r01"), 88);
+        assert_eq!(axiom.calculate_alignment(88, true, "r01"), 88);
     }
 }

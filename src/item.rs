@@ -254,7 +254,7 @@ impl Item {
         
         let is_compact = (flags & (1 << 21)) != 0;
         if alpha_mode {
-            println!("[DEBUG] Header flags=0x{:08X} is_compact={} bit={}", flags, is_compact, cursor.pos() - 32);
+            // println!("[DEBUG] Header flags=0x{:08X} is_compact={} bit={}", flags, is_compact, cursor.pos() - 32);
         }
         let mut y = 0;
         let mut page = 0;
@@ -283,11 +283,6 @@ impl Item {
                         y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
                         page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
                         header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
-                        if flags & (1 << 11) != 0 {
-                            let raw_sockets = cursor.read_bits::<u8>(3)?;
-                            println!("[DEBUG] Raw socket count bits: {}", raw_sockets);
-                            // item.num_socketed = Some(raw_sockets);
-                        }
                     }
                     alpha_header_gap = Some(cursor.read_bits::<u8>(8)? as u8);
                 }
@@ -311,19 +306,15 @@ impl Item {
 
         if is_ear {
             cursor.begin_segment(ItemSegmentType::Unknown);
-            let start = cursor.pos();
             ear_class = Some(cursor.read_bits::<u8>(3)? as u8);
             ear_level = Some(cursor.read_bits::<u8>(7)? as u8);
             ear_player_name = Some(read_player_name(cursor)?);
-            println!("[DEBUG] Ear segment length: {}", cursor.pos() - start);
             cursor.end_segment();
         } else {
             cursor.begin_segment(ItemSegmentType::Code);
-            let start = cursor.pos();
             for _ in 0..4 {
                 code.push(huff.decode_recorded(cursor)?);
             }
-            println!("[DEBUG] Code segment length: {}", cursor.pos() - start);
             cursor.end_segment();
         }
 
@@ -648,10 +639,43 @@ fn read_item_stats<R: BitRead>(
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
     let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
-    let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || (trimmed_code.starts_with('r') && trimmed_code.len() <= 3);
+    let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || (version == 5 && trimmed_code.starts_with('7')) || (trimmed_code.starts_with('r') && trimmed_code.len() <= 3);
     
     if is_alpha && version == 5 && !is_v105_shadow_final && 
        (is_potion || is_scroll || quality_val < ItemQuality::Magic) {
+         if trimmed_code == "7mgw" {
+             // Alpha v105 forensic: 7mgw contains a special 28-bit payload after quality.
+             // First 4 bits are reserved/padding, followed by a 24-bit stat residue (12+12).
+             // Anchor: Item consumes 84 bits before this, total 112 bits.
+             // Residue bits 0x08 0x00 0x41 are at the end.
+             
+             // Skip 4 bits of reserved payload
+             let _reserved = cursor.read_bits::<u8>(4)?;
+             
+             let id_bits = 12;
+             let val_bits = 12;
+             let mut props = Vec::new();
+             
+             let entry_start = cursor.pos();
+             let stat_id = cursor.read_bits::<u32>(id_bits)?;
+             let raw_value = cursor.read_bits::<u32>(val_bits)?;
+             let entry_end = cursor.pos();
+             
+             if crate::item::item_trace_enabled() {
+                 println!("[DEBUG] 7mgw stats: id={}, val={}, bits={}", stat_id, raw_value, entry_end - entry_start);
+             }
+
+             props.push(ItemProperty {
+                 stat_id,
+                 raw_value: raw_value as i32,
+                 param: 0,
+                 name: axiom.lookup_alpha_map_by_raw(stat_id).map(|m| m.name.to_string()).unwrap_or_default(),
+                 value: raw_value as i32,
+                 range: ItemBitRange { start: entry_start, end: entry_end },
+             });
+             
+             return Ok((props, true, false));
+         }
          crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}' (is_rw={})", trimmed_code, is_runeword);
          return Ok((Vec::new(), true, false));
     }

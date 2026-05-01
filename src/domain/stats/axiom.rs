@@ -180,7 +180,7 @@ impl StatsAxiom {
 
         if self.save_is_alpha {
             let trimmed = code.trim();
-            let is_potion = trimmed.starts_with('h') || trimmed.starts_with('m') || (trimmed.starts_with('r') && trimmed.len() <= 3);
+            let is_potion = trimmed.starts_with('h') || trimmed.starts_with('m') || (self.version == 5 && trimmed.starts_with('7')) || (trimmed.starts_with('r') && trimmed.len() <= 3);
             let is_scroll = trimmed == "tsc" || trimmed == "isc";
 
             if is_compact {
@@ -196,6 +196,11 @@ impl StatsAxiom {
                 if final_len < min_bits {
                     final_len = min_bits;
                 }
+            } else if trimmed == "7mgw" && self.version == 5 {
+                // Alpha v105 forensic: 7mgw aligns to 112 bits (14 bytes)
+                if final_len < 112 {
+                    final_len = 112;
+                }
             } else if is_potion {
                 // Extended potions (unlikely but possible in Alpha)
                 if final_len < 80 { final_len = 80; }
@@ -209,7 +214,6 @@ impl StatsAxiom {
                 }
             }
 
-            // All Alpha items are byte-aligned.
             if final_len % 8 != 0 {
                 final_len += 8 - (final_len % 8);
             }
@@ -223,7 +227,9 @@ impl StatsAxiom {
         }
 
         final_len
-    }    pub fn reads_defense(&self) -> bool {
+    }
+
+    pub fn reads_defense(&self) -> bool {
 
         !self.is_alpha()
     }

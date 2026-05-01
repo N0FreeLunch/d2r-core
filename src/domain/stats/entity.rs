@@ -36,9 +36,8 @@ pub const ALPHA_STAT_MAPS: &[AlphaStatMap] = &[
     AlphaStatMap { raw_id: 380, effective_id: 194, name: "item_indestructible" },
     AlphaStatMap { raw_id: 25,  effective_id: 194, name: "item_numsockets_alpha" },
     
-    // Derived from forensic logs of amazon_authority_runeword.d2s
-    AlphaStatMap { raw_id: 3,   effective_id: 46,  name: "item_maxpoisonresist_alpha" },
+    AlphaStatMap { raw_id: 3,   effective_id: 119, name: "item_tohit_percent_alpha" },
     AlphaStatMap { raw_id: 114, effective_id: 7,   name: "maxlife" },
-    AlphaStatMap { raw_id: 287, effective_id: 9,   name: "maxmana" }, // 289 or 287? Logs show 287.
+    AlphaStatMap { raw_id: 287, effective_id: 9,   name: "maxmana" }, 
     AlphaStatMap { raw_id: 106, effective_id: 127, name: "item_allskills_alt" },
 ];

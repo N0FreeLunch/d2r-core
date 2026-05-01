@@ -292,6 +292,10 @@ name = "d2save_fix_checksum"
 path = "src/bin/verify/d2save_fix_checksum.rs"
 
 [[bin]]
+name = "d2item_desync_detector"
+path = "src/bin/verify/d2item_desync_detector.rs"
+
+[[bin]]
 name = "d2item_probe"
 path = "src/bin/verify/d2item_probe.rs"
 

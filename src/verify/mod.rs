@@ -1,5 +1,6 @@
 pub mod args;
 pub mod bit_diff;
+pub mod desync;
 pub mod mutation;
 pub mod sba;
 pub mod save_integrity;

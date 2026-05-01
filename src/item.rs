@@ -139,7 +139,9 @@ impl Item {
 
                     let end = start + final_consumed;
                     let mut final_item = item;
+                    final_item.range.start = start;
                     final_item.range.end = end;
+                    final_item.expected_start_bit = start;
                     final_item.total_bits = final_consumed;
                     final_item.gap_bits = pending_gap_bits;
                     pending_gap_bits = Vec::new();
@@ -417,6 +419,7 @@ impl Item {
             total_bits: 0,
             gap_bits: Vec::new(),
             segments: Vec::new(),
+            expected_start_bit: 0,
         };
 
         if !is_compact {

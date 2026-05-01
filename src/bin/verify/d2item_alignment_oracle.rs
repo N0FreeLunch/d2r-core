@@ -25,6 +25,7 @@ fn main() {
             .with_default("0"),
     );
     parser.add_spec(ArgSpec::flag("json", None, Some("json"), "Output results in JSON format"));
+    parser.add_spec(ArgSpec::flag("detect-desync", None, Some("detect-desync"), "Run desync detector against found markers"));
 
     use d2r_core::verify::args::ArgError;
     let parsed = match parser.parse(env::args_os().skip(1).collect()) {
@@ -46,6 +47,7 @@ fn main() {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(0);
     let use_json = parsed.is_set("json");
+    let do_detect_desync = parsed.is_set("detect-desync");
 
     let bytes = match fs::read(path) {
         Ok(b) => b,
@@ -144,6 +146,22 @@ fn main() {
         sorted_keys.sort();
         for key in sorted_keys {
             println!("  {:<10}: {:?}", key, contextual_mapping[key]);
+        }
+
+        if do_detect_desync {
+            println!("\n{:-<80}", "");
+            println!("Running Desync Detector...");
+            match d2r_core::verify::desync::detect_desync(&bytes, &huffman, is_alpha) {
+                Ok(reports) => {
+                    println!("{:>5} | {:>12} | {:>12} | {:>8} | {:>5}", "Idx", "Oracle", "Parser", "Drift", "Match");
+                    for r in reports {
+                        println!("{:5} | {:12} | {:12} | {:8} | {:5}", 
+                            r.item_index, r.oracle_start, r.parser_start, r.drift, if r.is_match { "OK" } else { "FAIL" }
+                        );
+                    }
+                }
+                Err(e) => println!("Desync detector failed: {}", e),
+            }
         }
     }
 }

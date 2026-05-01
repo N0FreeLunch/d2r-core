@@ -307,16 +307,15 @@ impl Item {
 
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
 
-        let stats = if !is_compact || (alpha_mode && version == 5) {
+        let stats = if !is_compact {
             let socket_flag = axiom.is_socketed(flags, is_compact);
             let runeword_flag = axiom.is_runeword(flags);
-
+                
             Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag, &axiom)?
         } else {
             (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0, None)
         };
 
-        let end_bit = cursor.pos();
         let item = Item {
             header: ItemHeader {
                 flags,
@@ -348,8 +347,8 @@ impl Item {
                 max_durability: stats.20,
                 current_durability: stats.21,
                 quantity: stats.22,
-                alpha_header_gap: stats.24.try_into().ok(),
-                v5_runeword_extra: stats.25,
+                alpha_header_gap,
+                v5_runeword_extra: stats.26,
                 alpha_alignment_padding: Vec::new(),
             },
             stats: ItemStats {

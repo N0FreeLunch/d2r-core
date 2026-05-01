@@ -11,6 +11,7 @@ pub struct DesyncReport {
     pub drift: i64,
     pub oracle_code: String,
     pub parser_code: String,
+    pub bit_dump: Option<String>,
     pub is_match: bool,
 }
 
@@ -65,9 +66,15 @@ pub fn detect_desync(bytes: &[u8], huffman: &HuffmanTree, is_alpha: bool) -> Par
 
     for i in 0..compare_count {
         let oracle_start = oracle_starts[i].0;
-        let parser_start = section_base_bit + parsed_items[i].range.start;
+        let parser_start = section_base_bit + parsed_items[i].expected_start_bit;
         let drift = parser_start as i64 - oracle_start as i64;
         
+        let bit_dump = if drift != 0 {
+            Some(dump_bits_at(bytes, oracle_start, 64))
+        } else {
+            None
+        };
+
         reports.push(DesyncReport {
             item_index: i,
             oracle_start,
@@ -75,6 +82,7 @@ pub fn detect_desync(bytes: &[u8], huffman: &HuffmanTree, is_alpha: bool) -> Par
             drift,
             oracle_code: oracle_starts[i].1.clone(),
             parser_code: parsed_items[i].code.trim().to_string(),
+            bit_dump,
             is_match: drift == 0,
         });
     }

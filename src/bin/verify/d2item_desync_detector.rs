@@ -62,7 +62,9 @@ fn main() {
                 if let Some(r) = first_desync_report {
                     println!("[ALERT] First desync detected at Item Index {}.", r.item_index);
                     println!("\nForensic Bit Comparison at Drift Point:");
-                    println!("  Oracle Start ({:12}): {}", r.oracle_start, d2r_core::verify::desync::dump_bits_at(&bytes, r.oracle_start, 64));
+                    if let Some(dump) = &r.bit_dump {
+                        println!("  Oracle Start ({:12}): {}", r.oracle_start, dump);
+                    }
                     println!("  Parser Start ({:12}): {}", r.parser_start, d2r_core::verify::desync::dump_bits_at(&bytes, r.parser_start, 64));
                     
                     if r.drift > 0 {

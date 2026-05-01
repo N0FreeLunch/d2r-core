@@ -50,6 +50,62 @@ fn assert_symmetry_integrity(
     }
 }
 
+/// Verification Rule: Only Known bits should change.
+/// This matches the 'Semantic Axis' of the Dual-Axis Verification Paradigm.
+fn assert_no_unknown_drift(actual: &[u8], expected: &[u8], known_bits: &[usize]) {
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        if a != e {
+            let diff = a ^ e;
+            for bit in 0..8 {
+                if (diff >> bit) & 1 == 1 {
+                    let abs_bit = i * 8 + bit;
+                    if !known_bits.contains(&abs_bit) {
+                        panic!(
+                            "ENVIRONMENT FLAG DRIFT: Bit {} (byte {}, bit {}) changed from {} to {} but is not in the Known whitelist.",
+                            abs_bit, i, bit, (e >> bit) & 1, (a >> bit) & 1
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Verification Rule: A mutated file must be bit-perfectly identical after a roundtrip rebuild.
+/// This ensures serialization symmetry and stability.
+fn assert_rebuild_symmetry(original_bytes: &[u8], huffman: &HuffmanTree, version: u32) -> std::io::Result<()> {
+    let save = Save::from_bytes(original_bytes)?;
+    
+    // Extract items to ensure full rebuild surface
+    let items = d2r_core::item::Item::read_player_items(original_bytes, huffman, version == 105)?;
+    
+    let rebuilt = rebuild_status_and_player_items(
+        original_bytes,
+        None, // attributes
+        None, // skills
+        save.header.quests.as_ref(),
+        save.header.waypoints.as_ref(),
+        save.header.expansion.as_ref(),
+        &items,
+        huffman,
+    )?;
+
+    if rebuilt != original_bytes {
+        // Find first diff for better error message
+        for i in 0..rebuilt.len().min(original_bytes.len()) {
+            if rebuilt[i] != original_bytes[i] {
+                panic!("REBUILD ASYMMETRY: First difference at byte {} (0x{:02X}). Expected 0x{:02X}, got 0x{:02X}", 
+                    i, i, original_bytes[i], rebuilt[i]);
+            }
+        }
+        if rebuilt.len() != original_bytes.len() {
+            panic!("REBUILD ASYMMETRY: Length mismatch. Expected {}, got {}", original_bytes.len(), rebuilt.len());
+        }
+    }
+    
+    Ok(())
+}
+
 #[test]
 fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     let path = repo_path("tests/fixtures/savegames/original/amazon_empty.d2s");
@@ -167,6 +223,80 @@ fn test_alpha_v105_progression_mutation_verification() -> std::io::Result<()> {
     assert_eq!(save_back.header.quests.as_ref().unwrap().raw_bytes[12], 0x01);
     assert_eq!(save_back.header.quests.as_ref().unwrap().raw_bytes[13], 0x10);
     assert_eq!(save_back.header.waypoints.as_ref().unwrap().raw_bytes[10], 0x03);
+
+    Ok(())
+}
+
+#[test]
+fn test_alpha_v105_act2_transition_integrity() -> std::io::Result<()> {
+    let path = repo_path("tests/fixtures/savegames/original/amazon_empty.d2s");
+    let bytes = fs::read(path).expect("fixture should be readable");
+    let huffman = HuffmanTree::new();
+    let save = Save::from_bytes(&bytes)?;
+    let version = save.header.version;
+
+    // 1. Prepare Sections
+    let mut quests_section = save.header.quests.clone().expect("v105 should have quests");
+    let mut wps_section = save.header.waypoints.clone().expect("v105 should have waypoints");
+
+    // 2. Perform Mutation: Complete Act 1, Unlock Act 2 Town
+    
+    // 2a. Quest: Sisters to the Slaughter (Normal)
+    let mut q_set = QuestSet::from_v105_bytes(&quests_section.raw_bytes);
+    {
+        let q = q_set.quests_mut().iter_mut()
+            .find(|q| q.difficulty() == 0 && q.act() == 1 && q.index() == 5)
+            .expect("Should find Sisters to the Slaughter");
+        q.set_completed(true);
+    }
+    q_set.sync_to_v105_bytes(&mut quests_section.raw_bytes);
+
+    // 2b. Waypoint: Act 2 - Town (Normal)
+    let mut wp_set = WaypointSet::from_bytes(&wps_section.raw_bytes, 0);
+    {
+        let wp = wp_set.waypoints_mut().iter_mut()
+            .find(|w| w.name() == "Act 2 - Town")
+            .expect("Should find Act 2 - Town");
+        wp.set_active(true);
+    }
+    wp_set.sync_to_bytes(&mut wps_section.raw_bytes);
+
+    // 3. Rebuild
+    let items = d2r_core::item::Item::read_player_items(&bytes, &huffman, version == 105)?;
+    let mutated_bytes = rebuild_status_and_player_items(
+        &bytes,
+        None, // attributes
+        None, // skills
+        Some(&quests_section),
+        Some(&wps_section),
+        None, // expansion
+        &items,
+        &huffman,
+    )?;
+
+    // 4. Dual-Axis Verification
+    
+    // Axis 1: Semantic Whitelist (No unknown bit drift)
+    // Based on forge scouter analysis and domain model logic:
+    // Quest Q6: 3400, 3403, 3404, 3412 (Seen in code), 3415 (Seen in fixture)
+    // Waypoint A2T: 5697
+    let known_bits = vec![3400, 3403, 3404, 3412, 3415, 5697];
+    
+    // We filter out the checksum bits (64..96) and version/size bits from the comparison
+    // to focus on the 'Semantic Drift' in the progression domain.
+    let mut actual_progression = mutated_bytes.clone();
+    let mut expected_progression = bytes.clone();
+    
+    // Mask metadata (checksum, size) to avoid noise in drift check
+    for i in 8..16 { 
+        actual_progression[i] = 0;
+        expected_progression[i] = 0;
+    }
+
+    assert_no_unknown_drift(&actual_progression, &expected_progression, &known_bits);
+
+    // Axis 2: Rebuild Symmetry (Stability)
+    assert_rebuild_symmetry(&mutated_bytes, &huffman, version)?;
 
     Ok(())
 }

@@ -6,7 +6,6 @@ use crate::domain::stats::{ItemProperty, ItemStats};
 pub struct BitSemantic {
     pub label: String,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct RecordedBit {
     pub bit: bool,
@@ -19,7 +18,7 @@ pub struct ItemBitRange {
     pub end: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct BitSegment {
     pub start: u64,
     pub end: u64,
@@ -27,11 +26,12 @@ pub struct BitSegment {
     pub depth: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CharmBagData {
-    pub size: u8,
-}
+... (rest of the file)
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Item {
+    pub header: ItemHeader,
+...
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CursedItemData {
     pub curse_id: u32,

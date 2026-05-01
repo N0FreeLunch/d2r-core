@@ -517,7 +517,7 @@ impl Item {
 
         // Use axiom to determine final alignment bits
         let current_bits = emitter.written_bits();
-        let final_bits = axiom.calculate_alignment(current_bits as u64, self.is_compact);
+        let final_bits = axiom.calculate_alignment(current_bits as u64, self.is_compact, &self.code);
         if final_bits > current_bits as u64 {
             let padding_needed = (final_bits - current_bits as u64) as u32;
             if !self.body.alpha_alignment_padding.is_empty() {

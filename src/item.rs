@@ -135,7 +135,7 @@ impl Item {
                 Ok((item, consumed_bits)) => {
                     // Use axiom to determine final alignment
                     let axiom = StatsAxiom::new(item.version, item.quality.unwrap_or(ItemQuality::Normal), alpha_mode);
-                    let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact);
+                    let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact, &item.code);
 
                     let end = start + final_consumed;
                     let mut final_item = item;
@@ -426,7 +426,7 @@ impl Item {
 
 
         let consumed_bits = cursor.pos() - start_bit;
-        let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact);
+        let final_consumed = axiom.calculate_alignment(consumed_bits, is_compact, &item.code);
         if final_consumed > consumed_bits {
             let padding_count = (final_consumed - consumed_bits) as u32;
             let padding = cursor.with_context("AlphaAlignmentPadding", |c| {
@@ -573,8 +573,9 @@ impl Item {
         let (reads_defense, reads_durability, reads_quantity) = if let Some(template) = template {
             (template.is_armor, template.has_durability, template.is_stackable)
         } else {
+            let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
             let armor_like_unknown = has_class_specific_data || trimmed_code.contains(' ');
-            (armor_like_unknown, armor_like_unknown, false)
+            (armor_like_unknown, armor_like_unknown, is_scroll)
         };
 
         let (mut defense, mut max_durability, mut current_durability, mut quantity, mut sockets) = (None, None, None, None, None);
@@ -623,7 +624,10 @@ fn read_item_stats<R: BitRead>(
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
-    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword {
+    let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
+    let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || trimmed_code.starts_with('r');
+    
+    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword && is_potion {
          crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
          return Ok((Vec::new(), true, false));
     }
@@ -640,10 +644,8 @@ fn read_item_stats<R: BitRead>(
     }
 
     read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow_final, &axiom, |_, _, _, _, _| {
-        let r = IoBitReader::endian(Cursor::new(&[]), LittleEndian);
-        let mut c = BitCursor::new(r);
-        let d = Item::from_reader_with_context(&mut c, huffman, None, alpha_mode)?;
-        Ok((d, 0))
+        // Return a dummy item or minimal info to avoid recursion
+        Ok((Item::default(), 0))
     })
 }
 

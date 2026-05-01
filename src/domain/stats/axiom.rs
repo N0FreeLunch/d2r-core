@@ -169,9 +169,9 @@ impl StatsAxiom {
 
 
     /// Determines the final bit alignment for an item based on consumed bits and version.
-    pub fn calculate_alignment(&self, consumed_bits: u64, is_compact: bool) -> u64 {
+    pub fn calculate_alignment(&self, consumed_bits: u64, is_compact: bool, code: &str) -> u64 {
         let mut final_len = consumed_bits;
-        
+
         // All versions except version 5 (Retail and some Alpha variants) 
         // add a single terminal bit (usually false/0) before alignment.
         if self.version != 5 {
@@ -179,22 +179,33 @@ impl StatsAxiom {
         }
 
         if self.save_is_alpha {
-            // Alpha v105 forensic: Non-extended items are aligned to 80 bits.
-            if is_compact && final_len < 80 {
-                final_len = 80;
+            if is_compact {
+                // Alpha v105 forensic: Compact items have variable minimum lengths (multiples of 8 bits).
+                let trimmed = code.trim();
+                let min_bits = if trimmed == "tsc" || trimmed == "isc" {
+                    72 // 9 bytes for scrolls
+                } else if trimmed.starts_with('r') && trimmed.len() <= 3 {
+                    88 // 11 bytes for runes (heuristic)
+                } else {
+                    80 // 10 bytes for potions/others
+                };
+
+                if final_len < min_bits {
+                    final_len = min_bits;
+                }
             }
-            // All Alpha items are byte-aligned after the 80-bit or natural boundary.
+
+            // All Alpha items are byte-aligned.
             if final_len % 8 != 0 {
                 final_len += 8 - (final_len % 8);
             }
         } else if final_len % 8 != 0 {
-            // Retail: Just byte alignment
+            // Retail: Only byte align at the end of the item section
             final_len += 8 - (final_len % 8);
         }
-        final_len
-    }
 
-    pub fn reads_defense(&self) -> bool {
+        final_len
+    }    pub fn reads_defense(&self) -> bool {
 
         !self.is_alpha()
     }

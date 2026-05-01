@@ -237,7 +237,6 @@ impl Item {
         cursor.begin_segment(ItemSegmentType::Header);
 
         let flags = cursor.read_bits::<u32>(32)?;
-        crate::item_trace!("[DEBUG] Header: bits={}, flags=0x{:08X}", cursor.pos() - start_bit, flags);
         if !alpha_mode && (flags & 0xFFFF) != 0x4D4A {
              return Err(cursor.fail(ParsingError::MissingMarker { marker: "JM".to_string(), bit_offset: start_bit }));
         }
@@ -246,10 +245,8 @@ impl Item {
         let mode = cursor.read_bits::<u8>(3)? as u8;
         let location = cursor.read_bits::<u8>(3)? as u8;
         let x = cursor.read_bits::<u8>(4)? as u8;
-        crate::item_trace!("[DEBUG] Header: v={}, mode={}, loc={}, x={}", version, mode, location, x);
         
         let is_compact = (flags & (1 << 21)) != 0;
-        crate::item_trace!("[DEBUG] Header: is_compact={}", is_compact);
         let mut y = 0;
         let mut page = 0;
         let mut header_socket_hint = 0;
@@ -631,7 +628,6 @@ fn read_item_stats<R: BitRead>(
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
-    let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
     let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || trimmed_code.starts_with('r');
     
     if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword && is_potion {

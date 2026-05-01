@@ -136,6 +136,10 @@ impl Item {
                     // Use axiom to determine final alignment
                     let axiom = StatsAxiom::new(item.version, item.quality.unwrap_or(ItemQuality::Normal), alpha_mode);
                     let final_consumed = axiom.calculate_alignment(consumed_bits, item.is_compact, &item.code);
+                    
+                    if alpha_mode {
+                        println!("[DEBUG] read_section: Item {} ({}) consumed_bits={}, aligned={}", items.len(), item.code.trim(), consumed_bits, final_consumed);
+                    }
 
                     let end = start + final_consumed;
                     let mut final_item = item;
@@ -631,9 +635,11 @@ fn read_item_stats<R: BitRead>(
     crate::item_trace!("[DEBUG] read_item_stats for '{}', version={}, is_runeword={}, quality={:?}, is_alpha={}", trimmed_code, version, is_runeword, quality, is_alpha);
 
     let is_v105_shadow_final = alpha_mode && version == 5 && is_v105_shadow;
-    let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || trimmed_code.starts_with('r');
+    let is_scroll = trimmed_code == "tsc" || trimmed_code == "isc";
+    let is_potion = trimmed_code.starts_with('h') || trimmed_code.starts_with('m') || (trimmed_code.starts_with('r') && trimmed_code.len() <= 3);
     
-    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword && is_potion {
+    if is_alpha && version == 5 && !is_v105_shadow_final && !is_runeword && 
+       (is_potion || is_scroll || quality_val < ItemQuality::Magic) {
          crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
          return Ok((Vec::new(), true, false));
     }

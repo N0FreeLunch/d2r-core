@@ -217,6 +217,10 @@ impl StatsAxiom {
             final_len += 8 - (final_len % 8);
         }
 
+        if self.save_is_alpha && crate::item::item_trace_enabled() {
+            println!("[DEBUG] calculate_alignment: code='{}', consumed={}, final={}", code.trim(), consumed_bits, final_len);
+        }
+
         final_len
     }    pub fn reads_defense(&self) -> bool {
 

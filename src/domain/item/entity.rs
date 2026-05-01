@@ -52,6 +52,10 @@ pub struct ItemBody {
     pub max_durability: Option<u32>,
     pub current_durability: Option<u32>,
     pub quantity: Option<u32>,
+    // Alpha Forensic Fields
+    pub alpha_header_gap: Option<u8>,
+    pub v5_runeword_extra: Option<u8>,
+    pub alpha_alignment_padding: Vec<bool>,
 }
 
 
@@ -321,6 +325,9 @@ impl Item {
             max_durability: self.max_durability,
             current_durability: self.current_durability,
             quantity: self.quantity,
+            alpha_header_gap: None,
+            v5_runeword_extra: None,
+            alpha_alignment_padding: Vec::new(),
         }
     }
 

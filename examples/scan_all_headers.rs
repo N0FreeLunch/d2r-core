@@ -14,16 +14,12 @@ fn main() {
     let limit = (section_bytes.len() * 8) as u64;
     
     println!("Scanning for item headers in section 0...");
-    let mut last_found = 0;
     for bit_offset in 0..limit {
         if let Some((mode, location, x, code, flags, version, is_compact, header_bits, nudge)) = 
             d2r_core::item::peek_item_header_at(section_bytes, bit_offset, &huffman, true) {
-            if is_plausible_item_header(mode, location, &code, flags, version, true) {
-                if bit_offset >= last_found + 72 { // Avoid overlapping headers
-                    println!("Found plausible header at bit {}: code='{}', compact={}, mode={}, loc={}", 
-                        bit_offset, code, is_compact, mode, location);
-                    last_found = bit_offset;
-                }
+            if d2r_core::item::is_plausible_item_header(mode, location, &code, flags, version, true) {
+                println!("Found plausible header at bit {}: code='{}', compact={}, mode={}, loc={}, version={}", 
+                    bit_offset, code, is_compact, mode, location, version);
             }
         }
     }

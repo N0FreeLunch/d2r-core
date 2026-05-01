@@ -122,7 +122,7 @@ fn compare_item_with_reserialized(item: &Item, huffman: &HuffmanTree, alpha_mode
             item_diff.first_mismatch_offset = Some(idx as u64);
             item_diff.segment = Some(
                 item
-                    .query_bit(item.bits[idx].offset)
+                    .query_bit(idx as u64)
                     .map(|s| s.label)
                     .unwrap_or_else(|| "Unknown".to_string()),
             );
@@ -171,7 +171,7 @@ fn compare_two_items(item_a: &Item, item_b: &Item, label: String) -> ItemDiff {
             item_diff.first_mismatch_offset = Some(idx as u64);
             item_diff.segment = Some(
                 item_a
-                    .query_bit(item_a.bits[idx].offset)
+                    .query_bit(idx as u64)
                     .map(|s| s.label)
                     .unwrap_or_else(|| "Unknown".to_string()),
             );

@@ -251,6 +251,7 @@ impl Item {
         let axiom = StatsAxiom::new(version, ItemQuality::Normal, alpha_mode); 
         let geometry = axiom.header_geometry(flags, is_compact);
 
+        let mut alpha_header_gap = None;
         if geometry.has_header_gap {
             if version == 5 {
                 let is_v105_shadow = (flags & (1 << 26)) != 0;
@@ -258,6 +259,7 @@ impl Item {
                 
                 if is_rw || is_v105_shadow {
                     let gap = cursor.read_bits::<u8>(8)? as u8;
+                    alpha_header_gap = Some(gap);
                     if !is_compact {
                         y = (gap & 0x0F) as u8;
                         page = ((gap >> 4) & 0x07) as u8;
@@ -269,14 +271,14 @@ impl Item {
                         page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
                         header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
                     }
-                    cursor.read_bits::<u8>(8)?; // Alpha v105 Version 5 Header Gap
+                    alpha_header_gap = Some(cursor.read_bits::<u8>(8)? as u8);
                 }
             } else {
                 // Version 1
                 y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
                 page = cursor.read_bits::<u8>(geometry.page_bits)? as u8;
                 header_socket_hint = cursor.read_bits::<u8>(geometry.socket_hint_bits)? as u8;
-                cursor.read_bits::<u8>(8)?; // Alpha v105 Version 1 Header Gap
+                alpha_header_gap = Some(cursor.read_bits::<u8>(8)? as u8);
             }
         } else if !geometry.skip_geometry {
             y = cursor.read_bits::<u8>(geometry.y_bits)? as u8;
@@ -305,13 +307,13 @@ impl Item {
 
         let is_frag = alpha_mode && (version == 5 || version == 1) && ((flags & (1 << 26)) != 0 || (flags & (1 << 27)) != 0);
 
-        let stats = if !is_compact {
+        let stats = if !is_compact || (alpha_mode && version == 5) {
             let socket_flag = axiom.is_socketed(flags, is_compact);
             let runeword_flag = axiom.is_runeword(flags);
-                
+
             Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag, &axiom)?
         } else {
-            (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0)
+            (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0, None)
         };
 
         let end_bit = cursor.pos();
@@ -346,6 +348,9 @@ impl Item {
                 max_durability: stats.20,
                 current_durability: stats.21,
                 quantity: stats.22,
+                alpha_header_gap: stats.24.try_into().ok(),
+                v5_runeword_extra: stats.25,
+                alpha_alignment_padding: Vec::new(),
             },
             stats: ItemStats {
                 properties: Vec::new(),
@@ -448,11 +453,13 @@ impl Item {
         Option<u16>, Option<u16>, Option<u8>,
         Option<String>, Option<u8>, bool,
         Option<u32>, Option<u32>, Option<u32>, Option<u32>,
-        Option<u8>, u8,
+        Option<u8>, u8, Option<u8>,
     )> {
         cursor.begin_segment(ItemSegmentType::ExtendedStats);
         let trimmed_code = code.trim();
         let is_alpha_early_exit = alpha_mode && (version == 1 || version == 4);
+
+        let mut v5_runeword_extra = None;
 
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if axiom.is_alpha() {
             if !is_compact {
@@ -462,7 +469,7 @@ impl Item {
                 if version == 5 && (is_runeword || is_fragment) {
                     // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
                     // Found only in runeword/shadow items.
-                    let _v5_extra = cursor.with_context("AlphaV5RunewordExtra", |c| c.read_bits::<u8>(2))?;
+                    v5_runeword_extra = Some(cursor.with_context("AlphaV5RunewordExtra", |c| c.read_bits::<u8>(2))?);
                     (Some(0u32), None, Some(quality), false, false, false)
                 } else if version == 5 {
                     // Alpha v105 Version 5 Summary items early exit after quality.
@@ -473,7 +480,7 @@ impl Item {
                         None, None, None, None, None, [None; 6],
                         None, None, None,
                         None, None, false,
-                        None, None, None, None, None, 0
+                        None, None, None, None, None, 0, None
                     ));
                 } else {
                     (Some(0u32), None, Some(quality), false, false, false)
@@ -496,7 +503,7 @@ impl Item {
                 false, None, false, None,
                 None, None, None, None, None, [None; 6],
                 None, None, None, None, None, timestamp_flag,
-                None, None, None, None, None, 0
+                None, None, None, None, None, 0, None
             ));
         }
 
@@ -568,7 +575,7 @@ impl Item {
             rare_name_1, rare_name_2, rare_affixes,
             unique_id, runeword_id, runeword_level,
             personalized_player_name, tbk_ibk_teleport,
-            timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0
+            timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0, v5_runeword_extra
         ))
     }
 }

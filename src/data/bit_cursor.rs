@@ -95,9 +95,12 @@ impl<R: BitRead> BitCursor<R> {
     /// Reads multiple bits from the stream as a numeric type.
     pub fn read_bits<T: Numeric + From<u8> + std::ops::BitOrAssign + std::ops::Shl<u32, Output = T>>(&mut self, count: u32) -> ParsingResult<T> {
         let mut value = T::from(0u8);
+        let max_bits = (std::mem::size_of::<T>() * 8) as u32;
         for i in 0..count {
             if self.read_bit()? {
-                value |= T::from(1u8) << i;
+                if i < max_bits {
+                    value |= T::from(1u8) << i;
+                }
             }
         }
         Ok(value)

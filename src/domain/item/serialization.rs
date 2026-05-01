@@ -29,21 +29,18 @@ pub fn is_plausible_item_header(
     mode: u8,
     location: u8,
     code: &str,
-    flags: u32,
-    version: u8,
+    _flags: u32,
+    _version: u8,
     alpha_mode: bool,
 ) -> bool {
-    crate::item_trace!("[DEBUG] plausible check: code='{}', mode={}, loc={}, flags=0x{:08X}, v={}, alpha={}", code, mode, location, flags, version, alpha_mode);
     if code.len() < 3 { return false; }
     if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
     if alpha_mode {
         // Alpha v105 codes are usually 4 chars (e.g. '7pww', 'hp1 ', '1pww').
         if code.len() != 4 { return false; }
-        if !code.chars().all(|c| c.is_alphanumeric() || c == ' ') { return false; }
         if code.trim().is_empty() { return false; }
         
         if mode > 6 || location > 15 { return false; }
-        // The top 5 bits of flags are used in Alpha (e.g. 0x6B... for Authority).
     } else if mode > 6 || location > 15 { return false; }
     true
 }

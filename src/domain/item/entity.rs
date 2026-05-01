@@ -135,6 +135,7 @@ pub struct Item {
     pub total_bits: u64,
     pub gap_bits: Vec<bool>,
     pub segments: Vec<BitSegment>,
+    pub expected_start_bit: u64,
 }
 
 impl Item {

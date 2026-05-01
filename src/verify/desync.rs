@@ -8,7 +8,8 @@ pub struct DesyncReport {
     pub oracle_start: u64,
     pub parser_start: u64,
     pub drift: i64,
-    pub item_code: String,
+    pub oracle_code: String,
+    pub parser_code: String,
     pub is_match: bool,
 }
 
@@ -29,21 +30,11 @@ pub fn detect_desync(bytes: &[u8], huffman: &HuffmanTree, is_alpha: bool) -> Par
     let section_payload = &bytes[jm_pos + 4..];
     let section_base_bit = ((jm_pos + 4) * 8) as u64;
 
-    // 2. Standard Parsing (Try to get as many as possible even on failure)
+    // 2. Standard Parsing
     let parsed_items = match Item::read_section(section_payload, count, huffman, is_alpha) {
         Ok(items) => items,
-        Err(_) => {
-            // If it failed, we can't easily get the partial items from read_section without refactoring it.
-            // For now, let's assume we want to catch drift in successfully parsed (but potentially wrong) item lists.
-            // Or we could implement a more granular loop here.
-            Vec::new() 
-        }
+        Err(_) => Vec::new() 
     };
-    
-    if parsed_items.is_empty() && count > 0 {
-         // Try a more granular parse to catch at least the first few items
-         // (Implementation detail: if read_section failed, we might need a custom loop here)
-    }
 
     // 3. Oracle Search
     let mut oracle_starts = Vec::new();
@@ -81,10 +72,29 @@ pub fn detect_desync(bytes: &[u8], huffman: &HuffmanTree, is_alpha: bool) -> Par
             oracle_start,
             parser_start,
             drift,
-            item_code: oracle_starts[i].1.clone(),
+            oracle_code: oracle_starts[i].1.clone(),
+            parser_code: parsed_items[i].code.trim().to_string(),
             is_match: drift == 0,
         });
     }
 
     Ok(reports)
+}
+
+pub fn dump_bits_at(bytes: &[u8], start_bit: u64, count: u32) -> String {
+    let mut result = String::new();
+    let mut reader = bitstream_io::BitReader::endian(std::io::Cursor::new(bytes), bitstream_io::LittleEndian);
+    if reader.skip(start_bit as u32).is_err() {
+        return "ERROR: Offset out of bounds".to_string();
+    }
+
+    for i in 0..count {
+        if i > 0 && i % 8 == 0 { result.push(' '); }
+        match reader.read_bit() {
+            Ok(true) => result.push('1'),
+            Ok(false) => result.push('0'),
+            Err(_) => break,
+        }
+    }
+    result
 }

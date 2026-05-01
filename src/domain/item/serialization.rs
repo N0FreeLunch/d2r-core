@@ -86,13 +86,11 @@ pub fn peek_item_header_at(
         header_len += geometry.y_bits + geometry.page_bits + geometry.socket_hint_bits;
     }
 
-    if alpha_mode && crate::item::item_trace_enabled() {
-        println!("[DEBUG] peek v{}: flags=0x{:08X}, compact={}, len={}", version, flags, is_compact, header_len);
-    }
-
     let mut code = String::new();
     let mut n_reader = bitstream_io::BitReader::endian(Cursor::new(section_bytes), LittleEndian);
-    if n_reader.skip(start_bit as u32 + header_len as u32).is_err() { return None; }
+    if n_reader.skip(start_bit as u32 + header_len as u32).is_err() { 
+        return None; 
+    }
     let mut n_cursor = BitCursor::new(n_reader);
     
     for _ in 0..4 {

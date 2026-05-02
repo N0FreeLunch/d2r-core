@@ -54,6 +54,7 @@ pub struct ItemBody {
     // Alpha Forensic Fields
     pub alpha_header_gap: Option<u8>,
     pub v5_runeword_extra: Option<u8>,
+    pub v105_7mgw_payload: Option<Vec<bool>>,
     pub alpha_alignment_padding: Vec<bool>,
 }
 
@@ -227,6 +228,8 @@ impl Item {
             is_runeword: self.is_runeword,
             is_ethereal: self.is_ethereal,
             is_ear: self.is_ear,
+            alpha_quality_raw: self.header.alpha_quality_raw,
+            alpha_v5_runeword_extra: self.header.alpha_v5_runeword_extra,
         }
     }
 
@@ -242,9 +245,10 @@ impl Item {
             max_durability: self.max_durability,
             current_durability: self.current_durability,
             quantity: self.quantity,
-            alpha_header_gap: None,
-            v5_runeword_extra: None,
-            alpha_alignment_padding: Vec::new(),
+            alpha_header_gap: self.body.alpha_header_gap,
+            v5_runeword_extra: self.body.v5_runeword_extra,
+            v105_7mgw_payload: self.body.v105_7mgw_payload.clone(),
+            alpha_alignment_padding: self.body.alpha_alignment_padding.clone(),
         }
     }
 

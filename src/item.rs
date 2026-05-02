@@ -322,29 +322,10 @@ impl Item {
                 
             Self::read_extended_stats(cursor, &code, is_compact, socket_flag, runeword_flag, (flags & (1 << 25)) != 0, version, alpha_mode, is_frag, &axiom)?
         } else {
-            (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0, None)
+            (None, None, None, false, None, false, None, None, None, None, None, None, [None; 6], None, None, None, None, None, false, None, None, None, None, None, 0, None, None)
         };
 
         let mut item = Item {
-            header: ItemHeader {
-                flags,
-                version,
-                mode,
-                location,
-                x,
-                y,
-                page,
-                socket_hint: header_socket_hint,
-                id: stats.0,
-                quality: stats.2,
-                is_compact,
-                is_identified: (flags & (1 << 4)) != 0,
-                is_socketed: axiom.is_socketed(flags, is_compact),
-                is_personalized: (flags & (1 << 25)) != 0,
-                is_runeword: axiom.is_runeword(flags),
-                is_ethereal: (flags & (1 << 22)) != 0,
-                is_ear,
-            },
             body: ItemBody {
                 code: code.clone(),
                 x,
@@ -356,8 +337,9 @@ impl Item {
                 max_durability: stats.20,
                 current_durability: stats.21,
                 quantity: stats.22,
-                alpha_header_gap,
                 v5_runeword_extra: stats.25,
+                v105_7mgw_payload: None,
+                alpha_header_gap,
                 alpha_alignment_padding: Vec::new(),
             },
             stats: ItemStats {
@@ -410,6 +392,27 @@ impl Item {
             timestamp_flag: stats.18,
             properties_complete: false,
             terminator_bit: false,
+            header: ItemHeader {
+                flags,
+                version,
+                mode,
+                location,
+                x,
+                y,
+                page,
+                socket_hint: header_socket_hint,
+                id: stats.0,
+                quality: stats.2,
+                is_compact,
+                is_identified: (flags & (1 << 4)) != 0,
+                is_socketed: axiom.is_socketed(flags, is_compact),
+                is_personalized: (flags & (1 << 25)) != 0,
+                is_runeword: axiom.is_runeword(flags),
+                is_ethereal: (flags & (1 << 22)) != 0,
+                is_ear,
+                alpha_quality_raw: stats.26,
+                alpha_v5_runeword_extra: stats.25,
+            },
             set_list_count: stats.24,
             tbk_ibk_teleport: stats.17,
             defense: stats.19,
@@ -427,11 +430,18 @@ impl Item {
 
         if !is_compact {
             let is_v105_shadow = alpha_mode && item.version == 5 && (item.flags & (1 << 26)) != 0;
-            let (props, complete, term) = read_item_stats(cursor, &item.code, item.version, ctx, huff, alpha_mode, item.quality, item.is_runeword, is_v105_shadow)?;
+            let (props, complete, term, extra_bits, reserved_7mgw) = read_item_stats(cursor, &item.code, item.version, ctx, huff, alpha_mode, item.quality, item.is_runeword, is_v105_shadow)?;
             item.properties = props.clone();
             item.stats.properties = props;
             item.properties_complete = complete;
             item.terminator_bit = term;
+            if let Some(extra) = extra_bits {
+                item.header.alpha_v5_runeword_extra = Some(extra);
+                item.body.v5_runeword_extra = Some(extra);
+            }
+            if let Some(res) = reserved_7mgw {
+                item.body.v105_7mgw_payload = Some(res);
+            }
         }
 
 
@@ -486,19 +496,21 @@ impl Item {
         Option<u16>, Option<u16>, Option<u8>,
         Option<String>, Option<u8>, bool,
         Option<u32>, Option<u32>, Option<u32>, Option<u32>,
-        Option<u8>, u8, Option<u8>,
+        Option<u8>, u8, Option<u8>, Option<u8>,
     )> {
         cursor.begin_segment(ItemSegmentType::ExtendedStats);
         let trimmed_code = code.trim();
         let is_alpha_early_exit = alpha_mode && (version == 1 || version == 4);
 
         let mut v5_runeword_extra = None;
+        let mut alpha_quality_raw = None;
 
         let (item_id, item_level, item_quality, has_multiple_graphics, has_class_specific_data, timestamp_flag) = if axiom.is_alpha() {
             if !is_compact {
                 // Alpha v105: ID and Level are omitted, but Quality (3 bits) might be present.
                 let quality_raw = cursor.read_bits::<u8>(3)?;
                 let quality = ItemQuality::from(quality_raw);
+                alpha_quality_raw = Some(quality_raw);
                 if version == 5 && (is_runeword || is_fragment) {
                     // Alpha v105 Version 5 forensic: 2 extra bits before timestamp/sockets
                     // Found only in runeword/shadow items.
@@ -513,7 +525,7 @@ impl Item {
                         None, None, None, None, None, [None; 6],
                         None, None, None,
                         None, None, false,
-                        None, None, None, None, None, 0, None
+                        None, None, None, None, None, 0, None, alpha_quality_raw
                     ));
                 } else {
                     (Some(0u32), None, Some(quality), false, false, false)
@@ -536,7 +548,7 @@ impl Item {
                 false, None, false, None,
                 None, None, None, None, None, [None; 6],
                 None, None, None, None, None, timestamp_flag,
-                None, None, None, None, None, 0, None
+                None, None, None, None, None, 0, None, alpha_quality_raw
             ));
         }
 
@@ -609,7 +621,7 @@ impl Item {
             rare_name_1, rare_name_2, rare_affixes,
             unique_id, runeword_id, runeword_level,
             personalized_player_name, tbk_ibk_teleport,
-            timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0, v5_runeword_extra
+            timestamp_flag, defense, max_durability, current_durability, quantity, sockets, 0, v5_runeword_extra, alpha_quality_raw
         ))
     }
 }
@@ -624,7 +636,8 @@ fn read_item_stats<R: BitRead>(
     quality: Option<ItemQuality>,
     is_runeword: bool,
     is_v105_shadow: bool,
-) -> ParsingResult<(Vec<ItemProperty>, bool, bool)> {
+) -> ParsingResult<(Vec<ItemProperty>, bool, bool, Option<u8>, Option<Vec<bool>>)> {
+    let mut alpha_v5_runeword_extra = None;
     cursor.begin_segment(ItemSegmentType::Stats);
     let trimmed_code = code.trim();
     let quality_val = quality.unwrap_or(ItemQuality::Normal);
@@ -639,41 +652,16 @@ fn read_item_stats<R: BitRead>(
     
     if is_alpha && version == 5 && !is_v105_shadow_final && 
        (is_potion || is_scroll || quality_val < ItemQuality::Magic) {
-         if trimmed_code == "7mgw" {
-             // Alpha v105 forensic: 7mgw contains a special 28-bit payload after quality.
-             // First 4 bits are reserved/padding, followed by a 24-bit stat residue (12+12).
-             // Anchor: Item consumes 84 bits before this, total 112 bits.
-             // Residue bits 0x08 0x00 0x41 are at the end.
-             
-             // Skip 4 bits of reserved payload
-             let _reserved = cursor.read_bits::<u8>(4)?;
-             
-             let id_bits = 12;
-             let val_bits = 12;
-             let mut props = Vec::new();
-             
-             let entry_start = cursor.pos();
-             let stat_id = cursor.read_bits::<u32>(id_bits)?;
-             let raw_value = cursor.read_bits::<u32>(val_bits)?;
-             let entry_end = cursor.pos();
-             
-             if crate::item::item_trace_enabled() {
-                 println!("[DEBUG] 7mgw stats: id={}, val={}, bits={}", stat_id, raw_value, entry_end - entry_start);
-             }
-
-             props.push(ItemProperty {
-                 stat_id,
-                 raw_value: raw_value as i32,
-                 param: 0,
-                 name: axiom.lookup_alpha_map_by_raw(stat_id).map(|m| m.name.to_string()).unwrap_or_default(),
-                 value: raw_value as i32,
-                 range: ItemBitRange { start: entry_start, end: entry_end },
-             });
-             
-             return Ok((props, true, false));
-         }
-         crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}' (is_rw={})", trimmed_code, is_runeword);
-         return Ok((Vec::new(), true, false));
+          if trimmed_code == "7mgw" {
+              // Alpha v105 forensic: 7mgw contains a special 28-bit payload.
+              let mut payload = Vec::new();
+              for _ in 0..28 {
+                  payload.push(cursor.read_bit()?);
+              }
+              return Ok((Vec::new(), true, false, None, Some(payload)));
+          }
+          crate::item_trace!("[DEBUG] Skipping properties for Alpha v105 Summary Item '{}'", trimmed_code);
+          return Ok((Vec::new(), true, false, None, None));
     }
 
     let section_recovery = if let Some((bytes, start)) = ctx {
@@ -687,10 +675,21 @@ fn read_item_stats<R: BitRead>(
         let _ = cursor.with_context("AlphaShadowSkip", |c| c.read_bits::<u64>(47))?;
     }
 
-    read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow_final, &axiom, |_, _, _, _, _| {
+    let (props, complete, term) = read_property_list(cursor, trimmed_code, version, section_recovery, huffman, is_runeword, is_v105_shadow_final, &axiom, |_, _, _, _, _| {
         // Return a dummy item or minimal info to avoid recursion
         Ok((Item::default(), 0))
-    })
+    })?;
+    
+    if alpha_mode && version == 5 && is_runeword {
+        cursor.begin_segment(ItemSegmentType::ExtendedStats);
+        cursor.push_context("AlphaV5RunewordExtra");
+        let extra = cursor.read_bits::<u8>(2)?;
+        alpha_v5_runeword_extra = Some(extra);
+        cursor.pop_context();
+        cursor.end_segment();
+    }
+    
+    Ok((props, complete, term, alpha_v5_runeword_extra, None))
 }
 
 fn read_player_name<R: BitRead>(cursor: &mut BitCursor<R>) -> ParsingResult<String> {
